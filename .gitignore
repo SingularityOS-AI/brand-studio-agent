@@ -1,0 +1,55 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_credentials*.json
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+.next/
+out/
+
+# Media work files
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.psd
+*.pptx
+renders/
+!docs/**/*.png
+
+# OS and IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# Internal strategy — this repo ships code only.
+# Specs, competitive analysis and hackathon planning live outside it.
+.claude/
+specs/
+*_RESPUESTAS.json
+spec_respuestas.json
+SUBMISSION.json
+PITCH_SOURCE.md

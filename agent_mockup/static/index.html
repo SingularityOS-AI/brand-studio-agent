@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brand Studio Agent — Voice Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              cyan: '#00f2fe',
+              blue: '#4facfe',
+              gold: '#fbbf24',
+              purple: '#a855f7',
+              dark: '#07090e',
+              card: '#0d1117',
+              border: '#1f293d',
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.3; transform: scale(0.98); }
+      50% { opacity: 0.8; transform: scale(1.02); }
+    }
+    .animate-pulse-glow { animation: pulseGlow 3s infinite ease-in-out; }
+    .glass-card {
+      background: rgba(13, 17, 23, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(31, 41, 61, 0.8);
+    }
+    .glass-card:hover {
+      border-color: rgba(0, 242, 254, 0.4);
+    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #07090e; }
+    ::-webkit-scrollbar-thumb { background: #1f293d; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #00f2fe; }
+  </style>
+</head>
+<body class="bg-brand-dark text-slate-100 min-h-screen font-sans flex flex-col antialiased selection:bg-brand-cyan selection:text-black">
+
+  <!-- Top Header Navigation -->
+  <header class="border-b border-brand-border/60 bg-brand-card/80 backdrop-blur px-6 py-3.5 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-blue to-brand-cyan flex items-center justify-center font-bold text-black text-sm shadow-[0_0_15px_rgba(0,242,254,0.4)]">
+        VS
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-sm font-bold tracking-wide text-white uppercase font-mono">Brand Studio Agent</h1>
+          <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30">MOCKUP V1</span>
+        </div>
+        <p class="text-xs text-slate-400">AssemblyAI Voice Agent API • WebAudio 24kHz • Hardware AEC</p>
+      </div>
+    </div>
+
+    <!-- Status Badge -->
+    <div class="flex items-center space-x-4">
+      <div id="connectionStatusBadge" class="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono bg-slate-800/80 border border-slate-700 text-slate-400">
+        <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+        <span id="statusText">DESCONECTADO</span>
+      </div>
+      <a href="https://github.com/SingularityOS-AI/Viral-Studio-Agent" target="_blank" class="text-xs text-slate-400 hover:text-brand-cyan flex items-center space-x-1 transition font-mono">
+        <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Column: Controls & Configuration (4 cols) -->
+    <div class="lg:col-span-4 space-y-4">
+
+      <!-- Main Action Card -->
+      <div class="glass-card rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+        <div class="absolute -top-12 -right-12 w-32 h-32 bg-brand-cyan/10 rounded-full blur-2xl pointer-events-none"></div>
+
+        <h2 class="text-xs font-mono font-bold tracking-wider text-slate-400 uppercase mb-3 flex items-center justify-between">
+          <span>Control de Voz</span>
+          <span class="text-[10px] text-brand-cyan font-mono">Full-Duplex</span>
+        </h2>
+
+        <!-- Connect / Disconnect Big Button -->
+        <button id="toggleSessionBtn" onclick="toggleSession()" class="w-full py-4 px-6 rounded-xl font-bold text-sm flex items-center justify-center space-x-3 transition-all duration-300 shadow-lg bg-gradient-to-r from-brand-blue to-brand-cyan hover:from-cyan-400 hover:to-brand-blue text-black font-mono">
+          <svg id="btnMicIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+          <span id="btnLabel">INICIAR SESIÓN DE VOZ</span>
+        </button>
+
+        <!-- Audio Waveform Visualizer -->
+        <div class="mt-4 p-3 rounded-xl bg-black/50 border border-brand-border/60">
+          <div class="flex justify-between items-center text-[10px] font-mono text-slate-400 mb-1.5">
+            <span>OSCILOSCOPIO ACÚSTICO</span>
+            <span id="audioActivityTag" class="text-slate-500">Inactivo</span>
+          </div>
+          <canvas id="waveformCanvas" width="320" height="64" class="w-full h-16 rounded bg-brand-dark/80"></canvas>
+        </div>
+
+        <!-- Telemetry Indicators -->
+        <div class="grid grid-cols-2 gap-2 mt-4 text-xs font-mono">
+          <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+            <span class="text-[10px] text-slate-500 block">AUDIO SAMPLE RATE</span>
+            <span class="text-brand-cyan font-bold">24,000 Hz</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+            <span class="text-[10px] text-slate-500 block">CANCELACIÓN DE ECO</span>
+            <span class="text-emerald-400 font-bold">Hardware AEC ✅</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Tuning & Voice Selection -->
+      <div class="glass-card rounded-2xl p-5 space-y-4">
+        <h2 class="text-xs font-mono font-bold tracking-wider text-slate-400 uppercase">
+          Configuración del Agente
+        </h2>
+
+        <!-- Voice Selector -->
+        <div>
+          <label class="block text-xs font-mono text-slate-400 mb-1.5">Voz Oficial de AssemblyAI</label>
+          <select id="voiceSelect" onchange="updateGreetingByVoice()" class="w-full bg-slate-900 border border-brand-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-brand-cyan transition">
+            <optgroup label="Español (Nativo)">
+              <option value="lola" selected>Lola (Español Nativo)</option>
+            </optgroup>
+            <optgroup label="English (US)">
+              <option value="alba">Alba (US Female)</option>
+              <option value="eve">Eve (US Female)</option>
+              <option value="george">George (US Male)</option>
+              <option value="michael">Michael (US Male)</option>
+            </optgroup>
+            <optgroup label="English (UK)">
+              <option value="anna">Anna (UK Female — Default)</option>
+              <option value="charles">Charles (UK Male)</option>
+              <option value="paul">Paul (UK Male)</option>
+            </optgroup>
+            <optgroup label="Otros Idiomas">
+              <option value="giovanni">Giovanni (Italiano)</option>
+              <option value="juergen">Juergen (Alemán)</option>
+              <option value="rafael">Rafael (Portugués)</option>
+              <option value="estelle">Estelle (Francés)</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- Greeting Input -->
+        <div>
+          <label class="block text-xs font-mono text-slate-400 mb-1.5">Saludo Inicial (Greeting)</label>
+          <input id="greetingInput" type="text" value="Hey. Tell me the idea you want to record, or drop a raw clip. I will tell you whether it is worth your evening." class="w-full bg-slate-900 border border-brand-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-brand-cyan transition">
+        </div>
+
+        <!-- System Prompt Area -->
+        <div>
+          <label class="block text-xs font-mono text-slate-400 mb-1.5">System Prompt</label>
+          <textarea id="systemPromptInput" rows="4" class="w-full bg-slate-900 border border-brand-border rounded-lg p-2.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-brand-cyan transition resize-none">You are the judge inside Brand Studio Agent. You audit a creator's idea before they waste an evening recording it. Check four things and say which one fails: is there a villain (a common enemy or an unjust system) or only a topic; does the subject land in the first five seconds; is there a counterintuitive claim or only consensus; is there a call to action. Always quote the exact sentence that fails. Never give a score without quoting the line that justifies it. Be direct and short. Do not use exclamation marks. Do not flatter. If the idea is weak, say so and propose the sharper version.</textarea>
+        </div>
+      </div>
+
+      <!-- Quick Test Prompt Templates -->
+      <div class="glass-card rounded-2xl p-4">
+        <h3 class="text-xs font-mono font-bold text-slate-400 uppercase mb-2">Plantillas de Prueba por Voz</h3>
+        <p class="text-[11px] text-slate-400 mb-3">Habla estas frases por tu micrófono una vez iniciada la sesión:</p>
+        <div class="space-y-1.5 text-xs font-mono">
+          <div class="p-2 rounded bg-slate-900/60 border border-slate-800 text-brand-cyan">
+            🗣️ "Dame 3 ganchos virales para un video sobre inversión inmobiliaria"
+          </div>
+          <div class="p-2 rounded bg-slate-900/60 border border-slate-800 text-brand-gold">
+            🗣️ "Escribe el guion de 30 segundos con el gancho más agresivo"
+          </div>
+          <div class="p-2 rounded bg-slate-900/60 border border-slate-800 text-brand-purple">
+            🗣️ "¡Interrupción! Cambia el tema a inteligencia artificial"
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Live Conversational Transcript HUD (8 cols) -->
+    <div class="lg:col-span-8 flex flex-col space-y-4">
+
+      <!-- Conversation Container -->
+      <div class="glass-card rounded-2xl p-6 flex-1 flex flex-col h-[650px] shadow-2xl relative">
+        <div class="flex items-center justify-between border-b border-brand-border/60 pb-3 mb-4">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-brand-cyan animate-pulse"></span>
+            <h2 class="text-xs font-mono font-bold tracking-wider text-white uppercase">
+              Transcripción en Vivo & Interacción Full-Duplex
+            </h2>
+          </div>
+          <div class="flex items-center space-x-3 text-xs font-mono">
+            <button onclick="clearTranscript()" class="text-slate-400 hover:text-rose-400 transition flex items-center space-x-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              <span>Limpiar</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Transcript Message Feed -->
+        <div id="transcriptFeed" class="flex-1 overflow-y-auto space-y-3.5 pr-2">
+          
+          <!-- Welcome Placeholder -->
+          <div id="welcomePlaceholder" class="h-full flex flex-col items-center justify-center text-center p-8 space-y-3">
+            <div class="w-14 h-14 rounded-2xl bg-brand-cyan/10 border border-brand-cyan/20 flex items-center justify-center text-brand-cyan">
+              <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+            </div>
+            <h3 class="text-sm font-bold font-mono text-slate-200">El Agente de Voz está Listo</h3>
+            <p class="text-xs text-slate-400 max-w-md">
+              Haz clic en <strong class="text-brand-cyan">"INICIAR SESIÓN DE VOZ"</strong>, permite el acceso al micrófono y habla naturalmente. El agente te responderá al instante con voz sintética ultra-rápida y barge-in nativo.
+            </p>
+          </div>
+
+        </div>
+
+        <!-- Real-time Interim Delta Transcription Bubble (Sub-300ms) -->
+        <div id="interimDeltaContainer" class="hidden mt-3 p-3 rounded-xl bg-brand-card/90 border border-brand-cyan/40 text-xs font-mono flex items-center space-x-3">
+          <span class="w-2 h-2 rounded-full bg-brand-cyan animate-ping"></span>
+          <span class="text-slate-400 text-[10px] uppercase font-bold">Escuchando:</span>
+          <span id="interimDeltaText" class="text-brand-cyan italic">...</span>
+        </div>
+
+        <!-- System Log Bar at Bottom -->
+        <div class="mt-4 pt-3 border-t border-brand-border/60 flex items-center justify-between text-[11px] font-mono text-slate-500">
+          <div class="flex items-center space-x-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+            <span id="sessionTelemetryText">Sesión inactiva</span>
+          </div>
+          <div id="turnStatusText" class="text-slate-400">Turno: Esperando conexión</div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- AudioWorklet & AssemblyAI WebSocket Engine Script -->
+  <script>
+    const RATE = 24000;
+    let audioContext = null;
+    let micStream = null;
+    let workletNode = null;
+    let analyserNode = null;
+    let ws = null;
+    let isSessionActive = false;
+    let isReady = false;
+    let playT = 0; // Monotonic playback timeline
+    let activeSources = [];
+
+    // Inline AudioWorklet Processor for Float32 -> PCM16 conversion
+    const workletCode = `
+      class PCMProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const channel = inputs[0]?.[0];
+          if (channel) {
+            const buf = new Int16Array(channel.length);
+            for (let i = 0; i < channel.length; i++) {
+              buf[i] = Math.max(-32768, Math.min(32767, channel[i] * 32767));
+            }
+            this.port.postMessage(buf.buffer, [buf.buffer]);
+          }
+          return true;
+        }
+      }
+      registerProcessor('pcm-processor', PCMProcessor);
+    `;
+    const workletUrl = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }));
+
+    // Canvas Waveform Animation
+    const canvas = document.getElementById('waveformCanvas');
+    const canvasCtx = canvas.getContext('2d');
+    let animationFrameId = null;
+
+    function drawWaveform() {
+      animationFrameId = requestAnimationFrame(drawWaveform);
+      const width = canvas.width;
+      const height = canvas.height;
+
+      canvasCtx.fillStyle = '#07090e';
+      canvasCtx.fillRect(0, 0, width, height);
+
+      if (!analyserNode || !isSessionActive) {
+        // Flat baseline
+        canvasCtx.strokeStyle = '#1f293d';
+        canvasCtx.lineWidth = 2;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(0, height / 2);
+        canvasCtx.lineTo(width, height / 2);
+        canvasCtx.stroke();
+        return;
+      }
+
+      const bufferLength = analyserNode.fftSize;
+      const dataArray = new Uint8Array(bufferLength);
+      analyserNode.getByteTimeDomainData(dataArray);
+
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeStyle = '#00f2fe';
+      canvasCtx.beginPath();
+
+      const sliceWidth = width * 1.0 / bufferLength;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = v * height / 2;
+        if (i === 0) canvasCtx.moveTo(x, y);
+        else canvasCtx.lineTo(x, y);
+        x += sliceWidth;
+      }
+
+      canvasCtx.lineTo(width, height / 2);
+      canvasCtx.stroke();
+    }
+    drawWaveform();
+
+    function updateGreetingByVoice() {
+      const voice = document.getElementById('voiceSelect').value;
+      const greetingInput = document.getElementById('greetingInput');
+      if (voice === 'lola') {
+        greetingInput.value = "Hey. Tell me the idea you want to record, or drop a raw clip. I will tell you whether it is worth your evening.";
+      } else if (voice === 'giovanni') {
+        greetingInput.value = "Ciao. Dimmi l'idea che vuoi registrare, o caricane una grezza.";
+      } else {
+        greetingInput.value = "Hey. Tell me the idea you want to record, or drop a raw clip. I will tell you whether it is worth your evening.";
+      }
+    }
+
+    async function toggleSession() {
+      if (isSessionActive) {
+        await stopSession();
+      } else {
+        await startSession();
+      }
+    }
+
+    function setUIStatus(state, message) {
+      const badge = document.getElementById('connectionStatusBadge');
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+      const btn = document.getElementById('toggleSessionBtn');
+      const btnLabel = document.getElementById('btnLabel');
+      const actTag = document.getElementById('audioActivityTag');
+
+      if (state === 'connecting') {
+        badge.className = "flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono bg-amber-500/10 border border-amber-500/40 text-amber-400";
+        dot.className = "w-2 h-2 rounded-full bg-amber-400 animate-pulse";
+        text.innerText = message || "CONECTANDO...";
+        btnLabel.innerText = "CONECTANDO...";
+      } else if (state === 'active') {
+        badge.className = "flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono bg-emerald-500/10 border border-emerald-500/40 text-emerald-400";
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+        text.innerText = "EN VIVO (ONLINE)";
+        btn.className = "w-full py-4 px-6 rounded-xl font-bold text-sm flex items-center justify-center space-x-3 transition-all duration-300 shadow-lg bg-rose-600 hover:bg-rose-500 text-white font-mono";
+        btnLabel.innerText = "TERMINAR SESIÓN";
+        actTag.innerText = "Micrófono Activo";
+        actTag.className = "text-brand-cyan";
+      } else {
+        badge.className = "flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono bg-slate-800/80 border border-slate-700 text-slate-400";
+        dot.className = "w-2 h-2 rounded-full bg-slate-500";
+        text.innerText = "DESCONECTADO";
+        btn.className = "w-full py-4 px-6 rounded-xl font-bold text-sm flex items-center justify-center space-x-3 transition-all duration-300 shadow-lg bg-gradient-to-r from-brand-blue to-brand-cyan hover:from-cyan-400 hover:to-brand-blue text-black font-mono";
+        btnLabel.innerText = "INICIAR SESIÓN DE VOZ";
+        actTag.innerText = "Inactivo";
+        actTag.className = "text-slate-500";
+      }
+    }
+
+    async function startSession() {
+      try {
+        setUIStatus('connecting', 'OBTENIENDO TOKEN...');
+        
+        // 1. Fetch single-use temporary token from our FastAPI backend
+        const tokenRes = await fetch('/api/token');
+        if (!tokenRes.ok) {
+          const errData = await tokenRes.json();
+          throw new Error(errData.detail || "Error al solicitar token de AssemblyAI");
+        }
+        const { token } = await tokenRes.json();
+        
+        setUIStatus('connecting', 'INICIANDO AUDIO 24KHZ...');
+
+        // 2. Initialize AudioContext at 24,000 Hz
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: RATE });
+        await audioContext.resume();
+        await audioContext.audioWorklet.addModule(workletUrl);
+
+        // 3. Microphone with Hardware AEC, Noise Suppression & AGC
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
+
+        const micSource = audioContext.createMediaStreamSource(micStream);
+        workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+        
+        analyserNode = audioContext.createAnalyser();
+        analyserNode.fftSize = 256;
+        micSource.connect(analyserNode);
+
+        // 4. Connect to AssemblyAI Voice Agent WebSocket
+        const wsUrl = new URL('wss://agents.assemblyai.com/v1/ws');
+        wsUrl.searchParams.set('token', token);
+        ws = new WebSocket(wsUrl.toString());
+
+        isReady = false;
+        playT = 0;
+        activeSources = [];
+
+        // Stream mic PCM16 chunks when ready
+        workletNode.port.onmessage = (event) => {
+          if (!isReady || ws.readyState !== WebSocket.OPEN) return;
+          const uint8 = new Uint8Array(event.data);
+          let binary = '';
+          for (let i = 0; i < uint8.length; i++) {
+            binary += String.fromCharCode(uint8[i]);
+          }
+          ws.send(JSON.stringify({
+            type: 'input.audio',
+            audio: btoa(binary)
+          }));
+        };
+
+        micSource.connect(workletNode);
+
+        ws.onopen = () => {
+          setUIStatus('connecting', 'INICIALIZANDO AGENTE...');
+          
+          // Send session.update immediately
+          const systemPrompt = document.getElementById('systemPromptInput').value;
+          const greeting = document.getElementById('greetingInput').value;
+          const voice = document.getElementById('voiceSelect').value;
+
+          const sessionUpdatePayload = {
+            type: 'session.update',
+            session: {
+              system_prompt: systemPrompt,
+              greeting: greeting,
+              input: {
+                format: { encoding: 'audio/pcm' },
+                turn_detection: {
+                  vad_threshold: 0.5,
+                  min_silence: 200,
+                  max_silence: 1000,
+                  interrupt_response: true
+                }
+              },
+              output: {
+                voice: voice,
+                format: { encoding: 'audio/pcm' }
+              }
+            }
+          };
+          ws.send(JSON.stringify(sessionUpdatePayload));
+        };
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          handleAgentEvent(msg);
+        };
+
+        ws.onerror = (err) => {
+          console.error('[WebSocket Error]', err);
+          appendLogMessage('error', 'Error en la conexión WebSocket de AssemblyAI.');
+          stopSession();
+        };
+
+        ws.onclose = () => {
+          console.log('[WebSocket Closed]');
+          stopSession();
+        };
+
+      } catch (err) {
+        console.error('[StartSession Failed]', err);
+        alert('Error al iniciar sesión de voz: ' + err.message);
+        stopSession();
+      }
+    }
+
+    function handleAgentEvent(msg) {
+      const type = msg.type;
+      const turnStatus = document.getElementById('turnStatusText');
+      const interimBox = document.getElementById('interimDeltaContainer');
+      const interimText = document.getElementById('interimDeltaText');
+
+      switch (type) {
+        case 'session.ready':
+          isReady = true;
+          isSessionActive = true;
+          setUIStatus('active');
+          document.getElementById('sessionTelemetryText').innerText = `ID de Sesión: ${msg.session_id || 'Activa'}`;
+          turnStatus.innerText = "Turno: Escuchando micrófono...";
+          hideWelcomePlaceholder();
+          break;
+
+        case 'input.speech.started':
+          turnStatus.innerText = "Turno: Usuario hablando... 🎙️";
+          interimBox.classList.remove('hidden');
+          interimText.innerText = "...";
+          break;
+
+        case 'transcript.user.delta':
+          interimBox.classList.remove('hidden');
+          interimText.innerText = msg.delta || msg.text || "...";
+          break;
+
+        case 'transcript.user':
+          interimBox.classList.add('hidden');
+          turnStatus.innerText = "Turno: Procesando respuesta del Agente...";
+          appendChatMessage('user', msg.text);
+          break;
+
+        case 'input.speech.stopped':
+          interimBox.classList.add('hidden');
+          break;
+
+        case 'reply.started':
+          turnStatus.innerText = "Turno: Agente hablando... 🔊";
+          break;
+
+        case 'reply.audio':
+          playAudioChunk(msg.data);
+          break;
+
+        case 'transcript.agent':
+          appendChatMessage('agent', msg.text);
+          break;
+
+        case 'reply.done':
+          if (msg.status === 'interrupted') {
+            console.log('[Barge-in / Interrupted] Flushing stale audio buffers');
+            flushAudioPlayback();
+            turnStatus.innerText = "Turno: Interrupción detectada (Barge-in) ⚡";
+          } else {
+            turnStatus.innerText = "Turno: Escuchando micrófono...";
+          }
+          break;
+
+        case 'session.error':
+          console.error('[Agent Error]', msg.message);
+          appendLogMessage('error', `Error de Agente: ${msg.message}`);
+          break;
+      }
+    }
+
+    function playAudioChunk(base64Data) {
+      if (!audioContext || !base64Data) return;
+      try {
+        const raw = atob(base64Data);
+        const pcm = new Int16Array(raw.length / 2);
+        for (let i = 0; i < pcm.length; i++) {
+          pcm[i] = raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8);
+        }
+        const f32 = new Float32Array(pcm.length);
+        for (let i = 0; i < pcm.length; i++) {
+          f32[i] = pcm[i] / 32768.0;
+        }
+
+        const buffer = audioContext.createBuffer(1, f32.length, RATE);
+        buffer.getChannelData(0).set(f32);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+
+        playT = Math.max(playT, audioContext.currentTime);
+        source.start(playT);
+        playT += buffer.duration;
+
+        activeSources.push(source);
+        source.onended = () => {
+          const idx = activeSources.indexOf(source);
+          if (idx !== -1) activeSources.splice(idx, 1);
+        };
+      } catch (err) {
+        console.error('[Audio Playback Error]', err);
+      }
+    }
+
+    function flushAudioPlayback() {
+      // Stop all currently playing audio chunks on barge-in
+      activeSources.forEach(src => {
+        try { src.stop(); } catch(e){}
+      });
+      activeSources = [];
+      if (audioContext) {
+        playT = audioContext.currentTime;
+      }
+    }
+
+    async function stopSession() {
+      isSessionActive = false;
+      isReady = false;
+      flushAudioPlayback();
+
+      if (ws) {
+        try { ws.close(); } catch(e){}
+        ws = null;
+      }
+
+      if (micStream) {
+        micStream.getTracks().forEach(track => track.stop());
+        micStream = null;
+      }
+
+      if (audioContext && audioContext.state !== 'closed') {
+        try { await audioContext.close(); } catch(e){}
+        audioContext = null;
+      }
+
+      setUIStatus('disconnected');
+      document.getElementById('turnStatusText').innerText = "Turno: Sesión finalizada";
+      document.getElementById('interimDeltaContainer').classList.add('hidden');
+    }
+
+    function hideWelcomePlaceholder() {
+      const placeholder = document.getElementById('welcomePlaceholder');
+      if (placeholder) placeholder.style.display = 'none';
+    }
+
+    function appendChatMessage(sender, text) {
+      hideWelcomePlaceholder();
+      const feed = document.getElementById('transcriptFeed');
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `flex flex-col ${sender === 'user' ? 'items-end' : 'items-start'} space-y-1 animate-fadeIn`;
+
+      if (sender === 'user') {
+        msgDiv.innerHTML = `
+          <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400">
+            <span>You</span>
+            <span>•</span>
+            <span>${timeStr}</span>
+          </div>
+          <div class="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-2.5 bg-gradient-to-r from-brand-cyan/20 to-brand-blue/20 border border-brand-cyan/40 text-brand-cyan font-medium text-xs leading-relaxed shadow-lg">
+            ${escapeHtml(text)}
+          </div>
+        `;
+      } else {
+        msgDiv.innerHTML = `
+          <div class="flex items-center space-x-1.5 text-[10px] font-mono text-brand-gold">
+            <span class="font-bold">Brand Studio Agent</span>
+            <span>•</span>
+            <span>${timeStr}</span>
+          </div>
+          <div class="max-w-[85%] rounded-2xl rounded-tl-none px-4 py-3 bg-slate-900/90 border border-brand-gold/40 text-slate-100 text-xs leading-relaxed shadow-lg font-sans">
+            ${escapeHtml(text)}
+          </div>
+        `;
+      }
+
+      feed.appendChild(msgDiv);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function appendLogMessage(level, text) {
+      hideWelcomePlaceholder();
+      const feed = document.getElementById('transcriptFeed');
+      const logDiv = document.createElement('div');
+      logDiv.className = "flex justify-center my-1";
+      logDiv.innerHTML = `
+        <span class="text-[11px] font-mono px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400">
+          ⚠️ ${escapeHtml(text)}
+        </span>
+      `;
+      feed.appendChild(logDiv);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function clearTranscript() {
+      const feed = document.getElementById('transcriptFeed');
+      feed.innerHTML = `
+        <div id="welcomePlaceholder" class="h-full flex flex-col items-center justify-center text-center p-8 space-y-3">
+          <div class="w-14 h-14 rounded-2xl bg-brand-cyan/10 border border-brand-cyan/20 flex items-center justify-center text-brand-cyan">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+          </div>
+          <h3 class="text-sm font-bold font-mono text-slate-200">Historial Limpio</h3>
+          <p class="text-xs text-slate-400 max-w-md">Habla por tu micrófono para comenzar una nueva conversación.</p>
+        </div>
+      `;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

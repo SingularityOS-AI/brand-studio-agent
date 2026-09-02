@@ -1,0 +1,18 @@
+# Core Backend & Async Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+websockets>=12.0
+httpx>=0.27.0
+aiofiles>=24.1.0
+
+# AssemblyAI Official SDK & Audio Tools
+assemblyai>=0.33.0
+sounddevice>=0.4.7
+numpy>=1.26.0
+
+# Testing & Linting
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+ruff>=0.5.0
