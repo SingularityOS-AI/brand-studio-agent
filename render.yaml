@@ -32,4 +32,6 @@ services:
         sync: false  # Set in Render dashboard, not in repo
       - key: SUPABASE_KEY
         sync: false  # Set in Render dashboard, not in repo
+      - key: PYTHON_VERSION
+        value: "3.12.10"  # Render usaba 3.14; los tests se verificaron en 3.12
     plan: free  # Free tier
