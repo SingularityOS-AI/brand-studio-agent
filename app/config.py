@@ -3,10 +3,25 @@ Environment and Rate/Budget Limits for Brand Studio Agent.
 Fail loud if ASSEMBLYAI_API_KEY is missing.
 """
 import os
-from pydantic_settings import BaseSettings
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Ruta absoluta al .env de la raiz del repo. Absoluta a proposito: si fuera
+# relativa dependeria del directorio desde el que se lanza el servidor, y
+# arrancar desde otra carpeta dejaria la key sin cargar en silencio.
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
+    # Sin esto, pydantic-settings NO lee el archivo .env: solo mira variables
+    # de entorno reales del sistema. Era la causa de "Missing Authorization
+    # header" aun teniendo la key escrita en .env.
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     # AssemblyAI API Key - REQUIRED
     assemblyai_api_key: str = os.getenv("ASSEMBLYAI_API_KEY", "")
 
