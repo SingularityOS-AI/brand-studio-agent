@@ -11,6 +11,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # arrancar desde otra carpeta dejaria la key sin cargar en silencio.
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
+# pydantic-settings carga el .env en SU objeto, pero NO lo mete en os.environ.
+# guard.py lee SUPABASE_URL/SUPABASE_KEY con os.getenv, y main.py lee TEST_MODE
+# igual: sin esto los veian vacios y el guard caia a memoria EN SILENCIO aunque
+# Supabase estuviera bien configurado en el .env. Un fallback silencioso de la
+# persistencia es como se pierden los creditos de todos sin que nadie se entere.
+# override=False: una variable real del entorno (Render) siempre gana al .env.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_ENV_FILE, override=False)
+except ImportError:  # python-dotenv viene con pydantic-settings; si falta, seguimos
+    pass
+
 
 class Settings(BaseSettings):
     # Sin esto, pydantic-settings NO lee el archivo .env: solo mira variables
