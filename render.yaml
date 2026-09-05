@@ -28,6 +28,8 @@ services:
         value: "3600"
       - key: PAYMENT_URL
         value: "https://example.com/upgrade"
+      - key: STT_LANGUAGE
+        value: "es"
       - key: SUPABASE_URL
         sync: false  # Set in Render dashboard, not in repo
       - key: SUPABASE_KEY

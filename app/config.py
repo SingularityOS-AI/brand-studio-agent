@@ -61,6 +61,9 @@ class Settings(BaseSettings):
         os.getenv("MAX_SESSION_DURATION_SECONDS", "3600")
     )  # Default 1 hour
 
+    # Speech-to-Text Language Configuration
+    stt_language: str = os.getenv("STT_LANGUAGE", "es")  # Default to Spanish
+
 
 settings = Settings()
 
