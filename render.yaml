@@ -8,9 +8,18 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      # La key real se pega en el panel de Render. NUNCA generateValue:
+      # Render inventaria un secreto aleatorio, config.py lo daria por
+      # valido (no esta vacio) y el servicio arrancaria en verde para
+      # fallar en cada llamada a AssemblyAI. Fallo silencioso en runtime
+      # en vez de fallo ruidoso al arrancar, que es justo lo contrario
+      # del principio de esta pieza.
       - key: ASSEMBLYAI_API_KEY
-        generateValue: true  # Render will generate a secret
         sync: false
+      # Sin esto, los print() del arranque se quedan en el buffer y el
+      # aviso de "sin Supabase, estado en memoria" no aparece en el log.
+      - key: PYTHONUNBUFFERED
+        value: "1"
       - key: RATE_LIMIT_REQUESTS_PER_MINUTE
         value: "30"
       - key: INITIAL_SESSION_CREDITS
