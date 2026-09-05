@@ -167,6 +167,15 @@ async def get_session_status(request: Request):
     return JSONResponse(content={"credits_remaining": credits})
 
 
+@app.get("/api/agent-token", response_class=JSONResponse)
+async def get_agent_api_key(request: Request):
+    """
+    Return AssemblyAI API key for direct Voice Agent WebSocket connection.
+    RESTORE: This restores the legacy functionality where the client connects directly to AssemblyAI.
+    """
+    return JSONResponse(content={"api_key": settings.assemblyai_api_key})
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     """Serves the browser client."""
@@ -225,6 +234,7 @@ async def voice_socket(websocket: WebSocket):
             on_final_callback=on_final,
             on_partial_callback=on_partial,
             sample_rate=16000,
+            language_code=settings.stt_language,
         )
     except RuntimeError as e:
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason=str(e))
@@ -290,11 +300,11 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "=" * 70)
-    print("BRAND STUDIO AGENT | Piece 1 — Guarded Voice API")
-    print(f"📡 URL Local: http://localhost:{settings.port}")
-    print(f"🔑 AssemblyAI Key: {'[CONFIGURADA ✅]' if settings.assemblyai_api_key else '[NO ENCONTRADA ❌]'}")
-    print(f"🛡️  Rate Limit: {settings.rate_limit_requests_per_minute} requests/min per IP")
-    print(f"💰 Session Budget: {settings.initial_session_credits} credits")
-    print(f"⏱️  Max Duration: {settings.max_session_duration_seconds}s")
+    print("BRAND STUDIO AGENT | Piece 1 - Guarded Voice API")
+    print(f"URL Local: http://localhost:{settings.port}")
+    print(f"AssemblyAI Key: {'[CONFIGURED OK]' if settings.assemblyai_api_key else '[NOT FOUND]'}")
+    print(f"Rate Limit: {settings.rate_limit_requests_per_minute} requests/min per IP")
+    print(f"Session Budget: {settings.initial_session_credits} credits")
+    print(f"Max Duration: {settings.max_session_duration_seconds}s")
     print("=" * 70 + "\n")
     uvicorn.run("app.main:app", host=settings.host, port=settings.port, reload=True)

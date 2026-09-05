@@ -54,7 +54,11 @@
   .orbstate{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
   
   /* Stream */
-  .stream{flex:1;padding:14px 34px;display:flex;flex-direction:column;gap:14px}
+  .stream{flex:1;padding:14px 34px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;scroll-behavior:smooth}
+  .stream::-webkit-scrollbar{width:6px}
+  .stream::-webkit-scrollbar-track{background:transparent}
+  .stream::-webkit-scrollbar-thumb{background:#D5DAE4;border-radius:3px}
+  .stream::-webkit-scrollbar-thumb:hover{background:#5C6675}
   .first{font-size:22px;line-height:1.42;color:var(--ink);margin:0;font-weight:500;letter-spacing:-.01em;font-family:'Space Grotesk',Inter,sans-serif}
   .sub{font-size:14.5px;line-height:1.6;color:var(--ink-soft);margin:0}
   .caret{display:inline-block;width:2px;height:20px;background:var(--accent);vertical-align:-3px;animation:blink 1s steps(1) infinite}

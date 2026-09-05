@@ -74,6 +74,7 @@ class AssemblyAISpeechEngine:
         on_final_callback: Callable[[str, List[WordTimestamp]], None],
         on_partial_callback: Optional[Callable[[str], None]] = None,
         sample_rate: int = 16000,
+        language_code: Optional[str] = None,  # Deprecated alias for backwards compatibility
     ):
         """
         Inicia transcripción en tiempo real con detección de fin de turno y palabras.
@@ -82,6 +83,8 @@ class AssemblyAISpeechEngine:
             on_final_callback: Callback cuando un turno termina completamente (end_of_turn=True)
             on_partial_callback: Callback con actualización parcial (end_of_turn=False)
             sample_rate: Tasa de muestreo del audio en Hz (por defecto 16000)
+            language_code: Código de idioma para la transcripción (ej: "es", "en")
+                            Usado internamente como language_codes para compatibilidad con SDK
         """
         if not StreamingClient:
             raise RuntimeError("El paquete 'assemblyai' no está instalado. Ejecute: pip install assemblyai")
@@ -107,12 +110,24 @@ class AssemblyAISpeechEngine:
 
             # end_of_turn == False → es un parcial (emisión en curso)
             # end_of_turn == True → es el final del turno (emisión completa)
+            # Con format_turns=True, AssemblyAI emite el mismo turno dos veces:
+            # 1. sin formato (turn_is_formatted=False) con end_of_turn=True
+            # 2. con formato (turn_is_formatted=True) con end_of_turn=True
+            # Solo el con formato debe considerarse final para evitar duplicados
             if event.end_of_turn:
-                # Turno final - fijar la línea y limpiar para la siguiente
-                text = event.transcript or ""
-                if text.strip():
-                    on_final_callback(text.strip(), list(self.accumulated_words))
-                    self.accumulated_words.clear()  # Limpiar para el siguiente turno
+                if event.turn_is_formatted:
+                    # Turno final con formato - este es el verdadero final
+                    text = event.transcript or ""
+                    if text.strip():
+                        on_final_callback(text.strip(), list(self.accumulated_words))
+                        self.accumulated_words.clear()  # Limpiar para el siguiente turno
+                else:
+                    # Turno final sin formato - tratamos como parcial
+                    # Es la misma versión sin puntuación, no debe cerrar la línea
+                    if on_partial_callback:
+                        partial_text = event.transcript or ""
+                        if partial_text:
+                            on_partial_callback(partial_text)
             else:
                 # Turno parcial - reemplazar la línea en curso
                 if on_partial_callback:
@@ -132,11 +147,16 @@ class AssemblyAISpeechEngine:
         self.client.on(StreamingEvents.Error, handle_error)
 
         # Conectar con los parámetros de streaming
+        # Nota: language_code está deprecado en favor de language_codes (lista)
+        # Mantenemos language_code como parámetro para compatibilidad
+        language_codes = [language_code] if language_code else None
+
         params = StreamingParameters(
             speech_model="universal-3-5-pro",
             sample_rate=sample_rate,
             format_turns=True,  # Texto con puntuación y mayúsculas
             include_partial_turns=True,  # Recibir parciales (end_of_turn=False)
+            language_codes=language_codes,  # Lista de idiomas para la transcripción
         )
 
         self.client.connect(params)

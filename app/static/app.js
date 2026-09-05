@@ -1,329 +1,427 @@
 /**
  * Brand Studio Agent — Voice Client
  *
- * Handles microphone capture, PCM16 16kHz mono conversion, and WebSocket communication.
+ * Handles microphone capture, PCM16 16kHz mono conversion, and direct AssemblyAI Voice Agent WebSocket.
+ * Adapted from legacy working version that connected directly to AssemblyAI Agent API.
  */
 (function() {
   'use strict';
 
+  let API_KEY = '';
+  let apiKeyRequested = false;
+
+  // Fetch API key from backend on first interaction
+  async function ensureApiKey() {
+    if (API_KEY || apiKeyRequested) return API_KEY;
+    apiKeyRequested = true;
+
+    try {
+      const response = await fetch('/api/agent-token');
+      const data = await response.json();
+      API_KEY = data.api_key;
+      console.log('[Voice Client] API Key fetched from backend');
+      return API_KEY;
+    } catch (e) {
+      console.error('[Voice Client] Failed to fetch API key:', e);
+      alert('Failed to get AssemblyAI API key from server. Check server logs.');
+      return null;
+    }
+  }
+
   let ws = null;
   let audioContext = null;
   let mediaStream = null;
-  let processor = null;
-  let isListening = false;
+  let workletNode = null;
+  let micSource = null;
+  let isSessionActive = false;
+  let isReady = false;
 
+  // Audio playback state
+  let playT = 0;
+  let activeSources = [];
+  const RATE = 24000; // AssemblyAI Voice Agent outputs at 24kHz
+
+  // UI elements
   const micBtn = document.getElementById('micBtn');
   const orb = document.querySelector('.orb');
   const orbState = document.querySelector('.orbstate');
   const streamContainer = document.querySelector('.stream');
 
-  // Current partial transcript (being updated live)
+  // Current partial transcript
   let currentPartialElement = null;
-  // All final transcripts committed so far
-  let finalTranscripts = [];
 
-  /**
-   * Initialize microphone and audio conversion pipeline.
-   */
-  async function startMicrophone() {
+  // Default voice and prompts (can be customized)
+  const systemPrompt = `You are Brandy, the Brand Studio Agent. You help entrepreneurs and businesses discover their brand identity through targeted questions.
+
+Speak naturally in short, clear sentences. Be direct and helpful. Keep responses concise - no more than 2-3 sentences unless more detail is needed.
+
+Your goal is to gather information about:
+1. What they do
+2. Who they do it for
+3. Their brand's values and personality
+4. Their desired positioning in the market
+
+Always respond in English. Keep your responses conversational and engaging.`;
+
+  const greeting = "Hello! I'm Brandy, your Brand Studio Agent. Tell me what you do and who you do it for, and we'll discover your brand identity together.";
+  const voice = "alba"; // AssemblyAI voice: alba, anna, charles, estelle, eve, george, giovanni, jane, jean, juergen, lola, mary, michael, paul, rafael, vera
+
+  async function startSession() {
+    // Ensure we have API key before starting
+    const key = await ensureApiKey();
+    if (!key) {
+      return;
+    }
+
     try {
-      // Request microphone permission
+      stopSession();
+
+      // 1. Create AudioContext with 24kHz (matches AssemblyAI requirement)
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      audioContext = new AudioContextClass({ sampleRate: RATE });
+
+      // 2. Get microphone stream
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Create AudioContext with 16kHz sample rate
-      // Note: We do NOT resample if browser ignores the request.
-      // Chromium respects it; Safari historically ignores it.
-      // If actualSampleRate !== 16000, the voice pipeline will produce incorrect results.
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      audioContext = new AudioContextClass({ sampleRate: 16000 });
+      // 3. Create AudioWorklet for PCM16 conversion at 24kHz
+      // First, create the worklet script inline
+      const processorCode = `
+        class AudioProcessor extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.bufferSize = 4800; // 200ms at 24kHz
+            this.buffer = new Int16Array(this.bufferSize);
+            this.offset = 0;
+          }
 
-      // Check actual sample rate (may differ from requested)
-      const actualSampleRate = audioContext.sampleRate;
-      console.log(`[Audio] Requested sample rate: 16000 Hz, actual: ${actualSampleRate} Hz`);
-      if (actualSampleRate !== 16000) {
-        console.error(
-          `[Audio] SAMPLE RATE MISMATCH: Expected 16000 Hz, got ${actualSampleRate} Hz. ` +
-          "Transcription will NOT work correctly without resampling implementation!"
-        );
-      }
+          process(inputs, outputs) {
+            const input = inputs[0];
+            if (input && input.length > 0) {
+              const channel = input[0];
+              for (let i = 0; i < channel.length; i++) {
+                const sample = channel[i];
+                const int16 = Math.max(-1, Math.min(1, sample)) * 32767;
+                this.buffer[this.offset++] = int16 < 0 ? int16 | 0 : int16;
 
-      const source = audioContext.createMediaStreamSource(mediaStream);
+                if (this.offset >= this.bufferSize) {
+                  this.port.postMessage({ audio: this.buffer.buffer }, [this.buffer.buffer]);
+                  this.buffer = new Int16Array(this.bufferSize);
+                  this.offset = 0;
+                }
+              }
+            }
+            return true;
+          }
+        }
+        registerProcessor('audio-processor', AudioProcessor);
+      `;
 
-      // AudioWorklet is preferred but we'll use ScriptProcessorNode for simplicity
-      // It's deprecated but supported in all browsers. Uncomment below to use Worklet.
-      // await audioContext.audioWorklet.addModule('/static/processor.js');
-      // processor = new AudioWorkletNode(audioContext, 'audio-processor');
-      processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const blob = new Blob([processorCode], { type: 'application/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      await audioContext.audioWorklet.addModule(blobUrl);
+      URL.revokeObjectURL(blobUrl);
 
-      // Convert Float32 audio to PCM16 Int16
-      processor.onaudioprocess = (event) => {
-        const inputBuffer = event.inputBuffer.getChannelData(0);
-        const pcm16 = floatToPCM16(inputBuffer);
-        sendAudioChunk(pcm16);
+      workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+
+      micSource = audioContext.createMediaStreamSource(mediaStream);
+
+      // 4. Connect to AssemblyAI Voice Agent WebSocket
+      const token = await ensureApiKey();
+      const wsUrl = new URL('wss://agents.assemblyai.com/v1/ws');
+      wsUrl.searchParams.set('token', await ensureApiKey());
+      ws = new WebSocket(wsUrl.toString());
+
+      isReady = false;
+      playT = 0;
+      activeSources = [];
+
+      // Stream mic PCM16 chunks when ready
+      workletNode.port.onmessage = (event) => {
+        if (!isReady || ws.readyState !== WebSocket.OPEN) return;
+        const uint8 = new Uint8Array(event.data.audio);
+        let binary = '';
+        for (let i = 0; i < uint8.length; i++) {
+          binary += String.fromCharCode(uint8[i]);
+        }
+        ws.send(JSON.stringify({
+          type: 'input.audio',
+          audio: btoa(binary)
+        }));
       };
 
-      source.connect(processor);
+      micSource.connect(workletNode);
 
-      // Add silent GainNode to prevent audio feedback loop
-      // ScriptProcessorNode needs to be connected to trigger onaudioprocess,
-      // but we don't want the user's voice coming back through their speakers
-      const silentGain = audioContext.createGain();
-      silentGain.gain.value = 0; // Complete silence
-      processor.connect(silentGain);
-      silentGain.connect(audioContext.destination);
+      ws.onopen = () => {
+        console.log('[WebSocket] Connected to AssemblyAI Voice Agent');
+        setUIStatus('connecting', 'Conectando agente...');
 
-    } catch (err) {
-      console.error('[Microphone Error]', err);
-      if (err.name === 'NotAllowedError') {
-        alert('Microphone permission denied. Please allow microphone access to use voice.');
-      } else {
-        alert('Failed to access microphone: ' + err.message);
-      }
-      stopMicrophone();
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * Convert Float32 audio (WebAudio format) to PCM16 Int16 (AssemblyAI format).
-   */
-  function floatToPCM16(float32Array) {
-    const int16Array = new Int16Array(float32Array.length);
-    for (let i = 0; i < float32Array.length; i++) {
-      // Clamp to [-1, 1] and scale to [-32768, 32767]
-      let s = Math.max(-1, Math.min(1, float32Array[i]));
-      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    return int16Array.buffer; // Return ArrayBuffer for WebSocket send
-  }
-
-  /**
-   * Send audio chunk via WebSocket if connected.
-   */
-  function sendAudioChunk(buffer) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(buffer);
-    }
-  }
-
-  /**
-   * Ensure session exists before opening WebSocket.
-   * Tries /api/session first (no credit cost), falls back to /api/token if needed.
-   */
-  async function ensureSession() {
-    try {
-      const sessionResp = await fetch('/api/session', { credentials: 'same-origin' });
-      if (sessionResp.ok) return true;
-    } catch (e) {
-      console.log('[Session] Check failed:', e);
-    }
-
-    // No valid session, create one via /api/token (costs 1 credit)
-    try {
-      const tokenResp = await fetch('/api/token', { credentials: 'same-origin' });
-      if (tokenResp.ok) return true;
-
-      // Handle specific error states
-      if (tokenResp.status === 402) {
-        const data = await tokenResp.json();
-        alert(`Session budget exhausted. Credits remaining: ${data.credits_remaining}. Please upgrade.`);
-      } else if (tokenResp.status === 429) {
-        alert('Rate limit exceeded. Please wait a moment before trying again.');
-      } else {
-        const data = await tokenResp.json().catch(() => ({}));
-        alert(`Failed to create session: ${data.detail || data.error || tokenResp.statusText}`);
-      }
-    } catch (e) {
-      console.error('[Session] Create failed:', e);
-      alert('Failed to connect to server. Please check your connection.');
-    }
-
-    return false;
-  }
-
-  /**
-   * Connect to WebSocket and start listening.
-   */
-  async function startListening() {
-    // Ensure session exists before opening WebSocket
-    const sessionReady = await ensureSession();
-    if (!sessionReady) {
-      return; // User already alerted by ensureSession()
-    }
-
-    // Connect WebSocket - browser sends session cookie automatically (same-origin)
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/voice`;
-
-    try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = async () => {
-        console.log('[WebSocket] Connected');
-        // Start microphone after WebSocket is ready
-        const success = await startMicrophone();
-        if (!success) {
-          ws.close();
-          return;
-        }
-
-        isListening = true;
-        updateUIState('listening');
+        // Send session.update immediately
+        const sessionUpdatePayload = {
+          type: 'session.update',
+          session: {
+            system_prompt: systemPrompt,
+            greeting: greeting,
+            input: {
+              format: { encoding: 'audio/pcm' },
+              turn_detection: {
+                vad_threshold: 0.5,
+                min_silence: 200,
+                max_silence: 1000,
+                interrupt_response: true
+              }
+            },
+            output: {
+              voice: voice,
+              format: { encoding: 'audio/pcm' }
+            }
+          }
+        };
+        ws.send(JSON.stringify(sessionUpdatePayload));
       };
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
-        handleTranscription(msg);
+        handleAgentEvent(msg);
       };
 
-      ws.onerror = (error) => {
-        console.error('[WebSocket Error]', error);
+      ws.onerror = (err) => {
+        console.error('[WebSocket Error]', err);
+        appendLogMessage('error', 'Error en conexión WebSocket de AssemblyAI');
+        stopSession();
       };
 
       ws.onclose = () => {
-        console.log('[WebSocket] Closed');
-        stopMicrophone();
-        isListening = false;
-        ws = null;
-        updateUIState('idle');
+        console.log('[WebSocket Closed]');
+        stopSession();
       };
 
     } catch (err) {
-      console.error('[WebSocket Connection Error]', err);
-      alert('Failed to connect: ' + err.message);
+      console.error('[StartSession Failed]', err);
+      alert('Error al iniciar sesión de voz: ' + err.message);
+      stopSession();
     }
   }
 
-  /**
-   * Handle transcription messages from server.
-   */
-  function handleTranscription(msg) {
-    if (msg.type === 'partial') {
-      // Update current partial text
-      if (!currentPartialElement) {
-        // Create new partial element with caret
-        createPartialElement(msg.text);
-      } else {
-        currentPartialElement.textContent = msg.text;
-        addCaret(currentPartialElement);
+  function handleAgentEvent(msg) {
+    const type = msg.type;
+
+    switch (type) {
+      case 'session.ready':
+        isReady = true;
+        isSessionActive = true;
+        setUIStatus('active');
+        if (orbState) orbState.textContent = 'Escuchando...';
+        console.log('[Session] Ready:', msg.session_id);
+        break;
+
+      case 'input.speech.started':
+        if (orbState) orbState.textContent = 'Hablando...';
+        break;
+
+      case 'transcript.user':
+        // User final transcript
+        appendUserMessage(msg.text);
+        if (orbState) orbState.textContent = 'Pensando...';
+        break;
+
+      case 'input.speech.stopped':
+        break;
+
+      case 'reply.started':
+        if (orbState) orbState.textContent = 'Brandy hablando...';
+        break;
+
+      case 'reply.audio':
+        // Play audio chunk from AssemblyAI
+        playAudioChunk(msg.data);
+        break;
+
+      case 'transcript.agent':
+        // Agent final transcript
+        appendAgentMessage(msg.text);
+        break;
+
+      case 'reply.done':
+        if (msg.status === 'interrupted') {
+          console.log('[Barge-in] Flushing audio');
+          flushAudioPlayback();
+        }
+        if (orbState) orbState.textContent = 'Escuchando...';
+        break;
+
+      case 'session.error':
+        console.error('[Agent Error]', msg.message);
+        appendLogMessage('error', `Error: ${msg.message}`);
+        break;
+
+      default:
+        console.log('[Event]', type, msg);
+    }
+  }
+
+  function playAudioChunk(base64Data) {
+    if (!audioContext || !base64Data) return;
+    try {
+      const raw = atob(base64Data);
+      const pcm = new Int16Array(raw.length / 2);
+      for (let i = 0; i < pcm.length; i++) {
+        pcm[i] = raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8);
       }
-    } else if (msg.type === 'final') {
-      // Commit final transcript
-      if (currentPartialElement) {
-        currentPartialElement.textContent = msg.text;
-        removeCaret(currentPartialElement);
-        currentPartialElement.classList.remove('partial');
-        finalTranscripts.push(msg.text);
-        currentPartialElement = null;
-
-        // Create new empty partial with caret
-        createPartialElement('');
+      const f32 = new Float32Array(pcm.length);
+      for (let i = 0; i < pcm.length; i++) {
+        f32[i] = pcm[i] / 32768.0;
       }
+
+      const buffer = audioContext.createBuffer(1, f32.length, RATE);
+      buffer.getChannelData(0).set(f32);
+
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+
+      playT = Math.max(playT, audioContext.currentTime);
+      source.start(playT);
+      playT += buffer.duration;
+
+      activeSources.push(source);
+      source.onended = () => {
+        const idx = activeSources.indexOf(source);
+        if (idx !== -1) activeSources.splice(idx, 1);
+      };
+    } catch (err) {
+      console.error('[Audio Playback Error]', err);
     }
   }
 
-  /**
-   * Create a new partial transcript element with caret.
-   */
-  function createPartialElement(text) {
-    const p = document.createElement('p');
-    p.className = 'sub partial';
-    p.textContent = text;
-    addCaret(p);
-    streamContainer.appendChild(p);
-    currentPartialElement = p;
-  }
-
-  /**
-   * Add blinking caret to element.
-   */
-  function addCaret(element) {
-    // Remove existing caret if any
-    const existingCaret = element.querySelector('.caret');
-    if (existingCaret) existingCaret.remove();
-
-    const caret = document.createElement('span');
-    caret.className = 'caret';
-    element.appendChild(caret);
-  }
-
-  /**
-   * Remove caret from element.
-   */
-  function removeCaret(element) {
-    const caret = element.querySelector('.caret');
-    if (caret) caret.remove();
-  }
-
-  /**
-   * Stop microphone and clean up audio resources.
-   */
-  function stopMicrophone() {
-    if (processor) {
-      processor.disconnect();
-      processor = null;
+  function flushAudioPlayback() {
+    activeSources.forEach(src => {
+      try { src.stop(); } catch(e){}
+    });
+    activeSources = [];
+    if (audioContext) {
+      playT = audioContext.currentTime;
     }
-    if (audioContext && audioContext.state !== 'closed') {
-      audioContext.close();
-      audioContext = null;
+  }
+
+  async function stopSession() {
+    isSessionActive = false;
+    isReady = false;
+    flushAudioPlayback();
+
+    if (ws) {
+      try { ws.close(); } catch(e){}
+      ws = null;
     }
+
     if (mediaStream) {
       mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
     }
-  }
 
-  /**
-   * Stop listening (user clicked mic button again).
-   */
-  function stopListening() {
-    if (ws) {
-      ws.close();
+    if (micSource) {
+      micSource.disconnect();
+      micSource = null;
     }
-    // WebSocket.onclose will call stopMicrophone() and updateUIState()
+
+    if (workletNode) {
+      workletNode.disconnect();
+      workletNode = null;
+    }
+
+    if (audioContext && audioContext.state !== 'closed') {
+      try { await audioContext.close(); } catch(e){}
+      audioContext = null;
+    }
+
+    setUIStatus('idle');
   }
 
-  /**
-   * Update UI to reflect listening state.
-   */
-  function updateUIState(state) {
-    if (state === 'listening') {
+  // UI Message Display
+  function appendUserMessage(text) {
+    const p = document.createElement('p');
+    p.className = 'sub';
+    p.style.fontStyle = 'italic';
+    p.textContent = `Tú: ${text}`;
+    streamContainer.appendChild(p);
+    streamContainer.scrollTop = streamContainer.scrollHeight;
+  }
+
+  function appendAgentMessage(text) {
+    clearPartial();
+    const p = document.createElement('p');
+    p.className = 'first';
+    p.textContent = text;
+    streamContainer.appendChild(p);
+    streamContainer.scrollTop = streamContainer.scrollHeight;
+  }
+
+  function createPartial(text) {
+    clearPartial();
+    const p = document.createElement('p');
+    p.className = 'sub partial';
+    p.textContent = text;
+    streamContainer.appendChild(p);
+    currentPartialElement = p;
+    streamContainer.scrollTop = streamContainer.scrollHeight;
+  }
+
+  function updatePartial(text) {
+    if (currentPartialElement) {
+      currentPartialElement.textContent = text;
+      streamContainer.scrollTop = streamContainer.scrollHeight;
+    } else {
+      createPartial(text);
+    }
+  }
+
+  function clearPartial() {
+    if (currentPartialElement) {
+      currentPartialElement.remove();
+      currentPartialElement = null;
+    }
+  }
+
+  function appendLogMessage(level, text) {
+    const p = document.createElement('p');
+    p.className = 'sub';
+    p.style.color = '#ef4444';
+    p.textContent = `⚠️ ${text}`;
+    streamContainer.appendChild(p);
+  }
+
+  function setUIStatus(state, message) {
+    if (state === 'active') {
       orb.classList.remove('orb--hablando');
       orb.classList.add('orb--escuchando');
-      if (orbState) orbState.textContent = 'Listening...';
-      if (micBtn) micBtn.style.background = '#D5DAE4'; // Gray when listening
+      if (orbState) orbState.textContent = message || 'Escuchando...';
+      if (micBtn) micBtn.style.background = '#D5DAE4';
+    } else if (state === 'connecting') {
+      if (orbState) orbState.textContent = message || 'Conectando...';
     } else {
-      // Idle state
+      // Idle
       orb.classList.remove('orb--escuchando');
-      orb.classList.add('orb--hablando'); // Back to default animation
+      orb.classList.add('orb--hablando');
       if (orbState) orbState.textContent = 'Brandy speaking';
-      if (micBtn) micBtn.style.background = ''; // Back to accent color
+      if (micBtn) micBtn.style.background = '';
     }
   }
 
-  /**
-   * Toggle microphone on/off.
-   */
+  // Toggle microphone
   async function toggleMicrophone() {
-    if (isListening) {
-      stopListening();
+    if (isSessionActive) {
+      stopSession();
     } else {
-      await startListening();
+      await startSession();
     }
   }
 
-  // Wire up microphone button
+  // Wire up button
   if (micBtn) {
     micBtn.addEventListener('click', toggleMicrophone);
   }
 
-  // Log initialization
-  console.log('[Voice Client] Initialized');
-  console.log('[Audio] Committed sample rate verification:');
-  console.log('  - AudioContext will request 16000 Hz');
-  console.log('  - Actual rate will be logged on connection');
-  console.log('[Processor] Using ScriptProcessorNode (deprecated but stable)');
-  console.log('  - For AudioWorklet, uncomment in startMicrophone() and create processor.js');
+  console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');
+  console.log('[Audio] Sample rate: 24kHz');
+  console.log('[Processor] AudioWorklet for PCM16 conversion');
 
 })();

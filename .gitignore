@@ -7,6 +7,13 @@
 *_credentials*.json
 service-account*.json
 
+# Debug and test artifacts (don't commit)
+*.log
+logs/
+debug_*.json
+TEST_RESULTS.json
+transcriptions/
+
 # Python
 __pycache__/
 *.py[cod]
