@@ -87,6 +87,8 @@ create trigger update_sessions_updated_at
 create or replace function deduct_credits(p_token text, p_amount integer default 1)
 returns integer
 language plpgsql
+security invoker
+set search_path = public, pg_temp  -- sin esto la funcion es secuestrable via search_path
 as $$
 declare
   new_balance integer;
@@ -107,3 +109,7 @@ begin
   return new_balance;
 end;
 $$;
+
+-- RLS activado y sin politicas: nadie entra desde el navegador.
+-- El unico acceso es el backend con la service key, que salta RLS por diseno.
+alter table sessions enable row level security;
