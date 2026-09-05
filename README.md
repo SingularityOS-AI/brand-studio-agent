@@ -92,15 +92,30 @@ This repository is the **foundation**, not the finished product. Being explicit 
 
 **Requirements:** Python 3.12+ and an [AssemblyAI API key](https://www.assemblyai.com/dashboard/signup).
 
+### Running locally
+
 ```bash
+# Clone the repository
 git clone https://github.com/SingularityOS-AI/brand-studio-agent.git
 cd brand-studio-agent
+
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env      # then put your key in .env
-python agent_mockup/server.py
+
+# Copy environment template
+cp .env.example .env
+
+# Edit .env and add your AssemblyAI API key
+# ASSEMBLYAI_API_KEY="your_actual_key_here"
+
+# Run the server (Windows)
+RUN.bat
+
+# Or run directly (any platform)
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open `http://localhost:8088` in **Chrome or Edge**. Safari ignores the `AudioContext` sample rate and needs manual resampling.
+Open `http://localhost:8000` in **Chrome or Edge**. Safari ignores the `AudioContext` sample rate and needs manual resampling.
 
 ### Environment variables
 

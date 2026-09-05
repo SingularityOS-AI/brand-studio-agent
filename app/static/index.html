@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brand Studio Agent</title>
+  <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root{
+    --ground:#E7EAF0; --surface:#FFFFFF; --surface-alt:#F5F7FB; --ink:#14181F; --ink-soft:#5C6675;
+    --line:#D5DAE4; --accent:#2B4CD8; --accent-soft:#6E86EE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:var(--ground);
+    color:var(--ink);
+    font-family:Inter,-apple-system,Segoe UI,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    height:100vh;
+    overflow:hidden;
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-variant-ligatures:none}
+  .disp{font-family:'Space Grotesk',Inter,sans-serif}
+  .app{
+    width:100%;
+    height:100%;
+    display:flex;
+    background:var(--surface);
+  }
+  .voz{width:420px;flex:none;background:var(--surface-alt);border-right:1px solid var(--line);display:flex;flex-direction:column}
+  .doc{flex:1;min-width:0;background:var(--surface);display:flex;flex-direction:column}
+  .prod{width:380px;flex:none;background:var(--surface-alt);border-left:1px solid var(--line);display:flex;flex-direction:column}
+  .eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);font-weight:600}
+  
+  /* Brand bar */
+  .brandbar{display:flex;align-items:center;gap:10px;padding:18px 24px;border-bottom:1px solid var(--line)}
+  .brandmark{width:22px;height:22px;border-radius:6px;background:var(--accent)}
+
+  /* Orb */
+  .orbwrap{display:flex;flex-direction:column;align-items:center;gap:12px;padding:52px 0 26px}
+  .orb{position:relative;width:116px;height:116px;display:grid;place-items:center}
+  .orb .ring{position:absolute;border-radius:50%;border:1px solid var(--accent);opacity:.30}
+  .orb .r1{inset:0}.orb .r2{inset:14px}.orb .r3{inset:28px}
+  .orb .core{width:52px;height:52px;border-radius:50%;background:var(--accent)}
+  .orb--hablando .r1{animation:pulseRing .78s ease-in-out infinite}
+  .orb--hablando .r2{animation:pulseRing .78s ease-in-out .1s infinite}
+  .orb--hablando .r3{animation:pulseRing .78s ease-in-out .2s infinite}
+  .orb--hablando .core{animation:speak .78s ease-in-out infinite}
+  .orb--escuchando .core{background:var(--accent-soft);animation:listen 1.2s ease-in-out infinite}
+  @keyframes pulseRing{0%,100%{transform:scale(.94);opacity:.18}50%{transform:scale(1.06);opacity:.46}}
+  @keyframes speak{0%,100%{transform:scale(.96)}30%{transform:scale(1.14)}60%{transform:scale(1.02)}}
+  @keyframes listen{0%,100%{opacity:.8}50%{opacity:1}}
+
+  .orbstate{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  
+  /* Stream */
+  .stream{flex:1;padding:14px 34px;display:flex;flex-direction:column;gap:14px}
+  .first{font-size:22px;line-height:1.42;color:var(--ink);margin:0;font-weight:500;letter-spacing:-.01em;font-family:'Space Grotesk',Inter,sans-serif}
+  .sub{font-size:14.5px;line-height:1.6;color:var(--ink-soft);margin:0}
+  .caret{display:inline-block;width:2px;height:20px;background:var(--accent);vertical-align:-3px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* Mic bar */
+  .micbar{display:flex;flex-direction:column;align-items:center;gap:13px;padding:26px 28px 40px;border-top:1px solid var(--line)}
+  .mic{width:96px;height:96px;border-radius:50%;background:var(--accent);border:none;display:grid;place-items:center;cursor:pointer;position:relative}
+  .mic::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:1px solid var(--accent);opacity:.35;animation:pulseRing 1.6s ease-in-out infinite}
+  .michint{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+
+  /* Doc body (zones) */
+  .docbody{flex:1;display:flex;flex-direction:column;justify-content:center;gap:11px;padding:0 90px}
+  .ghost{display:flex;align-items:center;gap:14px;border:1px dashed var(--line);border-radius:4px;padding:14px 18px;opacity:.5}
+  .gnum{font-size:11px;color:var(--ink-soft)}
+  .gname{font-size:14px;color:var(--ink-soft)}
+  .gline{margin-left:auto;height:3px;border-radius:2px;background:var(--line)}
+
+  /* Prod */
+  .prodhead{padding:22px 24px 14px;border-bottom:1px solid var(--line)}
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:30px;color:var(--ink-soft)}
+  .credits{border-top:1px solid var(--line);padding:16px 24px 18px}
+  .creditrow{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .creditnum{font-size:19px;font-weight:500;color:var(--ink)}
+  .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Zone 1左侧: Voice interface -->
+  <aside class="voz">
+    <div class="brandbar">
+      <span class="brandmark"></span>
+      <span class="disp" style="font-size:14px;font-weight:600;letter-spacing:-.01em">Brand Studio</span>
+      <span class="mono" style="margin-left:auto;font-size:11px;color:#5C6675">new session</span>
+    </div>
+
+    <div class="orbwrap">
+      <div class="orb orb--hablando">
+        <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
+        <span class="core"></span>
+      </div>
+      <div class="orbstate">
+        <span>Brandy speaking</span>
+      </div>
+    </div>
+
+    <div class="stream">
+      <p class="first">I do not know you.<span class="caret"></span></p>
+      <p class="sub">Tell me what you do, and who you do it for. There is no form: you talk, I write.</p>
+    </div>
+
+    <div class="micbar">
+      <button class="mic" aria-label="Microphone" id="micBtn">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round">
+          <rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"></path>
+        </svg>
+      </button>
+      <span class="michint">Talk whenever you want</span>
+    </div>
+  </aside>
+
+  <!-- Zone 2中间: Document (9 sections) -->
+  <main class="doc">
+    <div class="docbody">
+      <div class="ghost"><span class="gnum mono">01</span><span class="gname">Brand Journey</span><span class="gline" style="width:120px"></span></div>
+      <div class="ghost"><span class="gnum mono">02</span><span class="gname">Stage</span><span class="gline" style="width:64px"></span></div>
+      <div class="ghost"><span class="gnum mono">03</span><span class="gname">The pond</span><span class="gline" style="width:150px"></span></div>
+      <div class="ghost"><span class="gnum mono">04</span><span class="gname">Expert or Student</span><span class="gline" style="width:90px"></span></div>
+      <div class="ghost"><span class="gnum mono">05</span><span class="gname">Contrarian stance</span><span class="gline" style="width:180px"></span></div>
+      <div class="ghost"><span class="gnum mono">06</span><span class="gname">Desired and forbidden associations</span><span class="gline" style="width:110px"></span></div>
+      <div class="ghost"><span class="gnum mono">07</span><span class="gname">Identity map</span><span class="gline" style="width:140px"></span></div>
+      <div class="ghost"><span class="gnum mono">08</span><span class="gname">The offer</span><span class="gline" style="width:76px"></span></div>
+      <div class="ghost"><span class="gnum mono">09</span><span class="gname">The lead magnet</span><span class="gline" style="width:160px"></span></div>
+    </div>
+  </main>
+
+  <!-- Zone 3右侧: Production -->
+  <aside class="prod">
+    <div class="prodhead">
+      <div class="eyebrow">Production</div>
+      <p style="margin:6px 0 0;font-size:13px;color:#5C6675;line-height:1.5">Empty until there is something to produce.</p>
+    </div>
+
+    <div class="empty">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D5DAE4" stroke-width="1.2">
+        <rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 9.5h18"></path>
+      </svg>
+      <p style="margin:0;font-size:13px;line-height:1.55;max-width:230px">Nothing queued. The first full lap is already paid for: you will not hit a wall halfway through.</p>
+    </div>
+
+    <div class="credits">
+      <div class="creditrow">
+        <span class="eyebrow">Credits</span>
+        <span class="creditnum mono" id="Credits-Label">500 <span style="font-size:12px;color:#5C6675">/ 500</span></span>
+      </div>
+      <div class="bar"><span style="display:block;height:100%;width:100%;background:#2B4CD8" id="Credits-Bar"></span></div>
+    </div>
+  </aside>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
