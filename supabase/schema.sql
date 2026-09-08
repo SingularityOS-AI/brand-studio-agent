@@ -61,12 +61,16 @@ create index if not exists sessions_created_at_idx on sessions (created_at);
 
 -- Trigger to auto-update updated_at (optional, for cleanliness)
 create or replace function update_updated_at_column()
-returns trigger as $$
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp  -- sin esto la funcion es secuestrable
+as $$
 begin
   new.updated_at = now();
   return new;
 end;
-$$ language plpgsql;
+$$;
 
 create trigger update_sessions_updated_at
   before update on sessions
@@ -113,3 +117,32 @@ $$;
 -- RLS activado y sin politicas: nadie entra desde el navegador.
 -- El unico acceso es el backend con la service key, que salta RLS por diseno.
 alter table sessions enable row level security;
+
+-- =============================================================================
+-- BRAND BRAINS TABLE (Pieza 2: Bloque A — el Cerebro de Marca)
+-- =============================================================================
+-- Stores brand brain data extracted from voice conversations.
+-- Contains nine sections: brand_journey, etapa, charco, credibilidad,
+-- contrarian, asociaciones, identidad, oferta, lead_magnet.
+-- =============================================================================
+
+create table if not exists brand_brains (
+  session_token text primary key references sessions(token) on delete cascade,
+  sections jsonb not null default '[]'::jsonb,
+  formato text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Index on updated_at for sorting recent changes
+create index if not exists brand_brains_updated_at_idx on brand_brains(updated_at);
+
+-- Trigger for auto-updating updated_at
+drop trigger if exists update_brand_brains_updated_at on brand_brains;
+create trigger update_brand_brains_updated_at
+  before update on brand_brains
+  for each row
+  execute function update_updated_at_column();
+
+-- RLS activado y sin politicas: acceso solo desde backend con service key
+alter table brand_brains enable row level security;

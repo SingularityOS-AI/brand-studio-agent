@@ -167,6 +167,117 @@ async def get_session_status(request: Request):
     return JSONResponse(content={"credits_remaining": credits})
 
 
+# =============================================================================
+# BRAND BRAIN ENDPOINTS (Pieza 2: Bloque A — el Cerebro de Marca)
+# =============================================================================
+
+from pydantic import BaseModel
+
+
+class BrainRetrieveResponse(BaseModel):
+    brand_brain: dict
+    sections_count: int
+
+
+@app.get("/api/brain", response_class=JSONResponse)
+async def get_brand_brain_handler(request: Request):
+    """
+    Retrieve brand brain for current session.
+
+    Returns the complete brand brain with all nine sections,
+    including their status (propuesto/confirmado) and citations.
+    """
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="No session token")
+
+    from app.tools.brand_brain.store import get_brand_brain
+
+    brain = get_brand_brain(session_token)
+    if not brain:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Brand brain not found for this session"}
+        )
+
+    # Convert to dict for JSON response
+    return JSONResponse(content={
+        "brand_brain": brain.to_dict(),
+        "sections_count": len(brain.sections)
+    })
+
+
+class ExtractBrandBrainRequest(BaseModel):
+    transcript: str
+    turn_count: int
+    tool_result: dict
+
+
+@app.post("/api/brain/extract", response_class=JSONResponse)
+async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainRequest):
+    """
+    Extract brand brain sections from conversation transcript.
+
+    This endpoint is called when the AssemblyAI agent invokes the extract_brand_brain tool.
+    Validates, persists, and returns the extracted sections.
+
+    Protected by spend_guard to prevent credit exhaustion.
+    """
+    # 1. Validate session
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="No session token")
+
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session token")
+
+    # 2. Deduct credits (extraction costs 5 credits)
+    try:
+        remaining = guard.deduct_credits(session_token, amount=5)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": session["credits"],
+                    "payment_url": settings.payment_url,
+                }
+            )
+        raise
+
+    # 3. Extract and persist
+    from app.tools.brand_brain.extractor import extract_and_persist
+    from app.tools.brand_brain.extractor import ExtractionError
+
+    try:
+        brain = extract_and_persist(
+            session_token=session_token,
+            transcript=body.transcript,
+            turn_count=body.turn_count,
+            tool_result=body.tool_result
+        )
+    except ExtractionError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Extraction failed: {str(e)}"}
+        )
+    except Exception as e:
+        print(f"[ERROR] Extraction error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal extraction error: {str(e)}"}
+        )
+
+    # 4. Return success
+    return JSONResponse(content={
+        "brand_brain": brain.to_dict(),
+        "sections_count": len(brain.sections),
+        "credits_remaining": remaining
+    })
+
+
 @app.get("/api/agent-token", response_class=JSONResponse)
 async def get_agent_api_key(request: Request):
     """
