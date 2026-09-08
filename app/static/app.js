@@ -16,14 +16,29 @@
     apiKeyRequested = true;
 
     try {
-      const response = await fetch('/api/agent-token');
+      // Token EFIMERO, no la API key maestra. El navegador nunca debe ver la
+      // credencial real: quien la vea puede gastar sin tope contra la cuenta.
+      const response = await fetch('/api/agent-token', { credentials: 'same-origin' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        if (response.status === 402) {
+          alert('Te quedaste sin créditos en esta sesión.');
+        } else if (response.status === 429) {
+          alert('Demasiadas peticiones. Espera un minuto.');
+        } else {
+          alert('No se pudo obtener el token de voz: ' + (body.detail || response.status));
+        }
+        apiKeyRequested = false;  // permitir reintento
+        return null;
+      }
       const data = await response.json();
-      API_KEY = data.api_key;
-      console.log('[Voice Client] API Key fetched from backend');
+      API_KEY = data.token;
+      console.log('[Voice Client] Token efimero obtenido del backend');
       return API_KEY;
     } catch (e) {
-      console.error('[Voice Client] Failed to fetch API key:', e);
-      alert('Failed to get AssemblyAI API key from server. Check server logs.');
+      console.error('[Voice Client] Failed to fetch token:', e);
+      alert('No se pudo contactar al servidor para el token de voz.');
+      apiKeyRequested = false;
       return null;
     }
   }
@@ -75,9 +90,20 @@ After exploring their business, you have access to a tool called "extract_brand_
 - Oferta Irresistible (Irresistible Offer)
 - Lead Magnet (Lead Magnet)
 
-Always cite what the user says when you propose content. For example: "Based on what you said about 'losing 50% of leads', I see your charco (pain point) as..."
+CRITICAL: Before finalizing ANY section, you must confirm with the user. Repeat what you understood in your own words and ask for correction. Example: "If I understand correctly, your core pain point is X — and it's NOT Y. Am I on track?" This validates the understanding and gets their exact words for citation.
 
-If the user corrects you, acknowledge it and confirm the correction with their words. Never propose empty content without a citation.
+Never propose empty content without a citation. If you don't have a user quote to support a section, leave it blank and ask more questions.
+
+When identifying their business stage, always specify:
+- The stage name
+- The ONE key skill to unlock at that level
+- What's PROHIBITED at that level (what they must NOT do yet)
+
+For example: "You're at Stage 2 (Growth). You should focus on [one skill]. Don't try to [what's prohibited] yet."
+
+When confirming stages or major conclusions, always include context like: "I see you as Stage 3 because... The key to unlock now is... Before this, avoid..."
+
+No gamification. No points, badges, streaks, or celebrations. Be direct and expert.
 
 Always respond in English. Keep your responses conversational and engaging.`;
 
@@ -198,24 +224,28 @@ Always respond in English. Keep your responses conversational and engaging.`;
             // el socket, y el fallo se disfraza de error de audioWorklet porque
             // stopSession() ya dejo el audioContext en null. No es la forma
             // anidada de OpenAI ({type:"function", function:{...}}), es plana.
+            //
+            // Agent will call this tool when extraction is ready. The tool
+            // expects agent to provide extracted sections with citations.
             tools: [
               {
                 type: 'function',
                 name: 'extract_brand_brain',
-                description: 'Extract nine brand sections from our conversation: brand_journey, etapa, charco, credibilidad, contrarian, asociaciones, identidad, oferta, lead_magnet. Always cite what the user said as the source.',
+                description: 'Extract nine brand sections from our conversation to backend. Return a JSON object with "validation_status" ("valid"/"partial"/"invalid") and "brand_brain" dict. For EACH section: provide content AND exact user quote (citation). Skip sections without user support. Sections: brand_journey, etapa, charco, credibilidad, contrarian, asociaciones, identidad, oferta, lead_magnet.',
                 parameters: {
                   type: 'object',
                   properties: {
-                    transcript: {
+                    validation_status: {
                       type: 'string',
-                      description: 'Full conversation transcript'
+                      enum: ['valid', 'partial', 'invalid'],
+                      description: 'Status of extraction'
                     },
-                    turn_count: {
-                      type: 'integer',
-                      description: 'Number of turns in the conversation'
+                    brand_brain: {
+                      type: 'object',
+                      description: 'Extracted brand sections with framework names as keys (pain_puddle, segues_stage, ralston_journey, etc.)'
                     }
                   },
-                  required: ['transcript', 'turn_count']
+                  required: ['validation_status', 'brand_brain']
                 }
               }
             ]
@@ -453,6 +483,15 @@ Always respond in English. Keep your responses conversational and engaging.`;
         const transcriptText = fullTranscript.map(t => `${t.speaker}: ${t.text}`).join('\n');
         const turnCount = Math.ceil(fullTranscript.length / 2); // Agent + user pairs
 
+        // args is what the agent extracted - pass it as tool_result directly
+        // Agent should have provided validation_status and brand_brain with extracted sections
+        const tool_result = args || {
+          validation_status: 'valid',
+          brand_brain: {}
+        };
+
+        console.log('[Tool Call] Sending tool_result to backend:', tool_result);
+
         // Call backend extraction endpoint
         const response = await fetch('/api/brain/extract', {
           method: 'POST',
@@ -461,11 +500,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
           body: JSON.stringify({
             transcript: transcriptText,
             turn_count: turnCount,
-            // For now, pass a minimal tool_result (in production this would come from actual LLM call)
-            tool_result: {
-              validation_status: 'valid',
-              brand_brain: {} // Backend will handle real extraction
-            }
+            tool_result: tool_result
           })
         });
 

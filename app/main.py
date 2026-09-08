@@ -209,7 +209,7 @@ async def get_brand_brain_handler(request: Request):
 
 class ExtractBrandBrainRequest(BaseModel):
     transcript: str
-    turn_count: int
+    turn_count: int | None = None  # Optional - no turn limit per CEO decision
     tool_result: dict
 
 
@@ -252,10 +252,11 @@ async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainR
     from app.tools.brand_brain.extractor import ExtractionError
 
     try:
+        # turn_count is now optional - sections validated by content/citation
         brain = extract_and_persist(
             session_token=session_token,
             transcript=body.transcript,
-            turn_count=body.turn_count,
+            turn_count=getattr(body, 'turn_count', None),
             tool_result=body.tool_result
         )
     except ExtractionError as e:
@@ -279,12 +280,22 @@ async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainR
 
 
 @app.get("/api/agent-token", response_class=JSONResponse)
-async def get_agent_api_key(request: Request):
+async def get_agent_token(request: Request):
     """
-    Return AssemblyAI API key for direct Voice Agent WebSocket connection.
-    RESTORE: This restores the legacy functionality where the client connects directly to AssemblyAI.
+    Token EFIMERO para que el navegador abra el WebSocket del Voice Agent.
+
+    NUNCA devuelve la API key maestra. Este endpoint devolvia
+    `settings.assemblyai_api_key` en crudo a cualquiera que lo pidiera: sin
+    autenticacion, sin guard y sin limite. Cualquier visitante podia copiarla
+    de las devtools y gastar sin tope contra la cuenta del dueno, anulando
+    por completo el techo de gasto que la Pieza 1 existe para imponer. Es el
+    mismo patron de toll fraud que ya costo dinero dos veces en este
+    portafolio (Voxniac y neura-sales).
+
+    Delega en /api/token, que ya pasa por rate limit + presupuesto y acuna un
+    token de vida corta. Se conserva la ruta para no romper clientes viejos.
     """
-    return JSONResponse(content={"api_key": settings.assemblyai_api_key})
+    return await mint_temporary_token(request)
 
 
 @app.get("/", response_class=HTMLResponse)
