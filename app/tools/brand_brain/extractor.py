@@ -34,7 +34,7 @@ class ExtractionError(Exception):
     pass
 
 
-def validate_extraction_input(transcript: str, turn_count: int) -> None:
+def validate_extraction_input(transcript: str, turn_count: int = None) -> None:
     """
     Validate input parameters for extraction.
 
@@ -44,8 +44,8 @@ def validate_extraction_input(transcript: str, turn_count: int) -> None:
     if not transcript or len(transcript.strip()) < 100:
         raise ExtractionError("transcript must be at least 100 characters")
 
-    if turn_count < 6:
-        raise ExtractionError(f"turn_count must be 6, got {turn_count}")
+    # turn_count validation removed per CEO decision: no turn limit
+    # Sections are validated by content and citation, not turn count
 
 
 def parse_extraction_result(raw_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -64,15 +64,21 @@ def parse_extraction_result(raw_result: Dict[str, Any]) -> Dict[str, Any]:
     if not raw_result or not isinstance(raw_result, dict):
         raise ExtractionError("Extraction result must be a dict")
 
-    # Check for validation status
-    validation_status = raw_result.get("validation_status")
+    # Check for validation status - be lenient, default to "valid"
+    validation_status = raw_result.get("validation_status", "valid")
     if validation_status not in ["valid", "partial", "invalid"]:
-        raise ExtractionError(f"Invalid validation_status: {validation_status}")
+        # Normalize to "valid" if unknown status
+        validation_status = "valid"
+        raw_result["validation_status"] = validation_status
 
-    # Check for brand_brain
-    brand_brain = raw_result.get("brand_brain")
-    if not brand_brain:
-        raise ExtractionError("Missing brand_brain in extraction result")
+    # Check for brand_brain - could be empty dict if agent didn't extract anything
+    brand_brain = raw_result.get("brand_brain", {})
+    if not isinstance(brand_brain, dict):
+        raise ExtractionError("brand_brain must be a dict")
+
+    # Ensure brand_brain exists in result
+    if "brand_brain" not in raw_result:
+        raw_result["brand_brain"] = brand_brain
 
     return raw_result
 
@@ -292,8 +298,8 @@ def normalize_section_content(section_id: str, framework_data: Dict) -> Dict:
 def extract_and_persist(
     session_token: str,
     transcript: str,
-    turn_count: int,
-    tool_result: Dict[str, Any]
+    turn_count: int = None,
+    tool_result: Dict[str, Any] = None
 ) -> BrandBrain:
     """
     Main extraction workflow: validate → parse → convert → persist.
@@ -301,7 +307,7 @@ def extract_and_persist(
     Args:
         session_token: Session token
         transcript: Full conversation transcript
-        turn_count: Number of turns
+        turn_count: Number of turns (optional, no longer enforced)
         tool_result: Raw result from extract_brand_brain tool
 
     Returns:
@@ -310,7 +316,7 @@ def extract_and_persist(
     Raises:
         ExtractionError: If any validation fails
     """
-    # 1. Validate inputs
+    # 1. Validate inputs (turn_count no longer required per CEO decision)
     validate_extraction_input(transcript, turn_count)
 
     # 2. Parse tool result

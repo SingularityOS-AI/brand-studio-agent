@@ -240,8 +240,10 @@ def test_websocket_rejects_without_session_cookie():
 def reset_guard_state():
     """Reset guard state before each test to avoid rate limit conflicts between tests."""
     guard._rate_limits.clear()
-    guard._sessions.clear()
     guard._blocked_ips.clear()
+    # Only clear _sessions if it exists (in-memory mode)
+    if hasattr(guard, '_sessions'):
+        guard._sessions.clear()
     yield
 
 
@@ -294,8 +296,8 @@ def test_websocket_rejects_token_in_query_string():
             websocket.receive_text()
     assert exc_info.value.code == 1008
 
-    # Clean up
-    guard._sessions.pop(valid_session, None)
+    # Clean up (invalidate session in either mode)
+    guard.invalidate_session(valid_session)
 
 
 def test_websocket_accepts_with_valid_cookie_and_deducts_once():

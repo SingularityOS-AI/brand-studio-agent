@@ -533,11 +533,10 @@ def test_get_brand_brain_endpoint_returns_404_when_not_found():
     """GET /api/brain returns 404 if no brand brain exists for session"""
     from fastapi.testclient import TestClient
     from app.main import app
-    import os
-    
-    # Set test mode
-    os.environ["TEST_MODE"] = "true"
-    
+
+    # Note: TEST_MODE is set in conftest.py before any imports
+    # No need to set it here - guard.py and store.py already respect it
+
     client = TestClient(app)
     
     # First, get a session token

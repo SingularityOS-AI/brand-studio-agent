@@ -6,6 +6,7 @@ Uses TestClient with 3 paths:
   3. Budget depleted → 402 with payment URL
 """
 import os
+import time
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch
@@ -168,12 +169,14 @@ def test_startup_without_supabase_uses_memory():
 
 def test_startup_with_supabase_calls_database():
     """
-    When Supabase credentials are set, guard should use database.
+    When Supabase credentials are set and TEST_MODE is false, guard should use database.
     Mock the Supabase client to verify it's being used.
     """
     # Set Supabase env vars
     os.environ["SUPABASE_URL"] = "https://test.supabase.co"
     os.environ["SUPABASE_KEY"] = "test_key"
+    # CRITICAL: Disable TEST_MODE for this test to verify Supabase behavior
+    os.environ["TEST_MODE"] = "false"
 
     # Mock supabase.create_client at import time (before guard imports it)
     mock_client = Mock()
@@ -203,6 +206,8 @@ def test_startup_with_supabase_calls_database():
     # Cleanup
     del os.environ["SUPABASE_URL"]
     del os.environ["SUPABASE_KEY"]
+    # Restore TEST_MODE
+    os.environ["TEST_MODE"] = "true"
 
 
 def test_atomic_deduction_no_duplicate_spending():
@@ -213,6 +218,8 @@ def test_atomic_deduction_no_duplicate_spending():
     # Set up Supabase env vars
     os.environ["SUPABASE_URL"] = "https://test.supabase.co"
     os.environ["SUPABASE_KEY"] = "test_key"
+    # CRITICAL: Disable TEST_MODE for this test to verify Supabase behavior
+    os.environ["TEST_MODE"] = "false"
 
     mock_client = Mock()
     mock_table = Mock()
@@ -246,13 +253,16 @@ def test_atomic_deduction_no_duplicate_spending():
 
         token = "test_token_session"
 
-        # First deduct of 5 should succeed
+        # In Supabase mode, we don't have _sessions. Instead, we test that
+        # calling deduct_credits with insufficient balance (when RPC returns NULL)
+        # raises the expected HTTPException. Since the mock RPC returns None on second call,
+        # the deduct should raise 402.
+
+        # First deduct of 5 should succeed (RPC returns 5)
         remaining = guard.deduct_credits(token, amount=5)
         assert remaining == 5
 
-        # Second deduct of 5 should fail (only 5 left, need 6 total)
-        # Due to atomic constraint in SQL, even if we ask for 5, it should account properly
-        # For this test, we'll verify that when RPC returns NULL, we raise 402
+        # Second deduct of 6 should fail (RPC returns NULL = insufficient credits)
         try:
             guard.deduct_credits(token, amount=6)
             assert False, "Should have raised 402"
@@ -263,6 +273,8 @@ def test_atomic_deduction_no_duplicate_spending():
     # Cleanup
     del os.environ["SUPABASE_URL"]
     del os.environ["SUPABASE_KEY"]
+    # Restore TEST_MODE
+    os.environ["TEST_MODE"] = "true"
 
 
 def test_cold_session_creates_and_connects():

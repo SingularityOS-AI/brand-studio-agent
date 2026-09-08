@@ -17,6 +17,10 @@ class Guard:
     """
 
     def __init__(self):
+        # CRITICAL: Respect TEST_MODE to prevent writing to production database during tests
+        # conftest.py sets TEST_MODE=true before any app imports
+        use_test_mode = os.getenv("TEST_MODE") == "true"
+
         # Supabase client (lazy-loaded when credentials are available)
         self._supabase = None
         self._use_supabase = False
@@ -29,7 +33,13 @@ class Guard:
         # Always in-memory
         self._blocked_ips: Dict[str, float] = {}
 
-        # Check for Supabase configuration
+        # In TEST_MODE, force in-memory storage regardless of environment variables
+        if use_test_mode:
+            print("[guard] TEST_MODE=true: forzando almacenamiento en memoria (no se toca Supabase)")
+            self._sessions: Dict[str, dict] = {}
+            return
+
+        # Check for Supabase configuration (only in production mode)
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
 
@@ -55,7 +65,7 @@ class Guard:
         if not self._use_supabase:
             print("[guard] sin Supabase: estado en memoria, se pierde al reiniciar")
             # In-memory session storage
-            self._sessions: Dict[str, dict] = {}
+            self._sessions: Dict[str, dict] ={}
 
     def check_rate_limit(self, ip: str, max_requests_per_minute: int = 30) -> None:
         """
