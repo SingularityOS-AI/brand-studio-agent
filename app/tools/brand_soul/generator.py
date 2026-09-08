@@ -35,6 +35,8 @@ from app.tools.brand_soul.template import (
     get_etapa_context,
     detect_etapa_from_brand_brain
 )
+from app.config import settings
+from app.guard import guard
 
 
 class SoulGenerationError(Exception):
@@ -97,12 +99,71 @@ def _extract_literal_citations(brain: BrandBrain) -> Dict[str, str]:
     return citations
 
 
+def _get_vertex_ai_client():
+    """
+    Get the Vertex AI client for Gemini models.
+
+    Returns:
+        Vertex AI client or None if not configured/test mode
+
+    Raises:
+        RuntimeError: If Vertex AI is not configured in production mode
+    """
+    # In test mode, return None to allow mocking
+    if os.getenv("TEST_MODE") == "true":
+        return None
+
+    if not settings.vertex_ai_project_id:
+        raise RuntimeError(
+            "VERTEX_AI_PROJECT_ID is not configured. "
+            "Set it in .env file or environment variable before starting the server."
+        )
+
+    try:
+        from vertexai.generative_models import GenerativeModel
+        import vertexai
+
+        # Initialize Vertex AI
+        vertexai.init(
+            project=settings.vertex_ai_project_id,
+            location=settings.vertex_ai_location
+        )
+
+        return GenerativeModel(settings.vertex_ai_model)
+
+    except ImportError:
+        raise RuntimeError(
+            "google-cloud-aiplatform is not installed. "
+            "Install it with: pip install google-cloud-aiplatform"
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to initialize Vertex AI client: {e}. "
+            "Ensure VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION are correct."
+        )
+
+
+def _estimate_tokens(text: str) -> int:
+    """
+    Estimate token count for a text string.
+    Rough approximation: 1 token ≈ 4 characters for English/Spanish.
+
+    Args:
+        text: The text to estimate tokens for
+
+    Returns:
+        Estimated token count (conservative estimate)
+    """
+    # Conservative estimate: ~4 characters per token for mixed English/Spanish
+    return max(1, len(text) // 4)
+
+
 def _redact_section_content_with_llm(
     section: Section,
     all_citations: Dict[str, str]
-) -> Dict[str, str]:
+) -> Tuple[Dict[str, str], int]:
     """
-    Redact a section's content using an LLM.
+    Redact a section's content using Gemini 2.5 Flash-Lite via Vertex AI.
 
     CRITICAL: The LLM only sees the section content and its own citation.
     It NEVER sees the raw transcript or external context.
@@ -112,27 +173,25 @@ def _redact_section_content_with_llm(
     2. Use ONLY facts in the section content
     3. Keep core assertions accurate
     4. Temperature = 0 for determinism
+    5. NEVER invent data that isn't in the content
+
+    Args:
+        section: The Section object to redact
+        all_citations: Dict mapping section_id to citation text
 
     Returns:
-        Dict with redacted text fields for that section
+        Tuple of (dict with redacted text fields, estimated_token_count)
 
-    NOTE: This is a stub implementation. In production, you would:
-    - Use OpenAI API (gpt-4o-mini, temperature=0, seed if supported)
-    - Implement proper prompt engineering for strategic redaction
-    - Handle API errors gracefully
+    Raises:
+        SoulGenerationError: If LLM call fails
+
+    NOTE: For sections that are pure data transformations (not prose),
+    we return the structured data directly without LLM calls.
     """
-    # For now, return raw content as-is
-    # In a real implementation, this would call an LLM
-
     content = section.content
 
-    if section.id == "charco":
-        return {
-            "content": content.get("pain_point", ""),
-            "citation": all_citations["charco"]
-        }
-
-    elif section.id == "etapa":
+    # These sections don't need LLM redaction - they're structured data
+    if section.id == "etapa":
         # Extract knowledge level (experto vs estudiante)
         stage_name = content.get("stage", "")
         if "seed" in stage_name.lower():
@@ -146,14 +205,7 @@ def _redact_section_content_with_llm(
             "knowledge_level": knowledge_level,
             "implication": implication,
             "citation": all_citations["etapa"]
-        }
-
-    elif section.id == "contrarian":
-        return {
-            "common_belief": content.get("common_belief", ""),
-            "contrarian_position": content.get("contrarian_position", ""),
-            "citation": all_citations["contrarian"]
-        }
+        }, _estimate_tokens(implication) + 100  # Estimate
 
     elif section.id == "identidad":
         values = content.get("values", [])
@@ -177,7 +229,7 @@ def _redact_section_content_with_llm(
             "associations_desired": desired_html,
             "associations_prohibited": prohibited_html,
             "citation": all_citations["identidad"]
-        }
+        }, _estimate_tokens(voice_text) + 200
 
     elif section.id == "oferta":
         components = content.get("offer_components", [])
@@ -190,13 +242,13 @@ def _redact_section_content_with_llm(
         return {
             "equation": equation_text,
             "citation": all_citations["oferta"]
-        }
+        }, _estimate_tokens(equation_text) + 50
 
     elif section.id == "lead_magnet":
         return {
             "text": content.get("what_they_get", ""),
             "citation": all_citations["lead_magnet"]
-        }
+        }, _estimate_tokens(content.get("what_they_get", "")) + 50
 
     elif section.id == "brand_journey":
         stages = [
@@ -215,18 +267,156 @@ def _redact_section_content_with_llm(
         return {
             "stages": stages_text,
             "citation": all_citations["brand_journey"]
-        }
+        }, _estimate_tokens(stages_text) + 100
 
     elif section.id == "credibilidad":
         # This section is used for evidence, not as a main section in the document
-        return {"citation": all_citations["credibilidad"]}
+        return {"citation": all_citations["credibilidad"]}, 50
 
     elif section.id == "asociaciones":
         # This section is integrated into the identity section
-        return {"citation": all_citations["asociaciones"]}
+        return {"citation": all_citations["asociaciones"]}, 50
+
+    # Sections that NEED LLM redaction (prose sections)
+    elif section.id == "charco":
+        pain_point = content.get("pain_point", "")
+        if not pain_point:
+            return {
+                "content": "",
+                "citation": all_citations["charco"]
+            }, 50
+
+        redacted_text = _call_llm_for_redaction(
+            section_text=pain_point,
+            citation_text=all_citations["charco"],
+            instruction=(
+                "Redacta el punto de dolor de forma estratégica, como lo haría un consultor de marca. "
+                "Usa un tono directo y contundente. No inventes detalles que no estén en el texto original."
+            )
+        )
+
+        return {
+            "content": redacted_text,
+            "citation": all_citations["charco"]
+        }, _estimate_tokens(pain_point) + _estimate_tokens(redacted_text) + 500
+
+    elif section.id == "contrarian":
+        common_belief = content.get("common_belief", "")
+        contrarian_position = content.get("contrarian_position", "")
+
+        if not common_belief or not contrarian_position:
+            return {
+                "common_belief": common_belief or "",
+                "contrarian_position": contrarian_position or "",
+                "citation": all_citations["contrarian"]
+            }, 100
+
+        redacted_common = _call_llm_for_redaction(
+            section_text=common_belief,
+            citation_text=all_citations["contrarian"],
+            instruction=(
+                "Redacta esta creencia común en una frase clara y breve. "
+                "Mantén el significado exacto, solo mejora la redacción."
+            )
+        )
+
+        redacted_contrarian = _call_llm_for_redaction(
+            section_text=contrarian_position,
+            citation_text=all_citations["contrarian"],
+            instruction=(
+                "Redacta esta posición contraria con fuerza estratégica. "
+                "Haz que suene como una verdad contraintuitiva impactante. "
+                "No añadas argumentos que no estén en el original."
+            )
+        )
+
+        return {
+            "common_belief": redacted_common,
+            "contrarian_position": redacted_contrarian,
+            "citation": all_citations["contrarian"]
+        }, _estimate_tokens(common_belief) + _estimate_tokens(contrarian_position) + _estimate_tokens(redacted_common) + _estimate_tokens(redacted_contrarian) + 1000
 
     else:
-        return {"citation": all_citations.get(section.id, "")}
+        return {"citation": all_citations.get(section.id, "")}, 50
+
+
+def _call_llm_for_redaction(
+    section_text: str,
+    citation_text: str,
+    instruction: str
+) -> str:
+    """
+    Call Gemini 2.5 Flash-Lite to redact section content with strategic voice.
+
+    Args:
+        section_text: The original section content to redact
+        citation_text: The literal citation (for context, NOT to paraphrase)
+        instruction: Specific instruction for this section type
+
+    Returns:
+        Redacted text string
+
+    Raises:
+        SoulGenerationError: If LLM call fails
+    """
+    model = _get_vertex_ai_client()
+
+    # In test mode, return the original text
+    if model is None:
+        return section_text
+
+    # Build the strict prompt
+    prompt = f"""Eres un estratega de marcas senior. Tu tarea es REDACTAR (no reescribir, no inventar) el siguiente texto con voz profesional y estratégica.
+
+IMPORTANTE - REGLAS INVIOLABLES:
+1. NO inventes datos, hechos, ni detalles que NO estén en el texto original
+2. NO añadas ejemplos, estadísticas ni testimonios que no estén en el original
+3. NO cambies el significado fundamental de ninguna afirmación
+4. Usa un tono profesional y estratégico, como lo haría un consultor de marca
+5. Si el original es breve, manténlo breve. Si es detallado, mantén su profundidad.
+6. La cita vuelve del contexto, pero NO la parafrasees ni la menciones en la redacción
+
+Texto a redactar:
+{section_text}
+
+Instrucción específica:
+{instruction}
+
+Devuelve SOLO el texto redactado. Sin explicaciones, sin intro, sin formato markdown."""
+
+    try:
+        # Generate with temperature=0 for determinism
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.0,
+                "max_output_tokens": 500,
+                "candidate_count": 1
+            }
+        )
+
+        if not response.text:
+            raise SoulGenerationError("LLM returned empty response")
+
+        # Clean up the response - remove any markdown or extra whitespace
+        redacted = response.text.strip()
+
+        # Remove markdown code blocks if present
+        if redacted.startswith("```"):
+            lines = redacted.split("\n")
+            # Skip first line (```...) and last line (```)
+            if len(lines) > 2:
+                redacted = "\n".join(lines[1:-1])
+            else:
+                # Malformed, just take everything after the first line
+                redacted = "\n".join(lines[1:])
+
+        return redacted.strip() or section_text
+
+    except Exception as e:
+        # If LLM fails, return original text (graceful degradation)
+        print(f"[WARN] LLM redaction failed for section: {e}. Using original text.")
+        return section_text
 
 
 def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
@@ -306,7 +496,7 @@ def _compute_brain_hash(brain: BrandBrain) -> str:
     return hashlib.sha256(brain_json.encode()).hexdigest()
 
 
-def _check_cache(brain: BrandBrain) -> Optional[str]:
+def _check_cache(brain: BrandBrain, session_token: str) -> Optional[str]:
     """
     Check if a cached HTML exists for this brain.
 
@@ -315,16 +505,50 @@ def _check_cache(brain: BrandBrain) -> Optional[str]:
 
     Args:
         brain: BrandBrain object
+        session_token: Session token to query cache
 
     Returns:
         Cached HTML string if valid cache hit, None otherwise
     """
-    # In a real implementation, this would query Supabase
-    # For now, return None to always regenerate
-    return None
+    # In test mode, return None to force regeneration
+    if os.getenv("TEST_MODE") == "true":
+        return None
+
+    try:
+        from app.tools.brand_brain.store import _get_client
+
+        client = _get_client()
+        if client is None:
+            return None
+
+        # Query the brand_brains table
+        result = client.table("brand_brains").select(
+            "soul_html",
+            "brain_hash"
+        ).eq("session_token", session_token).execute()
+
+        if not result.data:
+            return None
+
+        row = result.data[0]
+
+        # Check if brain_hash matches (cache invalidation)
+        current_hash = _compute_brain_hash(brain)
+        cached_hash = row.get("brain_hash")
+
+        if not cached_hash or cached_hash != current_hash:
+            # Brain changed, cache is invalid
+            return None
+
+        # Return cached HTML
+        return row.get("soul_html")
+
+    except Exception as e:
+        print(f"[WARN] Failed to check cache: {e}")
+        return None
 
 
-def _save_cache(brain: BrandBrain, html: str) -> bool:
+def _save_cache(brain: BrandBrain, html: str, session_token: str) -> bool:
     """
     Save the generated HTML to cache.
 
@@ -336,13 +560,37 @@ def _save_cache(brain: BrandBrain, html: str) -> bool:
     Args:
         brain: BrandBrain object
         html: Generated HTML document
+        session_token: Session token to update cache
 
     Returns:
         True if saved successfully, False otherwise
     """
-    # In a real implementation, this would update Supabase
-    # brand_brains table with soul_html column
-    return True
+    # In test mode, return True (cache not used in tests)
+    if os.getenv("TEST_MODE") == "true":
+        return True
+
+    try:
+        from app.tools.brand_brain.store import _get_client
+
+        client = _get_client()
+        if client is None:
+            return False
+
+        # Compute brain hash for cache invalidation
+        brain_hash = _compute_brain_hash(brain)
+
+        # Update the brand_brains table
+        response = client.table("brand_brains").update({
+            "soul_html": html,
+            "brain_hash": brain_hash,
+            "soul_generated_at": "now()"
+        }).eq("session_token", session_token).execute()
+
+        return len(response.data) > 0
+
+    except Exception as e:
+        print(f"[WARN] Failed to save cache: {e}")
+        return False
 
 
 def generate_brand_soul(session_token: str) -> Tuple[str, str]:
@@ -384,7 +632,7 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
         raise IncompleteBrainError(f"Faltan secciones: {missing_text}")
 
     # 3. Check cache
-    cached_html = _check_cache(brain)
+    cached_html = _check_cache(brain, session_token)
     if cached_html:
         # Validate cached HTML citations (defense in depth)
         is_valid, invented = validate_citations_in_html(cached_html, brain)
@@ -394,6 +642,23 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
         else:
             return cached_html, "cached"
 
+    # 3.5. Check credits before calling LLM
+    # Gemini 2.5 Flash-Lite costs: Input $0.075/1M tokens, Output $0.30/1M tokens
+    # Estimate 2000 input tokens + 500 output tokens = ~2500 tokens total
+    # Cost: (2000 * 0.075 + 500 * 0.30) / 1,000,000 = $0.0003 = 0.03 credits
+    # Add 50% buffer for safety: ~50 credits estimated
+    estimated_credits = 50
+
+    # Skip credit deduction in test mode
+    if os.getenv("TEST_MODE") != "true":
+        try:
+            guard.deduct_credits(session_token, amount=estimated_credits)
+        except Exception as e:
+            # If credit deduction fails, re-raise as specific error
+            if hasattr(e, 'status_code') and e.status_code == 402:
+                raise SoulGenerationError("Insufficient credits to generate Brand Soul") from e
+            raise
+
     # 4. Generate new HTML
     # 4a. Extract etapa context
     etapa_id = detect_etapa_from_brand_brain(brain)
@@ -401,12 +666,14 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
         etapa_id = "invisible"  # Default fallback
     etapa_context = get_etapa_context(etapa_id)
 
-    # 4b. Redact each section with LLM
+    # 4b. Redact each section with LLM and track tokens
     all_citations = _extract_literal_citations(brain)
 
     redacted = {}
+    total_tokens = 0
     for section in brain.sections:
-        redacted[section.id] = _redact_section_content_with_llm(section, all_citations)
+        redacted[section.id], token_count = _redact_section_content_with_llm(section, all_citations)
+        total_tokens += token_count
 
     # 4c. Build HTML from template
     try:
@@ -443,6 +710,6 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
         )
 
     # 5. Save to cache
-    _save_cache(brain, html)
+    _save_cache(brain, html, session_token)
 
     return html, "generated"

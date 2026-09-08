@@ -24,3 +24,6 @@ supabase>=2.3.0
 # JWT verification for Supabase Auth
 PyJWT>=2.9.0
 cryptography>=41.0.0  # For ES256 key generation in tests
+
+# Vertex AI SDK for Gemini 2.5 Flash-Lite (Brand Soul generation)
+google-cloud-aiplatform>=1.70.0
