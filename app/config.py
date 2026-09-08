@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     # AssemblyAI API Key - REQUIRED
     assemblyai_api_key: str = os.getenv("ASSEMBLYAI_API_KEY", "")
 
+    # Supabase Configuration - REQUIRED for Google OAuth
+    supabase_url: str = os.getenv("SUPABASE_URL", "")
+    supabase_key: str = os.getenv("SUPABASE_KEY", "")
+    supabase_publishable_key: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    supabase_jwt_secret: str = os.getenv("SUPABASE_JWT_SECRET", "")
+
     # Server Configuration
     host: str = "0.0.0.0"
     port: int = 8000
@@ -50,7 +56,7 @@ class Settings(BaseSettings):
 
     # Session Budget Settings (credits per session)
     initial_session_credits: int = int(
-        os.getenv("INITIAL_SESSION_CREDITS", "500")
+        os.getenv("INITIAL_SESSION_CREDITS", "250")
     )
 
     # Payment URL for 402 Payment Required response
@@ -60,6 +66,17 @@ class Settings(BaseSettings):
     max_session_duration_seconds: int = int(
         os.getenv("MAX_SESSION_DURATION_SECONDS", "3600")
     )  # Default 1 hour
+
+    # Platform Spend Cap (USD) - stops granting free credits after this amount
+    platform_spend_cap_usd: float = float(
+        os.getenv("PLATFORM_SPEND_CAP_USD", "120")
+    )  # Default $120 USD
+
+    # Credit Value: 1 credit = $0.01 USD
+    credit_value_usd: float = 0.01
+
+    # Voice Credit Cost: 7.5 credits per minute (AssemblyAI charges $4.50/hr)
+    voice_credits_per_minute: float = 7.5
 
     # Speech-to-Text Language Configuration
     stt_language: str = os.getenv("STT_LANGUAGE", "es")  # Default to Spanish

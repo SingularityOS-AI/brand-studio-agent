@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.guard import guard
+from app.auth.supabase_auth import supabase_auth
 
 app = FastAPI(
     title="Brand Studio Agent — Voice API",
@@ -54,70 +55,73 @@ async def health_check():
     }
 
 
-def _with_session_cookie(response: JSONResponse, session_token: str) -> JSONResponse:
-    """Sets the opaque session cookie on any outgoing response. Idempotent —
-    safe to call even when the browser already has this exact value."""
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=False,  # Set True in production (HTTPS)
-        samesite="lax",
-        max_age=86400,  # 24 hours
-    )
-    return response
+@app.get("/api/config", response_class=JSONResponse)
+async def get_config():
+    """
+    Returns frontend configuration including Supabase settings.
+    This endpoint is public - it only contains the publishable key, not the service key.
+    """
+    return JSONResponse(content={
+        "supabase_url": settings.supabase_url,
+        "supabase_publishable_key": settings.supabase_publishable_key,
+    })
 
 
 @app.get("/api/token")
 async def mint_temporary_token(request: Request):
     """
     Guarded endpoint: mints a single-use temporary token from AssemblyAI.
+    Requires JWT authentication from Google OAuth.
     Rate limits by IP, then checks session budget before minting.
-    Opaque session token stored in httpOnly cookie.
     """
-    # 1. Rate limit check by IP
+    # 1. Extract and verify JWT from Authorization header
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header. Please login with Google first."
+        )
+
+    try:
+        user_id = supabase_auth.get_user_id(authorization)
+    except HTTPException:
+        raise
+
+    # 2. Rate limit check by IP
     client_ip = request.client.host
     guard.check_rate_limit(
         client_ip,
         max_requests_per_minute=settings.rate_limit_requests_per_minute
     )
 
-    # 2. Get or create session from cookie
-    session_token = request.cookies.get("session_token")
-    if not session_token or not guard.get_session(session_token):
-        session_token = guard.create_session(initial_credits=settings.initial_session_credits)
+    # 3. Get or create session for authenticated user
+    session_token = guard.get_or_create_user_session(user_id)
 
-    # 3. Check and deduct budget
+    # 4. Check and deduct budget
     try:
         remaining = guard.deduct_credits(session_token, amount=1)
     except HTTPException as e:
         # Depleted budget (402)
         if e.status_code == 402:
-            return _with_session_cookie(
-                JSONResponse(
-                    status_code=402,
-                    content={
-                        "error": "Session budget exhausted",
-                        "credits_remaining": 0,
-                        "payment_url": settings.payment_url,
-                    },
-                ),
-                session_token,
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": 0,
+                    "payment_url": settings.payment_url,
+                },
             )
         raise
 
-    # 4. Mint token from AssemblyAI (skip in test mode)
+    # 5. Mint token from AssemblyAI (skip in test mode)
     test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
     if test_mode:
         # Return mock token for tests
-        return _with_session_cookie(
-            JSONResponse(
-                content={
-                    "token": "test_mock_token_assemblyai",
-                    "credits_remaining": remaining
-                }
-            ),
-            session_token,
+        return JSONResponse(
+            content={
+                "token": "test_mock_token_assemblyai",
+                "credits_remaining": remaining
+            }
         )
 
     api_key = settings.assemblyai_api_key
@@ -144,25 +148,32 @@ async def mint_temporary_token(request: Request):
                 )
 
             data = response_aa.json()
-            return _with_session_cookie(
-                JSONResponse(content={"token": data.get("token"), "credits_remaining": remaining}),
-                session_token,
-            )
+            # Return token and credits (no session cookie - auth is via JWT)
+            return JSONResponse(content={"token": data.get("token"), "credits_remaining": remaining})
 
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"Failed to connect to AssemblyAI: {str(exc)}")
+    except Exception as e:
+        print(f"[ERROR] Token minting error: {e}")
+        raise HTTPException(status_code=500, detail=f"Token minting failed: {str(e)}")
 
 
 @app.get("/api/session", response_class=JSONResponse)
 async def get_session_status(request: Request):
-    """Returns current session credits."""
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        raise HTTPException(status_code=401, detail="No session token")
+    """Returns current session credits. Requires JWT authentication."""
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
 
     credits = guard.get_remaining_credits(session_token)
     if credits is None:
-        raise HTTPException(status_code=401, detail="Invalid session token")
+        raise HTTPException(status_code=401, detail="Invalid session")
 
     return JSONResponse(content={"credits_remaining": credits})
 
@@ -196,10 +207,17 @@ async def get_brand_soul(request: Request):
 
     Returns the HTML document if it has been previously generated.
     Returns 404 if no document exists yet.
+    Requires JWT authentication.
     """
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        raise HTTPException(status_code=401, detail="No session token")
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
 
     from app.tools.brand_soul.generator import _check_cache
     from app.tools.brand_brain.store import get_brand_brain
@@ -240,15 +258,21 @@ async def generate_brand_soul_handler(request: Request, body: SoulGenerateReques
     6. Returns the HTML document
 
     Protected by spend_guard - requires 20 credits.
+    Requires JWT authentication.
     """
-    # 1. Validate session
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        raise HTTPException(status_code=401, detail="No session token")
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
 
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
     session = guard.get_session(session_token)
     if not session:
-        raise HTTPException(status_code=401, detail="Invalid session token")
+        raise HTTPException(status_code=401, detail="Invalid session")
 
     # 2. Deduct credits (generation costs 20 credits)
     try:
@@ -313,10 +337,17 @@ async def get_brand_brain_handler(request: Request):
 
     Returns the complete brand brain with all nine sections,
     including their status (propuesto/confirmado) and citations.
+    Requires JWT authentication.
     """
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        raise HTTPException(status_code=401, detail="No session token")
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
 
     from app.tools.brand_brain.store import get_brand_brain
 
@@ -349,15 +380,21 @@ async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainR
     Validates, persists, and returns the extracted sections.
 
     Protected by spend_guard to prevent credit exhaustion.
+    Requires JWT authentication.
     """
-    # 1. Validate session
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        raise HTTPException(status_code=401, detail="No session token")
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
 
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
     session = guard.get_session(session_token)
     if not session:
-        raise HTTPException(status_code=401, detail="Invalid session token")
+        raise HTTPException(status_code=401, detail="Invalid session")
 
     # 2. Deduct credits (extraction costs 5 credits)
     try:
@@ -442,17 +479,26 @@ async def voice_socket(websocket: WebSocket):
     """
     Puente: audio PCM16 16kHz mono del navegador -> wrapper -> AssemblyAI.
     Devuelve al navegador mensajes JSON {"type": "partial"|"final", "text": str}.
+
+    Requires JWT token in query parameter: ?token=<jwt_token>
+    Deducts credits per second (7.5 credits/min) instead of fixed amount.
     """
-    # 1. Validate session from cookie before accepting
-    # Browsers send cookies automatically in WebSocket handshake (same-origin)
-    session_token = websocket.cookies.get("session_token")
-    if not session_token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="No session token")
+    # 1. Validate JWT token from query parameter before accepting
+    query_params = dict(websocket.query_params)
+    token = query_params.get("token")
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing JWT token")
         return
 
-    session = guard.get_session(session_token)
-    if not session:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid session token")
+    try:
+        user_id = supabase_auth.get_user_id(token)
+        session_token = guard.get_or_create_user_session(user_id)
+        session = guard.get_session(session_token)
+        if not session:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid session")
+            return
+    except HTTPException as e:
+        await websocket.close(code=e.status_code, reason=e.detail)
         return
 
     # 2. Accept connection first - browser needs this before sending audio
@@ -476,7 +522,10 @@ async def voice_socket(websocket: WebSocket):
         # Use call_soon_threadsafe to safely put from SDK's thread to our event loop
         loop.call_soon_threadsafe(result_queue.put_nowait, {"type": "partial", "text": text})
 
-    # 4. Start transcription engine - only charge credits if this succeeds
+    # 4. Start voice session tracking
+    guard.start_voice_session(session_token)
+
+    # 5. Start transcription engine
     engine = AssemblyAISpeechEngine()
     try:
         engine.start_realtime_transcription(
@@ -486,34 +535,40 @@ async def voice_socket(websocket: WebSocket):
             language_code=settings.stt_language,
         )
     except RuntimeError as e:
+        guard.end_voice_session(session_token)
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason=str(e))
         return
 
-    # 5. Deduct credits for voice session (only after successful engine start)
+    # 6. Deduct initial credits for voice session startup (1 credit = minimum)
     try:
-        remaining = guard.deduct_credits(session_token, amount=10)  # Voice session costs 10 credits
+        remaining = guard.deduct_credits(session_token, amount=1)
     except HTTPException as e:
         if e.status_code == 402:
+            guard.end_voice_session(session_token)
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Session budget exhausted")
             return
+        guard.end_voice_session(session_token)
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Server error")
         return
 
-    # 6. Main loop: receive audio chunks and send transcription results
+    # 7. Main loop: receive audio chunks, send transcription results, and deduct credits periodically
     listen_task = asyncio.create_task(listen_to_websocket(websocket, engine))
     send_task = asyncio.create_task(send_to_websocket(websocket, result_queue))
+    credit_task = asyncio.create_task(deduct_voice_credits_loop(websocket, session_token))
 
     try:
-        await asyncio.gather(listen_task, send_task)
+        await asyncio.gather(listen_task, send_task, credit_task, return_exceptions=True)
     except WebSocketDisconnect:
         pass  # Client disconnected
     except Exception as e:
         print(f"[WebSocket Error] {e}")
     finally:
-        # 7. Always clean up
+        # 8. Always clean up and finalize credit deduction
         engine.stop()
         listen_task.cancel()
         send_task.cancel()
+        credit_task.cancel()
+        guard.end_voice_session(session_token)
 
 
 async def listen_to_websocket(websocket: WebSocket, engine):
@@ -539,6 +594,34 @@ async def send_to_websocket(websocket: WebSocket, result_queue: asyncio.Queue):
         raise
     except Exception as e:
         print(f"[Send Error] {e}")
+        raise
+
+
+async def deduct_voice_credits_loop(websocket: WebSocket, session_token: str):
+    """
+    Periodically deduct voice credits every 10 seconds while session is active.
+    """
+    try:
+        while True:
+            # Wait 10 seconds between deductions
+            await asyncio.sleep(10)
+            try:
+                remaining = guard.deduct_voice_credits(session_token, interval_seconds=10)
+                # Optionally send credit update to client
+                await websocket.send_json({"type": "credits_update", "credits_remaining": remaining})
+            except HTTPException as e:
+                if e.status_code == 402:
+                    # Budget exhausted - close connection
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Session budget exhausted")
+                break
+            except Exception as e:
+                print(f"[Credit Deduction Error] {e}")
+                break
+    except asyncio.CancelledError:
+        # Task was cancelled - normal cleanup path
+        pass
+    except Exception as e:
+        print(f"[Credit Loop Error] {e}")
         raise
 
 

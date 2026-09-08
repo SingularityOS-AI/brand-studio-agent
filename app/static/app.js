@@ -1,14 +1,31 @@
 /**
- * Brand Studio Agent — Voice Client
+ * Brand Studio Agent — Voice Client with Google OAuth
  *
- * Handles microphone capture, PCM16 16kHz mono conversion, and direct AssemblyAI Voice Agent WebSocket.
- * Adapted from legacy working version that connected directly to AssemblyAI Agent API.
+ * Handles Google OAuth login, JWT authentication, and voice interactions.
+ * All API calls require JWT token in Authorization header.
  */
 (function() {
   'use strict';
 
+  // JWT Authentication
+  let supabase = null;
+  let jwtToken = null;
+  let user = null;
+
+  // AssemblyAI Voice Client
   let API_KEY = '';
   let apiKeyRequested = false;
+
+  // API helper with JWT
+  async function authenticatedFetch(url, options = {}) {
+    if (!jwtToken) {
+      throw new Error('Not authenticated');
+    }
+    options.headers = options.headers || {};
+    options.headers['Authorization'] = `Bearer ${jwtToken}`;
+    const response = await fetch(url, { ...options, credentials: 'same-origin' });
+    return response;
+  }
 
   // Fetch API key from backend on first interaction
   async function ensureApiKey() {
@@ -18,26 +35,29 @@
     try {
       // Token EFIMERO, no la API key maestra. El navegador nunca debe ver la
       // credencial real: quien la vea puede gastar sin tope contra la cuenta.
-      const response = await fetch('/api/agent-token', { credentials: 'same-origin' });
+      const response = await authenticatedFetch('/api/agent-token');
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        if (response.status === 402) {
-          alert('Te quedaste sin créditos en esta sesión.');
+        if (response.status === 401) {
+          alert('Authentication required. Please login again.');
+          logout();
+        } else if (response.status === 402) {
+          alert('You ran out of credits.');
         } else if (response.status === 429) {
-          alert('Demasiadas peticiones. Espera un minuto.');
+          alert('Too many requests. Please wait a minute.');
         } else {
-          alert('No se pudo obtener el token de voz: ' + (body.detail || response.status));
+          alert('Failed to get voice token: ' + (body.detail || response.status));
         }
         apiKeyRequested = false;  // permitir reintento
         return null;
       }
       const data = await response.json();
       API_KEY = data.token;
-      console.log('[Voice Client] Token efimero obtenido del backend');
+      console.log('[Voice Client] Temporary token obtained from backend');
       return API_KEY;
     } catch (e) {
       console.error('[Voice Client] Failed to fetch token:', e);
-      alert('No se pudo contactar al servidor para el token de voz.');
+      alert('Could not contact server for voice token.');
       apiKeyRequested = false;
       return null;
     }
@@ -805,8 +825,138 @@ Always respond in English. Keep your responses conversational and engaging.`;
     micBtn.addEventListener('click', toggleMicrophone);
   }
 
+  // ==============================================================================
+  // GOOGLE OAUTH AUTHENTICATION
+  // ==============================================================================
+
+  const loginOverlay = document.getElementById('Login-Overlay');
+  const mainApp = document.getElementById('Main-App');
+  const googleBtn = document.getElementById('GoogleBtn');
+  const loginError = document.getElementById('Login-Error');
+
+  // Initialize Supabase
+  async function initSupabase() {
+    try {
+      const configResponse = await fetch('/api/config');
+      const config = await configResponse.json();
+
+      supabase = window.supabase.createClient(config.supabase_url, config.supabase_publishable_key);
+
+      // Check for existing session
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session) {
+        jwtToken = session.access_token;
+        user = session.user;
+        showMainApp();
+      } else {
+        showLogin();
+      }
+    } catch (e) {
+      console.error('[Auth] Failed to initialize Supabase:', e);
+      loginError.textContent = 'Failed to initialize authentication. Please refresh.';
+      loginError.classList.add('visible');
+    }
+  }
+
+  function showLogin() {
+    loginOverlay.style.display = 'flex';
+    mainApp.style.display = 'none';
+  }
+
+  function showMainApp() {
+    loginOverlay.style.display = 'none';
+    mainApp.style.display = 'flex';
+    updateCreditsDisplay();
+  }
+
+  function logout() {
+    supabase.auth.signOut();
+    jwtToken = null;
+    user = null;
+    API_KEY = '';
+    apiKeyRequested = false;
+    showLogin();
+  }
+
+  // Handle Google OAuth login
+  googleBtn.addEventListener('click', async () => {
+    try {
+      googleBtn.classList.add('loading');
+      googleBtn.disabled = true;
+      loginError.classList.remove('visible');
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.href,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent'
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      // OAuth redirect will handle the callback
+    } catch (e) {
+      console.error('[Auth] Login failed:', e);
+      loginError.textContent = e.message || 'Login failed. Please try again.';
+      loginError.classList.add('visible');
+      googleBtn.classList.remove('loading');
+      googleBtn.disabled = false;
+    }
+  });
+
+  // Handle OAuth callback
+  async function handleAuthCallback() {
+    const hashParams = new URLSearchParams(window.location.hash);
+    const accessToken = hashParams.get('access_token');
+
+    if (accessToken) {
+      jwtToken = accessToken;
+      showMainApp();
+      // Clear hash to prevent re-processing
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
+  // Update credits display
+  async function updateCreditsDisplay() {
+    try {
+      const response = await authenticatedFetch('/api/session');
+      if (response.ok) {
+        const data = await response.json();
+        updateCreditsUI(data.credits_remaining, 250); // 250 is initial balance
+      }
+    } catch (e) {
+      console.error('[Auth] Failed to fetch session:', e);
+    }
+  }
+
+  // Listen for auth state changes
+  if (window.supabase) {
+    window.supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        jwtToken = session.access_token;
+        user = session.user;
+        showMainApp();
+      } else if (event === 'SIGNED_OUT') {
+        logout();
+      }
+    });
+  }
+
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', async () => {
+    await initSupabase();
+    await handleAuthCallback();
+  });
+
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');
   console.log('[Audio] Sample rate: 24kHz');
   console.log('[Processor] AudioWorklet for PCM16 conversion');
+  console.log('[Auth] Google OAuth enabled');
 
 })();

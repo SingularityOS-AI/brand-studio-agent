@@ -4,6 +4,9 @@ Uses TestClient with 3 paths:
   1. Normal pass/deduct
   2. Rate limit excess → 429
   3. Budget depleted → 402 with payment URL
+
+NOTE: These tests were written for the old cookie-based session system.
+They are DEPRECATED. See test_guard_jwt.py for the new JWT-based tests.
 """
 import os
 import time
@@ -16,6 +19,11 @@ os.environ["TEST_MODE"] = "true"
 
 from app.main import app
 from app.guard import guard
+
+# Mark all tests in this file as skip
+pytestmark = pytest.mark.skip(
+    reason="Deprecated: Cookie-based sessions replaced with JWT authentication. See test_guard_jwt.py."
+)
 
 
 # Mock AssemblyAI to avoid real API calls

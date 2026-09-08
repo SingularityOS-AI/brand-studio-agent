@@ -2,6 +2,9 @@
 Tests for WebSocket Voice Endpoint /ws/voice.
 Uses TestClient with cookies to simulate real browser behavior - no manual query params.
 WebSocket endpoint receives session_token from cookies (httpOnly), not from URL.
+
+NOTE: Tests that use guard.create_session() are DEPRECATED - cookie-based sessions replaced with JWT.
+See test_voice_ws_jwt.py for JWT-based WebSocket tests.
 """
 import os
 import pytest
@@ -279,115 +282,40 @@ def test_websocket_rejects_token_in_query_string():
     """
     Token in query string should be IGNORED - only cookie is read.
     This test enforces the security fix that prevents tokens from logging in URLs.
+
+    DEPRECATED: Cookie-based sessions replaced with JWT. See test_voice_ws_jwt.py.
     """
-    client = TestClient(app)
-
-    # Create a valid session
-    valid_session = guard.create_session(initial_credits=500)
-
-    # Try to pass it via query string (malicious or incorrect pattern)
-    # The endpoint REQUIRES it from cookie, not query param
-    invalid_url = f"/ws/voice?session_token={valid_session}"
-
-    # This should FAIL because token is in URL, not cookie
-    # Real browser behavior: cookie jar, not URL construction
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect(invalid_url) as websocket:
-            websocket.receive_text()
-    assert exc_info.value.code == 1008
-
-    # Clean up (invalidate session in either mode)
-    guard.invalidate_session(valid_session)
+    pytest.skip("Deprecated: Cookie-based sessions replaced with JWT authentication.")
 
 
 def test_websocket_accepts_with_valid_cookie_and_deducts_once():
     """
     WebSocket should accept connection with valid cookie and deduct credits ONCE.
     Simulates real browser: cookie already set, then WebSocket uses it.
+
+    DEPRECATED: Cookie-based sessions replaced with JWT. See test_voice_ws_jwt.py.
     """
-    client = TestClient(app)
-
-    # Create a session manually (simulates browser that already has this session)
-    session_token = guard.create_session(initial_credits=settings.initial_session_credits)
-
-    # Set cookie manually (simulating browser that already has this session)
-    client.cookies.set("session_token", session_token)
-
-    # Verify initial budget
-    initial_credits = guard.get_remaining_credits(session_token)
-    assert initial_credits == settings.initial_session_credits
-
-    # Step 2: Browser opens WebSocket - TestClient automatically sends cookie
-    with client.websocket_connect("/ws/voice") as websocket:
-        # Connection accepted
-        # Credits should be deducted ONCE for the voice session (10 credits)
-        remaining = guard.get_remaining_credits(session_token)
-        expected_remaining = initial_credits - 10
-        assert remaining == expected_remaining, f"Expected {expected_remaining}, got {remaining}"
-
-        # Send some audio data (simulates browser sending mic chunks)
-        audio_chunk = b'\x00' * 4096  # Silent PCM16 audio
-        websocket.send_bytes(audio_chunk)
-
-        # Send multiple chunks - should NOT deduct more credits
-        for _ in range(5):
-            audio_chunk = b'\x00' * 4096
-            websocket.send_bytes(audio_chunk)
-
-        # Credits still same - one-time deduction per session
-        final_remaining = guard.get_remaining_credits(session_token)
-        assert final_remaining == expected_remaining, f"Expected {expected_remaining}, got {final_remaining}"
+    pytest.skip("Deprecated: Cookie-based sessions replaced with JWT authentication.")
 
 
 def test_websocket_rejects_depleted_budget_via_cookie():
     """
     WebSocket should close with code 1008 when session has insufficient credits.
     Uses cookie flow, not query param injection.
+
+    DEPRECATED: Cookie-based sessions replaced with JWT. See test_voice_ws_jwt.py.
     """
-    client = TestClient(app)
-
-    # Create a session with exactly 5 credits (less than required 10)
-    session_token = guard.create_session(initial_credits=5)
-
-    # Set cookie manually (simulating browser that already has this session)
-    client.cookies.set("session_token", session_token)
-
-    # WebSocket requires 10 credits - should fail
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect("/ws/voice") as websocket:
-            websocket.receive_text()
-    assert exc_info.value.code == 1008
+    pytest.skip("Deprecated: Cookie-based sessions replaced with JWT authentication.")
 
 
 def test_websocket_deducts_credits_once_per_session():
     """
     Credits should be deducted ONCE per voice session, not per audio chunk.
     Tests the inflight behavior: multiple chunks, single deduction.
+
+    DEPRECATED: Cookie-based sessions replaced with JWT. See test_voice_ws_jwt.py.
     """
-    client = TestClient(app)
-
-    # Create session manually
-    session_token = guard.create_session(initial_credits=settings.initial_session_credits)
-
-    # Set cookie
-    client.cookies.set("session_token", session_token)
-
-    # Open WebSocket session
-    with client.websocket_connect("/ws/voice") as websocket:
-        # Initial deduction happened
-        initial_remaining = guard.get_remaining_credits(session_token)
-        # Should be: initial_credits - 10 (voice session)
-        expected = settings.initial_session_credits - 10
-        assert initial_remaining == expected, f"Expected {expected}, got {initial_remaining}"
-
-        # Send MANY audio chunks
-        for _ in range(20):
-            audio_chunk = b'\x00' * 4096
-            websocket.send_bytes(audio_chunk)
-
-        # Credits should NOT have been deducted again
-        final_remaining = guard.get_remaining_credits(session_token)
-        assert final_remaining == expected, f"Expected {expected}, got {final_remaining}"
+    pytest.skip("Deprecated: Cookie-based sessions replaced with JWT authentication.")
 
 
 if __name__ == "__main__":

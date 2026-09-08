@@ -1,6 +1,6 @@
 """
 Request Guard: Rate Limiting + Session Budget + Hard Cutoff.
-Supports both in-memory and Supabase backends.
+Supports both in-memory and Supabase backends with Google OAuth authentication.
 """
 import os
 import time
@@ -8,12 +8,14 @@ import secrets
 from typing import Optional, Dict
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
+from app.config import settings
 
 
 class Guard:
     """
     Singleton guard for rate limiting and session budget enforcement.
     Uses Supabase if configured, otherwise falls back to in-memory storage.
+    Now supports Google OAuth JWT authentication.
     """
 
     def __init__(self):
@@ -32,6 +34,10 @@ class Guard:
         # IP blocklist: {ip: blocked_until}
         # Always in-memory
         self._blocked_ips: Dict[str, float] = {}
+
+        # Voice session tracking: {session_token: {"start_time": float, "last_deduct": float}}
+        # For per-second credit deduction during voice sessions
+        self._voice_sessions: Dict[str, dict] = {}
 
         # In TEST_MODE, force in-memory storage regardless of environment variables
         if use_test_mode:
@@ -112,11 +118,73 @@ class Guard:
         # Record this request
         self._rate_limits[ip].append(now)
 
-    def create_session(self, initial_credits: int = 500) -> str:
+    def get_or_create_user_session(self, user_id: str) -> str:
         """
-        Creates a new session token and returns it.
-        Token is stored in httpOnly cookie.
+        Get existing session or create new one for authenticated user.
+        Uses Supabase RPC function get_or_create_user_session if available.
+
+        Args:
+            user_id: User UUID from Supabase Auth
+
+        Returns:
+            Session token
         """
+        if self._use_supabase:
+            # Call Supabase RPC function to get or create session
+            try:
+                response = self._supabase.rpc(
+                    "get_or_create_user_session",
+                    params={"p_user_id": user_id}
+                ).execute()
+                
+                if response.data:
+                    return response.data
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to get or create user session"
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                print(f"[guard] Error calling get_or_create_user_session: {e}")
+                # Fallback to manual creation
+                pass
+
+        # Fallback: check for existing session (even if exhausted - let deduct_credits handle 402)
+        if self._use_supabase:
+            result = self._supabase.table("sessions") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+
+            if result.data:
+                return result.data[0]["token"]
+        else:
+            # In-memory fallback - return most recent session for this user
+            for token, session in self._sessions.items():
+                if session.get("user_id") == user_id:
+                    return token
+
+        # No existing session, create new one
+        return self.create_user_session(user_id)
+
+    def create_user_session(self, user_id: str, initial_credits: int = None) -> str:
+        """
+        Create a new session for an authenticated user.
+
+        Args:
+            user_id: User UUID from Supabase Auth
+            initial_credits: Initial credit balance (defaults to settings.initial_session_credits)
+
+        Returns:
+            Session token
+        """
+        if initial_credits is None:
+            initial_credits = settings.initial_session_credits
+
         token = secrets.token_urlsafe(32)
 
         if self._use_supabase:
@@ -124,12 +192,14 @@ class Guard:
             self._supabase.table("sessions").insert({
                 "token": token,
                 "credits": initial_credits,
+                "user_id": user_id,
             }).execute()
         else:
             # Store in-memory
             self._sessions[token] = {
                 "credits": initial_credits,
                 "created_at": time.time(),
+                "user_id": user_id,
             }
 
         return token
@@ -140,7 +210,10 @@ class Guard:
             # Fetch from Supabase
             result = self._supabase.table("sessions").select("*").eq("token", token).execute()
             if result.data:
-                return {"credits": result.data[0]["credits"]}
+                return {
+                    "credits": result.data[0]["credits"],
+                    "user_id": result.data[0].get("user_id"),
+                }
             return None
         else:
             # Fetch from memory
@@ -223,6 +296,91 @@ class Guard:
         else:
             if token in self._sessions:
                 del self._sessions[token]
+
+    # Voice session tracking methods
+
+    def start_voice_session(self, session_token: str) -> None:
+        """
+        Track the start time of a voice session for per-second credit deduction.
+
+        Args:
+            session_token: Session token to track
+        """
+        self._voice_sessions[session_token] = {
+            "start_time": time.time(),
+            "last_deduct": time.time(),
+        }
+
+    def deduct_voice_credits(self, session_token: str, interval_seconds: int = 10) -> int:
+        """
+        Deduct credits for voice session based on elapsed time.
+
+        Args:
+            session_token: Session token to deduct from
+            interval_seconds: Time interval in seconds to calculate deduction for
+
+        Returns:
+            Remaining credits
+
+        Raises:
+            HTTPException 402: If budget depleted
+        """
+        if session_token not in self._voice_sessions:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Voice session not tracked"
+            )
+
+        # Calculate credits to deduct: (credits/min / 60) * seconds
+        credits_per_second = settings.voice_credits_per_minute / 60
+        credits_to_deduct = int(credits_per_second * interval_seconds)
+        
+        # Minimum 1 credit if any time passed
+        if credits_to_deduct == 0:
+            credits_to_deduct = 1
+
+        # Deduct credits
+        remaining = self.deduct_credits(session_token, amount=credits_to_deduct)
+        
+        # Update last deduction time
+        self._voice_sessions[session_token]["last_deduct"] = time.time()
+        
+        return remaining
+
+    def end_voice_session(self, session_token: str) -> int:
+        """
+        Final deduction when voice session ends, based on exact elapsed time.
+
+        Args:
+            session_token: Session token to finalize
+
+        Returns:
+            Total remaining credits
+        """
+        if session_token not in self._voice_sessions:
+            return self.get_remaining_credits(session_token)
+
+        session_data = self._voice_sessions[session_token]
+        elapsed_time = time.time() - session_data["last_deduct"]
+        
+        # Deduct remaining credits for partial interval
+        if elapsed_time > 0:
+            credits_per_second = settings.voice_credits_per_minute / 60
+            credits_to_deduct = int(credits_per_second * elapsed_time)
+            
+            if credits_to_deduct > 0:
+                try:
+                    self.deduct_credits(session_token, amount=credits_to_deduct)
+                except HTTPException as e:
+                    if e.status_code == 402:
+                        pass  # Already depleted
+                    else:
+                        raise
+
+        # Remove from tracking
+        del self._voice_sessions[session_token]
+        
+        return self.get_remaining_credits(session_token)
 
 
 # Singleton instance
