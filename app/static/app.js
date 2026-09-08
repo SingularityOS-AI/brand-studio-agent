@@ -192,9 +192,15 @@ Always respond in English. Keep your responses conversational and engaging.`;
               voice: voice,
               format: { encoding: 'audio/pcm' }
             },
-            // Register extract_brand_brain tool
+            // Register extract_brand_brain tool.
+            // OJO: el esquema es PLANO y **exige "type": "function"**. Sin ese
+            // campo AssemblyAI responde "Invalid session configuration", cierra
+            // el socket, y el fallo se disfraza de error de audioWorklet porque
+            // stopSession() ya dejo el audioContext en null. No es la forma
+            // anidada de OpenAI ({type:"function", function:{...}}), es plana.
             tools: [
               {
+                type: 'function',
                 name: 'extract_brand_brain',
                 description: 'Extract nine brand sections from our conversation: brand_journey, etapa, charco, credibilidad, contrarian, asociaciones, identidad, oferta, lead_magnet. Always cite what the user said as the source.',
                 parameters: {
@@ -472,14 +478,16 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
         // Send tool.result back to agent
         if (ws && ws.readyState === WebSocket.OPEN) {
+          // `result` va como STRING, no como objeto: la API lo exige y un objeto
+          // se acepta en el envio pero el agente no lo lee.
           ws.send(JSON.stringify({
             type: 'tool.result',
             call_id: callId,
-            result: {
+            result: JSON.stringify({
               success: true,
               brand_brain: result.brand_brain,
               sections_extracted: result.sections_count
-            }
+            })
           }));
         }
 
