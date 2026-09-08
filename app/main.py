@@ -179,6 +179,133 @@ class BrainRetrieveResponse(BaseModel):
     sections_count: int
 
 
+# =============================================================================
+# BRAND SOUL ENDPOINTS (Pieza 2: Bloque B — el Alma de Marca)
+# =============================================================================
+
+class SoulGenerateResponse(BaseModel):
+    html: str
+    cache_status: str  # "cached" or "generated"
+    credits_remaining: int
+
+
+@app.get("/api/soul", response_class=JSONResponse)
+async def get_brand_soul(request: Request):
+    """
+    Retrieve cached Brand Soul document for current session.
+
+    Returns the HTML document if it has been previously generated.
+    Returns 404 if no document exists yet.
+    """
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="No session token")
+
+    from app.tools.brand_soul.generator import _check_cache
+    from app.tools.brand_brain.store import get_brand_brain
+
+    brain = get_brand_brain(session_token)
+    if not brain:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Brand brain not found for this session"}
+        )
+
+    # Check if cached HTML exists
+    cached_html = _check_cache(brain)
+    if not cached_html:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Brand Soul not generated yet. Call POST /api/soul/generate first."}
+        )
+
+    return JSONResponse(content={"html": cached_html})
+
+
+class SoulGenerateRequest(BaseModel):
+    regenerate: bool = False  # Force regeneration even if cached
+
+
+@app.post("/api/soul/generate", response_class=JSONResponse)
+async def generate_brand_soul_handler(request: Request, body: SoulGenerateRequest):
+    """
+    Generate the Brand Soul document.
+
+    This endpoint:
+    1. Validates that all 9 brand brain sections are confirmed
+    2. Checks if cached HTML exists (unless regenerate=True)
+    3. Generates new HTML using LLM redaction with citations
+    4. Validates all citations exist literally in brain
+    5. Caches the result
+    6. Returns the HTML document
+
+    Protected by spend_guard - requires 20 credits.
+    """
+    # 1. Validate session
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="No session token")
+
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session token")
+
+    # 2. Deduct credits (generation costs 20 credits)
+    try:
+        remaining = guard.deduct_credits(session_token, amount=20)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": session["credits"],
+                    "payment_url": settings.payment_url,
+                }
+            )
+        raise
+
+    # 3. Generate document
+    from app.tools.brand_soul.generator import (
+        generate_brand_soul,
+        IncompleteBrainError,
+        CitationValidationError,
+        SoulGenerationError
+    )
+
+    try:
+        html, cache_status = generate_brand_soul(session_token)
+    except IncompleteBrainError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Brand brain incomplete: {str(e)}"}
+        )
+    except CitationValidationError as e:
+        # Critical: LLM invented citations - don't show the document
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Citation validation failed: {str(e)}. Document not shown."}
+        )
+    except SoulGenerationError as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Generation failed: {str(e)}"}
+        )
+    except Exception as e:
+        print(f"[ERROR] Soul generation error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal generation error: {str(e)}"}
+        )
+
+    # 4. Return success
+    return JSONResponse(content={
+        "html": html,
+        "cache_status": cache_status,
+        "credits_remaining": remaining
+    })
+
+
 @app.get("/api/brain", response_class=JSONResponse)
 async def get_brand_brain_handler(request: Request):
     """
