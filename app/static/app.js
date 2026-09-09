@@ -91,8 +91,16 @@
   // Transcript storage for extraction
   let fullTranscript = [];
 
+  // Brand brain cache (durable memory from Supabase)
+  let cachedBrain = null;
+  let brainFetchInProgress = false;
+
+  // Transcript limits for context window protection
+  const MAX_TRANSCRIPT_TURNS = 20;  // Maximum number of recent turns to include
+  const MAX_TRANSCRIPT_CHARS = 4000; // Maximum characters for recent transcript
+
   // Default voice and prompts (can be customized)
-  const systemPrompt = `You are Brandy, the Brand Studio Agent. You help entrepreneurs and businesses discover their brand identity through targeted questions about their business.
+  const baseSystemPrompt = `You are Brandy, the Brand Studio Agent. You help entrepreneurs and businesses discover their brand identity through targeted questions about their business.
 
 Speak naturally in short, clear sentences. Be direct and helpful. Keep responses concise - no more than 2-3 sentences unless more detail is needed.
 
@@ -132,8 +140,90 @@ No gamification. No points, badges, streaks, or celebrations. Be direct and expe
 
 Always respond in English. Keep your responses conversational and engaging.`;
 
-  const greeting = "Hello! I'm Brandy, your Brand Studio Agent. I'll help you discover your brand identity through conversation. Tell me what you do and who you do it for.";
+  const defaultGreeting = "Hello! I'm Brandy, your Brand Studio Agent. I'll help you discover your brand identity through conversation. Tell me what you do and who you do it for.";
   const voice = "alba"; // AssemblyAI voice: alba, anna, charles, estelle, eve, george, giovanni, jane, jean, juergen, lola, mary, michael, paul, rafael, vera
+
+  // Build dynamic system prompt with memory context
+  function buildSystemPrompt() {
+    let prompt = baseSystemPrompt;
+    let hasMemory = false;
+
+    // Add confirmed brand brain sections (durable memory)
+    if (cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0) {
+      const confirmedSections = cachedBrain.sections.filter(s => s.status === 'confirmado');
+      if (confirmedSections.length > 0) {
+        hasMemory = true;
+        prompt += '\n\n=== WHAT YOU ALREADY KNOW (confirmed with citations) ===\n';
+        confirmedSections.forEach(section => {
+          const contentStr = typeof section.content === 'object'
+            ? Object.entries(section.content).map(([k, v]) => `${k}: ${v}`).join(', ')
+            : section.content || '';
+          prompt += `- ${section.id}: ${contentStr}  (user's words: "${section.citation_text || '[no citation]'}")\n`;
+        });
+        prompt += 'Do NOT ask again about anything in this list. Treat it as established fact.\n';
+      }
+    }
+
+    // Add recent transcript (ephemeral memory)
+    if (fullTranscript.length > 0) {
+      hasMemory = true;
+      prompt += '\n=== RECENT CONVERSATION ===\n';
+      // Get recent turns, respecting both turn and character limits
+      let recentTranscript = fullTranscript.slice(-MAX_TRANSCRIPT_TURNS);
+      let transcriptText = recentTranscript.map(t => `${t.speaker}: ${t.text}`).join('\n');
+
+      // Trim by character limit if needed (trim from the beginning)
+      if (transcriptText.length > MAX_TRANSCRIPT_CHARS) {
+        transcriptText = transcriptText.substring(transcriptText.length - MAX_TRANSCRIPT_CHARS);
+        const newlinePos = transcriptText.indexOf('\n');
+        if (newlinePos !== -1) {
+          transcriptText = transcriptText.substring(newlinePos + 1);
+        }
+        transcriptText = '...[earlier context truncated]...\n' + transcriptText;
+      }
+
+      prompt += transcriptText;
+      prompt += '\n\n';
+    }
+
+    // Add explicit instruction for reconnections
+    if (hasMemory) {
+      prompt += 'CRITICAL: This is a reconnection within the same conversation. DO NOT repeat your initial greeting or introduce yourself again. Continue naturally from where we left off, using the context above.\n';
+    }
+
+    return prompt;
+  }
+
+  // Load brand brain from backend (durable memory)
+  async function loadBrandBrain() {
+    if (brainFetchInProgress) {
+      console.log('[Brain] Fetch already in progress, waiting...');
+      return cachedBrain;
+    }
+
+    try {
+      brainFetchInProgress = true;
+      console.log('[Brain] Loading brand brain from backend...');
+      const response = await authenticatedFetch('/api/brain');
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('[Brain] No brand brain found yet (normal for new users)');
+        } else {
+          console.warn('[Brain] Failed to load brain:', response.status);
+        }
+        return null;
+      }
+      const data = await response.json();
+      cachedBrain = data.brand_brain;
+      console.log('[Brain] Loaded brand brain with', cachedBrain?.sections?.length || 0, 'sections');
+      return cachedBrain;
+    } catch (e) {
+      console.error('[Brain] Error loading brand brain:', e);
+      return null;
+    } finally {
+      brainFetchInProgress = false;
+    }
+  }
 
   async function startSession() {
     // Capture generation for this session - prevents race conditions
@@ -157,6 +247,15 @@ Always respond in English. Keep your responses conversational and engaging.`;
       // Check again after stopSession - another session might have started
       if (myGeneration !== sessionGeneration) {
         console.log('[startSession] Superseded after stopSession, aborting');
+        return;
+      }
+
+      // Load brand brain BEFORE starting session (durable memory)
+      await loadBrandBrain();
+
+      // Check race condition after brain loading
+      if (myGeneration !== sessionGeneration) {
+        console.log('[startSession] Superseded after loading brain, aborting');
         return;
       }
 
@@ -247,12 +346,22 @@ Always respond in English. Keep your responses conversational and engaging.`;
         console.log('[WebSocket] Connected to AssemblyAI Voice Agent');
         setUIStatus('connecting', 'Conectando agente...');
 
+        // Build dynamic prompt with memory context
+        const dynamicPrompt = buildSystemPrompt();
+
+        // Determine if we should use greeting (skip on reconnection)
+        const hasBrainOrTranscript = (
+          (cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0) ||
+          fullTranscript.length > 0
+        );
+
         // Send session.update immediately
         const sessionUpdatePayload = {
           type: 'session.update',
           session: {
-            system_prompt: systemPrompt,
-            greeting: greeting,
+            system_prompt: dynamicPrompt,
+            // Only include greeting on first connection, not on reconnection
+            greeting: hasBrainOrTranscript ? undefined : defaultGreeting,
             input: {
               format: { encoding: 'audio/pcm' },
               turn_detection: {
@@ -912,11 +1021,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
   async function loadExistingBrain() {
     try {
-      const response = await authenticatedFetch('/api/brain');
-      if (!response.ok) return;              // 404 = todavía no hay cerebro, es normal
-      const data = await response.json();
-      if (data.brand_brain && data.brand_brain.sections && data.brand_brain.sections.length) {
-        appendExtractedSections(data.brand_brain.sections);
+      const brain = await loadBrandBrain();
+      if (brain && brain.sections && brain.sections.length) {
+        appendExtractedSections(brain.sections);
       }
     } catch (e) {
       console.error('[Brain] No se pudo cargar el cerebro existente:', e);

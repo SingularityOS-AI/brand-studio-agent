@@ -33,14 +33,14 @@ def test_system_prompt_uses_correct_section_names():
     with open(app_js_path, encoding="utf-8") as f:
         content = f.read()
 
-    # Extract the systemPrompt constant
+    # Extract the baseSystemPrompt constant (renamed in Pieza 10 for dynamic memory injection)
     system_prompt_match = re.search(
-        r'const systemPrompt = `(.+?)`;',
+        r'const baseSystemPrompt = `(.+?)`;',
         content,
         re.DOTALL | re.MULTILINE
     )
 
-    assert system_prompt_match, "Could not find systemPrompt constant in app.js"
+    assert system_prompt_match, "Could not find baseSystemPrompt constant in app.js"
     system_prompt = system_prompt_match.group(1)
 
     # CRITICAL CHECK: Verify section names match spec.md
@@ -122,14 +122,14 @@ def test_system_prompt_count_nine_sections():
     with open(app_js_path, encoding="utf-8") as f:
         content = f.read()
 
-    # Extract the systemPrompt constant
+    # Extract the baseSystemPrompt constant (renamed in Pieza 10 for dynamic memory injection)
     system_prompt_match = re.search(
-        r'const systemPrompt = `(.+?)`;',
+        r'const baseSystemPrompt = `(.+?)`;',
         content,
         re.DOTALL | re.MULTILINE
     )
 
-    assert system_prompt_match, "Could not find systemPrompt constant in app.js"
+    assert system_prompt_match, "Could not find baseSystemPrompt constant in app.js"
     system_prompt = system_prompt_match.group(1)
 
     # Count bullet points in the sections list
