@@ -60,3 +60,14 @@ specs/
 spec_respuestas.json
 SUBMISSION.json
 PITCH_SOURCE.md
+
+# Working notes from build sessions — scratch, not documentation.
+# They duplicate the piezas in .claude/specs/ and rot fast. The repo keeps
+# README.md, QUICK_START.md and docs/ ; everything else stays local.
+PIEZA_*.md
+PHYHANDOFF_*.md
+MODO_A_*.md
+FIX_SUMMARY.md
+AUDIO_PERMISSION_ISSUE.md
+PROGRESS.md
+PROPUESTA_PRODUCCION.md
