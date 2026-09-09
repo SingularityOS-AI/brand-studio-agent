@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brand Studio Agent — Análisis Cruzado Spec vs Progreso</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* Cool Paper palette - cobalto, NOT Ink Blue */
+            --accent: #2B4CD8;
+            --accent-light: #5B7CFF;
+            --accent-dark: #1E3490;
+            --text-primary: #1A1B26;
+            --text-secondary: #5C6675;
+            --text-muted: #9CA3AF;
+            --bg-page: #FAFBFC;
+            --bg-card: #FFFFFF;
+            --bg-accent: #F0F4FF;
+            --border: #E5E7EB;
+            --border-light: #F3F4F6;
+
+            /* Semantic colors */
+            --success: #10B981;
+            --success-bg: #ECFDF5;
+            --warning: #F59E0B;
+            --warning-bg: #FFFBEB;
+            --error: #EF4444;
+            --error-bg: #FEF2F2;
+            --info: #3B82F6;
+            --info-bg: #EFF6FF;
+
+            /* Design system fonts */
+            --font-headline: 'Space Grotesk', system-ui, sans-serif;
+            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-code: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        body {
+            font-family: var(--font-body);
+            line-height: 1.6;
+            color: var(--text-primary);
+            background: var(--bg-page);
+            padding: 2rem 4rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Typography */
+        h1, h2, h3, h4 {
+            font-family: var(--font-headline);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 1.75rem;
+            margin: 2rem 0 1rem;
+            color: var(--accent);
+            letter-spacing: -0.01em;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            margin: 1.5rem 0 0.75rem;
+            letter-spacing: -0.005em;
+        }
+
+        h4 {
+            font-size: 1rem;
+            margin: 1rem 0 0.5rem;
+            font-weight: 500;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .subtitle {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+
+        .meta {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            padding-bottom: 2rem;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .meta-item {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .meta-label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Status badges */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge-firmada {
+            background: var(--success-bg);
+            color: var(--success);
+        }
+
+        .badge-sellado {
+            background: var(--info-bg);
+            color: var(--info);
+        }
+
+        .badge-abierto {
+            background: var(--warning-bg);
+            color: var(--warning);
+        }
+
+        .badge-critico {
+            background: var(--error-bg);
+            color: var(--error);
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .card-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .card-section:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Grid layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        /* Comparison tables */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th {
+            background: var(--bg-accent);
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .comparison-table tr:hover {
+            background: var(--bg-accent);
+        }
+
+        .alignment-match {
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        .alignment-mismatch {
+            color: var(--error);
+            font-weight: 600;
+        }
+
+        .alignment-partial {
+            color: var(--warning);
+            font-weight: 600;
+        }
+
+        /* Block diagrams */
+        .block-diagram {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.5rem;
+            background: var(--bg-accent);
+            border-radius: 8px;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+        }
+
+        .block {
+            padding: 1rem 1.5rem;
+            background: white;
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            font-weight: 600;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .block-arrow {
+            color: var(--accent);
+            font-size: 1.5rem;
+        }
+
+        /* Code blocks */
+        pre {
+            background: var(--text-primary);
+            color: var(--bg-page);
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875rem;
+        }
+
+        .inline-code {
+            background: var(--accent-light);
+            color: white;
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-family: var(--font-code);
+        }
+
+        /* Citation boxes */
+        .citation-box {
+            background: var(--info-bg);
+            border-left: 4px solid var(--info);
+            padding: 1rem 1.5rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .citation-text {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .citation-source {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--info);
+            margin-top: 0.5rem;
+            font-weight: 600;
+        }
+
+        /* Gap analysis */
+        .gap-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .gap-item:last-child {
+            border-bottom: none;
+        }
+
+        .gap-status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .gap-status.missing {
+            background: var(--error-bg);
+            color: var(--error);
+        }
+
+        .gap-status.partial {
+            background: var(--warning-bg);
+            color: var(--warning);
+        }
+
+        .gap-status.complete {
+            background: var(--success-bg);
+            color: var(--success);
+        }
+
+        .gap-content {
+            flex: 1;
+        }
+
+        .gap-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .gap-description {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        /* Scroll-to-top button */
+        .scroll-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--accent);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(43, 76, 216, 0.3);
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+
+        .scroll-top:hover {
+            background: var(--accent-dark);
+            transform: translateY(-2px);
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                padding: 0;
+            }
+            .scroll-top {
+                display: none;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            body {
+                padding: 1rem;
+            }
+            .grid-2, .grid-3 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Brand Studio Agent — Análisis Cruzado Espec vs Progreso</h1>
+        <p class="subtitle">Cruce de fuentes oficiales con estado implementado actual</p>
+
+        <div class="meta">
+            <div class="meta-item"><span class="meta-label">Para:</span> CEO</div>
+            <div class="meta-item"><span class="meta-label">Fecha:</span> 2026-09-05</div>
+            <div class="meta-item"><span class="meta-label">Estado:</span> <span class="badge badge-critico">ANÁLISIS PREVIO A DECISIÓN</span></div>
+        </div>
+
+        <!-- Section 1: Document Sources -->
+        <section>
+            <h2>1. Fuentes de Verdad (Documentos Revisados)</h2>
+            <p>Los siguientes documentos constituyen la base contractual del proyecto:</p>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>spec.md Rev 3.6</h3>
+                        <span class="badge badge-firmada">FIRMADA</span>
+                    </div>
+                    <div class="card-section">
+                        <p><strong>Ubicación:</strong> <code>.claude/specs/spec.md</code></p>
+                        <p><strong>Mandatos críticos:</strong></p>
+                        <ul>
+                            <li>"El sistema no es un wrapper. Hace."</li>
+                            <li>"Brandy lleva a un fundador de 'no sé quién soy' a una pieza publicable"</li>
+                            <li>"Ninguna afirmación sin cita literal"</li>
+                            <li>Opción B: Render + Supabase + in-process queue + HyperFaces</li>
+                        </ul>
+                        <p><strong>Workflow:</strong> Bloque A (9 secciones) → B (30 ideas) → C (Script ≥9) → D (MP4)</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>plan.md</h3>
+                        <span class="badge badge-sellado">SELLADO</span>
+                    </div>
+                    <div class="card-section">
+                        <p><strong>Ubicación:</strong> <code>.claude/specs/plan.md</code></p>
+                        <p><strong>Contenido:</strong></p>
+                        <ul>
+                            <li>10 piezas en orden de ejecución</li>
+                            <li>Pieza 1: spend_guard (gate duro anti-toll fraud)</li>
+                            <li>Prompts 1, 2, 3 escritos. 4-10 se escriben al llegar</li>
+                            <li>Pattern: Solda barra → Capitán QA → CEO valida</li>
+                        </ul>
+                        <p><strong>Ambigüedad crítica:</strong> Costo real en créditos de vuelta A→D = desconocido</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>ARCHITECTURE.md</h3>
+                        <span class="badge badge-firmada">CERRADA</span>
+                    </div>
+                    <div class="card-section">
+                        <p><strong>Ubicación:</strong> <code>docs/ARCHITECTURE.md</code></p>
+                        <p><strong>Stack técnico:</strong></p>
+                        <ul>
+                            <li>Voice Agent API: conversación, barge-in, tool calling</li>
+                            <li>Streaming STT: timestamps por palabra para EDL</li>
+                            <li>LLM Gateway: respuesta JSON forzada + repair automático</li>
+                            <li>Gemini: vision-only (gaps visuales en footage)</li>
+                        </ul>
+                        <p><strong>Pattern asíncrono:</strong> Tool encola → reply.create en background → agent habla cuando termina</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>CONTEXTO_MAESTRO.md</h3>
+                        <span class="badge badge-sellado">ACTUALIZADO</span>
+                    </div>
+                    <div class="card-section">
+                        <p><strong>Ubicación:</strong> <code>CONTEXTO_MAESTRO.md</code></p>
+                        <p><strong>Estado actual reportado:</strong></p>
+                        <ul>
+                            <li>Prototipo navegable: HECHO</li>
+                            <li>Código real en brand-studio-agent/: "Mockup de AssemblyAI, sin UI. Ninguna pieza despachada todavía"</li>
+                            <li>Design system: Cool Paper palette (cobalto #2B4CD8)</li>
+                            <li>3-zone layout: VOZ 420px | DOCUMENTO | PRODUCCIÓN 380px</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: AssemblyAI Framework Analysis -->
+        <section>
+            <h2>2. AssemblyAI Voice Agent Framework — Capacidades Análisis</h2>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Documento revisado: 06_VOICE_AGENT_API_DOCS.md</h3>
+                    <span class="badge badge-sellado">400+ LÍNEAS</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Veredicto sobre framework de agentes</h4>
+                    <div class="citation-box">
+                        <p class="citation-text">"</p>
+                        <p>Real-time voice agents that talk and listen. Configure an agent once, then deploy it to a browser, your own app, or the phone.</p>
+                        <p>"</p>
+                        <span class="citation-source">Líneas 6-7</span>
+                    </div>
+
+                    <h4>¿AssemblyAI tiene framework de agentes o es主持人层?</h4>
+                    <div class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th>AssemblyAI proporciona</th>
+                                <th>Flight Framework Proporciona</th>
+                                <th>Alcance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Voice API (STT + TTS + LLM routing)</strong></td>
+                                <td>✅ SÍ — WebSocket único handles todo</td>
+                                <td>❌ NO — requiere integración</td>
+                                <td><span class="alignment-match">COMPLETA</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Tool calling (funciones de backend)</strong></td>
+                                <td>✅ SÍ — `tool.call` → `tool.result` pattern</td>
+                                <td>✅ SÍ — function calling integrado</td>
+                                <td><span class="alignment-match">COMPLETA</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Barge-in (interruptir respuesta)</strong></td>
+                                <td>✅ SÍ — automático con `input.speech.started`</td>
+                                <td>✅ SÍ — gestión manual</td>
+                                <td><span class="alignment-match">COMPLETA</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Workflow orchestration (multi-step LLM chains)</strong></td>
+                                <td>❌ PARCIAL — `reply.create` async pero no integrado</td>
+                                <td>✅ SÍ — built-in workflow engine</td>
+                                <td><span class="alignment-partial">PARCIAL</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Multimodal (vision en voz)</strong></td>
+                                <td>❌ NO — texto-only</td>
+                                <td>✅ SÍ (Flight SDK 4.0+) — vision + voice</td>
+                                <td><span class="alignment-mismatch">FALTA</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Persistencia de sesión</strong></td>
+                                <td>❌ NO — stateless WebSocket</td>
+                                <td>✅ SÍ — memory store integrado</td>
+                                <td><span class="alignment-mismatch">FALTA</span></td>
+                            </tr>
+                        </tbody>
+                    </div>
+
+                    <h4>Conclusión sobre framework decision</h4>
+                    <p><strong>Recomendación:</strong> Mantener AssemblyAI Voice Agent API como <em>voice engine</em> únicamente. La orchestration de workflows multi-step (Bloque A→B→C→D) debe ir en FastAPI backend con cola in-process, NO en framework de agentes.</p>
+
+                    <div class="citation-box">
+                        <p class="citation-text">"</p>
+                        <p>The asynchronous pattern: The docs allow `reply.create` to be sent at any time, not only during a hold</p>
+                        <p>"</p>
+                        <span class="citation-source">Line 82 — `reply.create` async pattern</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Current Implementation Status -->
+        <section>
+            <h2>3. Estado Implementado Actual — vs Spec Requerimientos</h2>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Archivos de producción: brand-studio-agent/</h3>
+                    <span class="badge badge-sellado">V1.2 WORKING</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Componentes funcionales (v1.2)</h4>
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Archivo</th>
+                                <th>Spec Requiere</th>
+                                <th>Implementación Actual</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>app/main.py</code></td>
+                                <td>FastAPI, endpoints API</td>
+                                <td>GET /api/agent-token, WebSockets básicos</td>
+                                <td><span class="alignment-partial">PARCIAL</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>app/static/app.js</code></td>
+                                <td>Voice API + transcripción</td>
+                                <td>Voice Agent API WebSocket + AudioWorklet + scroll</td>
+                                <td><span class="alignment-match">CLAVE ✓</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>app/static/index.html</code></td>
+                                <td>3-zone layout</td>
+                                <td>HTML con 3 zonas pero NO refleja documento vivo</td>
+                                <td><span class="alignment-partial">UI SIN LOGO</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>app/voice/wrapper.py</code></td>
+                                <td>No especificado (legacy)</td>
+                                <td>Streaming STT-only (sin TTS, no usado)</td>
+                                <td><span class="alignment-mismatch">OBSOLETO</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_voice_ws.py</code></td>
+                                <td>Tests</td>
+                                <td>Tests del wrapper legacy</td>
+                                <td><span class="alignment-partial">PARCIAL</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card-section">
+                    <h4>Componentesexistentes pero NO integrados</h4>
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Archivo</th>
+                                <th>Ubicación</th>
+                                <th>Statea</th>
+                                <th>Integrado? → GUITAR: abismo entre diseño e implementación</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>prototype/index.html</code></td>
+                                <td>../.claude/design/prototype/</td>
+                                <td>92KB, 9 secciones completas</td>
+                                <td><span class="alignment-mismatch">NO</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>prototype/brandy-script.js</code></td>
+                                <td>../.claude/design/prototype/</td>
+                                <td>Interrogatorio 6 turnos + frameworks</td>
+                                <td><span class="alignment-mismatch">NO</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>prototype/api.js</code></td>
+                                <td>../.claude/design/prototype/</td>
+                                <td>Endpoints mockeados</td>
+                                <td><span class="alignment-mismatch">NO</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>prototype/_shell.html</code></td>
+                                <td>../.claude/design/prototype/</td>
+                                <td>Navegación + CSS</td>
+                                <td><span class="alignment-mismatch">NO</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Block-by-Block Gap Analysis -->
+        <section>
+            <h2>4. Bloque por Bloque — Análisis de Brechas</h2>
+
+            <div class="block-diagram">
+                <div class="block">Bloque A<br/>(9 secciones)</div>
+                <div class="block-arrow">→</div>
+                <div class="block">Bloque B<br/>(30 ideas)</div>
+                <div class="block-arrow">→</div>
+                <div class="block">Bloque C<br/>(Script ≥9)</div>
+                <div class="block-arrow">→</div>
+                <div class="block">Bloque D<br/>(MP4 + assets)</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Bloque A: Definir la marca (9 secciones)</h3>
+                    <span class="badge badge-critico">GAP CRÍTICO</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Spec rev 3.6 requiere:</h4>
+                    <ul>
+                        <li>9 secciones con frameworks específicos: Ralston (Brand Journey), Segués (Etapa), Noske (Charco), Gray (Oferta/Lead Magnet), Hormozi (Postura, Asociaciones, Identidad, Lead Magnet)</li>
+                        <li><strong>INVARIANTE:</strong> "Ninguna afirmación sin cita literal"</li>
+                        <li>Interrogatorio de 6 turnos definido en prototype/brandy-script.js</li>
+                        <li>Gate: usuario entra sin datos, sale con brand_brain completo</li>
+                    </ul>
+
+                    <h4>Estado actual:</h4>
+                    <ul>
+                        <li>❌ Brandy recopila datos estructurados PERO no persiste</li>
+                        <li>❌ Sesión nueva = desconocido ("sistema amnésico")</li>
+                        <li>❌ No hay tool invocation que guarde el brand_brain</li>
+                        <li>✅ Voice Agent API + transcripción trabajando (v1.2)</li>
+                        <li>✅ Prototype tiene interrogatorio completo pero no conectado</li>
+                    </ul>
+
+                    <h4>Archivos faltantes:</h4>
+                    <pre><code>app/brand/
+├── extractor.py          # LLM extraction from transcript
+├── models.py             # Pydantic models (9 sections)
+├── validators.py         # Ralston/Hormozi framework checks
+└── tools/                # Brand extraction tool for Voice Agent API
+
+app/session/
+├── manager.py            # Session cookie + load/save
+└── middleware.py         # FastAPI session middleware
+
+app/db/
+└── supabase_client.py    # Async client + migrations
+</code></pre>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Bloque B: Catálogo de 30 ideas</h3>
+                    <span class="badge badge-abierto">NO INICIADO</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Spec rev 3.6 requiere:</h4>
+                    <ul>
+                        <li>Gate duro: "si el catálogo no se sostiene, no se escribe el primer guion"</li>
+                        <li>LLM generador de 30 ideas validadas contra demanda de ICP</li>
+                        <li>Análisis de nicho público (YouTube Data API)</li>
+                        <li>Citaciones de competencia para cada idea</li>
+                    </ul>
+
+                    <h4>Estado actual:</h4>
+                    <ul>
+                        <li>❌ Zero implementation</li>
+                        <li>❌ No hay herramienta de investigación de nicho</li>
+                        <li>❌ No hay endpoint /api/catalog ni /api/catalog/approve</li>
+                        <li>✅ Prototype tiene 30 ideas mock (no conectadas)</li>
+                    </ul>
+
+                    <h4>Archivos faltantes:</h4>
+                    <pre><code>app/catalog/
+├── generator.py          # 30 ideas LLM generator
+├── validator.py          # Demand validation
+└── researcher.py         # YouTube Data API integration
+</code></pre>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Bloque C: Juez + Script (Viralidad Noir ≥9)</h3>
+                    <span class="badge badge-abierto">NO INICIADO</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Spec rev 3.6 requiere:</h4>
+                    <ul>
+                        <li>Guion juzgado con rubric Viralidad Noir (purity + score + axes)</li>
+                        <li><strong>INVARIANTE:</strong> Citaciones obligatorias para cada puntaje</li>
+                        <li>Gate: score ≥9/10 para producción</li>
+                        <li>Override posible por voz con razón registrada</li>
+                    </ul>
+
+                    <h4>Estado actual:</h4>
+                    <ul>
+                        <li>❌ Zero implementation</li>
+                        <li>❌ No hay endpoint /api/script/generate ni /api/judge/{id}</li>
+                        <li>✅ ARCHITECTURE.md define verdict JSON contract</li>
+                    </ul>
+
+                    <h4>Archivos faltantes:</h4>
+                    <pre><code>app/script/
+├── writer.py             # Script generator from approved catalog
+├── judge.py              # Viralidad Noir scorer with LLM Gateway
+└── critic.py             # Citation enforcement (test)
+</code></pre>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Bloque D: Render + Empaquetado (MP4 + assets)</h3>
+                    <span class="badge badge-abierto">NO INICIADO</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Spec rev 3.6 requiere:</h4>
+                    <ul>
+                        <li>HyperFaces render pipeline (video-use + hyperframes)</li>
+                        <li>Teleprompter integrado</li>
+                        <li>Assets: MP4 + título + thumbnail + shorts</li>
+                        <li>Cola in-process para render jobs que no bloqueen conversación</li>
+                    </ul>
+
+                    <h4>Estado actual:</h4>
+                    <ul>
+                        <li>❌ Zero implementation</li>
+                        <li>❌ No hay endpoint /api/render/submit ni endpoint /reply.create async</li>
+                        <li>✅ HyperFaces skills disponibles en DSH (no integrados)</li>
+                    </ul>
+
+                    <h4>Archivos faltantes:</h4>
+                    <pre><code>app/render/
+├── queue.py              # In-process job queue (from Neural Editor)
+├── hyperframes.py        # HyperFaces integration
+├── artifacts.py          # MP4/thumbnail/shorts generation
+└── teleprompter.py       # Teleprompter logic
+</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 5: Existing Prompts vs Spec Requirements -->
+        <section>
+            <h2>5. Prompts Escritos vs Spec Requerimientos</h2>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Estado de prompts de despacho</h3>
+                    <span class="badge badge-sellado">3 ESCRITOS, 7 PENDIENTES</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>Prompts existentes (ubicación desconocida - buscar en .claude/specs/)</h4>
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Prompt</th>
+                                <th>Spec Ref.</th>
+                                <th>Estado</th>
+                                <th>Nota</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>PIEZA_1_PROMPT.md</td>
+                                <td>spend_guard</td>
+                                <td><span class="alignment-match">ESCRITO</span></td>
+                                <td>Gate duro anti-toll fraud (rate limit + presupuesto)</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_2_PROMPT.md</td>
+                                <td>Bloque A的一部分</td>
+                                <td><span class="alignment-match">ESCRITO</span></td>
+                                <td>Interrogatorio + 9 secciones extraction</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_3_PROMPT.md</td>
+                                <td>Bloque B parte 1</td>
+                                <td><span class="alignment-match">ESCRITO</span></td>
+                                <td>Catálogo 30 ideas + gate</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_4_PROMPT.md</td>
+                                <td>Bloque B parte 2/C parte 1</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Se escribe al llegar</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_5_PROMPT.md</td>
+                                <td>Bloque C completo</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Juez + Script</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_6_PROMPT.md</td>
+                                <td>Bloque D parte 1</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Render pipeline</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_7_PROMPT.md</td>
+                                <td>Bloque D parte 2</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Teleprompter</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_8_PROMPT.md</td>
+                                <td>Medición costo real</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Primer ciclo completo A→D para medir créditos</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_9_PROMPT.md</td>
+                                <td>Bloque D final</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Empaquetado assets</td>
+                            </tr>
+                            <tr>
+                                <td>PIEZA_10_PROMPT.md</td>
+                                <td>Frontend integration</td>
+                                <td><span class="alignment-mismatch">NO ESCRITO</span></td>
+                                <td>Conexión UI con backend</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 6: Critical Decision Summary -->
+        <section>
+            <h2>6. Resumen de Decisiones_Requeridas</h2>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Decisiones pendientes - Especificando contexto</h3>
+                    <span class="badge badge-critico">BLOCKER</span>
+                </div>
+
+                <div class="card-section">
+                    <h4>D1: Framework de agentes — Flight SDK vs AssemblyAI?</h4>
+                    <div class="citation-box">
+                        <p class="citation-text">"</p>
+                        <p>AssemblyAI Voice Agent API: Conversation engine + tool calling + barge-in → COMPLETO</p>
+                        <p>Flight SDK: Workflow orchestration + memory + vision integrado → COMPLETO</p>
+                        <p>"</p>
+                        <span class="citation-source">Análisis sección 2 arriba</span>
+                    </div>
+
+                    <p><strong>Recomendación:</strong> Use AssemblyAI Voice Agent API como <em>voice layer</em>. Use FastAPI + cola in-process como <em>orchestration layer</em>. No integre Flight SDK — adds complexity sin resolver el problema principal (persistencia + backend execution).</p>
+
+                    <div class="gap-item">
+                        <div class="gap-status missing"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">CEO approval needed</div>
+                            <div class="gap-description">Confirmar mantenemos AssemblyAI puro, NO migramos a Flight SDK</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-section">
+                    <h4>D2: Persistencia — SQLite vs Supabase?</h4>
+                    <div class="citation-box">
+                        <p class="citation-text">"</p>
+                        <p>Opción B (decidida en plan.md): Render + Supabase + in-process queue + HyperFrames</p>
+                        <p>"</p>
+                        <span class="citation-source">Spec rev 3.6 líneas 270-286</span>
+                    </div>
+
+                    <p><strong>Recomendación:</strong> Mantener Supabase PostgreSQL ya decidido en spec. SQLite es short-cut que viola contrato.</p>
+
+                    <div class="gap-item">
+                        <div class="gap-status complete"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">YA DECIDIDO — Supabase PostgreSQL</div>
+                            <div class="gap-description">Corresponde con Opción B arquitectura</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-section">
+                    <h4>D3: LLM provider — OpenAI vs Claude?</h4>
+                    <div class="citation-box">
+                        <p class="citation-text">"</p>
+                        <p>Propuesta producción OpenAI gpt-4o-mini (costo razonable)</p>
+                        <p>Spec no especifica — lugar de decisión</p>
+                        <p>"</p>
+                        <span class="citation-source">PROPUESTA_PRODUCCION.md línea 173</span>
+                    </div>
+
+                    <p><strong>Análisis:</strong>
+                    <br/>- OpenAI gpt-4o-mini: Costo ~$0.15/1M input tokens → $3/hora de conversación
+                    <br/>- Claude 3.5 Haiku: Costo ~$0.80/1M input tokens → $16/hora de conversación
+                    <br/>- Ambos soportan structured output (JSON forzado)
+                    <br/>- AssemblyAI LLM Gateway soporta ambos providers</p>
+
+                    <p><strong>Recomendación:</strong> OpenAI gpt-4o-mini por costo + JSON output estable. Alternate fallback a gpt-3.5-turbo si timeout.</p>
+
+                    <div class="gap-item">
+                        <div class="gap-status partial"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">PARTIALLY DECIDED — RECOMENDACIÓN: OpenAI</div>
+                            <div class="gap-description">Esperar CEO aprobación final</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-section">
+                    <h4>D4: Pieza 1 (spend_guard) — Mantener o replantear?</h4>
+                    <div class="citation-box">
+                        <p class="citation-text">"</p>
+                        <p>Pieza 1 triggers, pero "CODIGO REAL EN brand-studio-agent/: Mockup de AssemblyAI, sin UI. Ninguna pieza despachada todavía"</p>
+                        <p>"</p>
+                        <span class="citation-source">plan.md líneas 204-209</span>
+                    </div>
+
+                    <p><strong>Recomendación:</strong> Mantener PIEZA_1_PROMPT.md tal cual (spend_gate robusto). Este es el PRIMER bloque despachado según plan §6. No reimplementar.</p>
+
+                    <div class="gap-item">
+                        <div class="gap-status complete"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">DECIDIDO — Maintener PIEZA_1_PROMPT.md</div>
+                            <div class="gap-description">Es el blocking gate para todas las piezas subsiguientes</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 7: Full Block Progress Map -->
+        <section>
+            <h2>7. Mapa de Progreso Completo — Bloques A→D</h2>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Visualización de estado (v2.2)</h3>
+                    <span class="badge badge-sellado">SNAPSHOT ACTUAL</span>
+                </div>
+
+                <div class="card-section">
+                    <pre style="font-size: 0.875rem; line-height: 1.8;">
+┌─────────────────────────────────────────────────────────────────────┐
+│  WORKFLOW SPEC: A → B → C → D                                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  [A. Definir marca]          [B. Catálogo 30]      [C. Juez + Script] │
+│  ┌───────────────┐           ┌───────────┐         ┌───────────┐    │
+│  │ 9 secciones │           │ 30 ideas │         │ Viralidad │    │
+│  │ + frameworks │           │ + gate    │         │ Noir ≥9/10│   │
+│  │ + citas    │           │ + análisis│         │ + script  │    │
+│  │ + persistir │           │ de nicho │         │ + juez   │    │
+│  └───────▲──────┘           └─────▲─────┘         └─────▲─────┘    │
+│          │                        │                     │           │
+│          │ Voice API ←────────────┘                     │           │
+│          │                                              │           │
+│          └────── NO IMPLEMENTADO AMBOS ──────────────────┘           │
+│                                                                       │
+│  [D. Render + Empaquetado]                                            │
+│  ┌───────────────────┐                                               │
+│  │ HyperFaces        │                                               │
+│  │ (video-use)       │                                               │
+│  │ + teleprompter    │                                               │
+│  │ + MP4 + assets    │                                               │
+│  │ + cola in-process │                                               │
+│  └─────────▲─────────┘                                               │
+│            │                                                         │
+│            └────────── NO IMPLEMENTADO ──────────────────────────────
+│                                                                       │
+│  [ESTADO REAL v2.2]                                                   │
+│  ┌─────────────────────────────────────────────────────────┐        │
+│  │ ✅ Voice Agent API             → Working (transcripción) │        │
+│  │ ✅ AudioWorklet + scroll       → Working (audio playback) │        │
+│  │ ✅ /api/agent-token            → Working (API key mint)  │        │
+│  │ ❌ Bloque A (9 secciones)      → NO EXISTE                │        │
+│  │ ❌ Bloque B (30 ideas)         → NO EXISTE                │        │
+│  │ ❌ Bloque C (Juez/Script)      → NO EXISTE                │        │
+│  │ ❌ Bloque D (Render)           → NO EXISTE                │        │
+│  │ ❌ Session persistence         → NO EXISTE (amnésico)     │        │
+│  │ ❌ Supabase connection         → NO EXISTE                │        │
+│  │ ❌ LLM Gateway integration    → NO EXISTE                │        │
+│  │ ❌ Tool calling backend       → NO EXISTE                │        │
+│  │ ✅ Prototype navegable         → EXISTS (desconectado)    │        │
+│  └─────────────────────────────────────────────────────────┘        │
+│                                                                       │
+│  [GAPS DEFINITIVOS]                                                    │
+│  ├── DB/Persistencia            → 100% faltante                      │
+│  ├── Bloque A extraction        → 100% faltante ( Voice API sin backend)│
+│  ├── Bloque B generation        → 100% faltante                      │
+│  ├── Bloque C judging          → 100% faltante                      │
+│  ├── Bloque D rendering         → 100% faltante                      │
+│  ├── UI con backend            → 100% faltante (prototype desconectado)│
+│  └── HyperFaces integration     → 100% faltante                      │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 8: Final Summary -->
+        <section>
+            <h2>8. Resumen Final — Qué está claro, qué no</h2>
+
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>✅ CLARO — NO TOCAR</h3>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status complete"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Opción B Arquitectura</div>
+                            <div class="gap-description">Render + Supabase + in-process queue + HyperFaces</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status complete"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Design System</div>
+                            <div class="gap-description">Cool Paper palette cobalto #2B4CD8</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status complete"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Voice Engine</div>
+                            <div class="gap-description">AssemblyAI Voice Agent API (no cambiar)</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status complete"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">3-zone layout</div>
+                            <div class="gap-description">VOZ 420px | DOCUMENTO | PRODUCCIÓN 380px</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>⚠️ RECOMENDADO — Esperar aprobación</h3>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status partial"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">LLM provider: OpenAI</div>
+                            <div class="gap-description">gpt-4o-mini por costo + JSON output</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status partial"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">NO usar Flight SDK</div>
+                            <div class="gap-description">AssemblyAI puro + FastAPI orchestration</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status partial"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Maintener PIEZA_1_PROMPT.md</div>
+                            <div class="gap-description">Spend_gate como primer bloque</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status partial"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Opción B (18-22 noches)</div>
+                            <div class="gap-description">Implementar agente completo conforme spec</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>🔴 DESCONOCIDO — Necesita medición</h3>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status missing"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Costo real A→D cycle</div>
+                            <div class="gap-description">Créditos por vuelta → mide en Pieza 8</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status missing"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Prompt 4-10 ubicación</div>
+                            <div class="gap-description">No encontrados en .claude/specs/</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status missing"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Ubicación exacta VAMOS</div>
+                            <div class="gap-description">Número de paso actual desconocido</div>
+                        </div>
+                    </div>
+                    <div class="gap-item">
+                        <div class="gap-status missing"></div>
+                        <div class="gap-content">
+                            <div class="gap-title">Supabase schema file</div>
+                            <div class="gap-description">Puede existir en .claude/specs/</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <p style="margin-top: 3rem; padding-top: 2rem; border-top: 2px solid var(--border); text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+                Brand Studio Agent — Análisis Cruzado — Generado automáticamente de fuentes oficiales
+                <br/>Versión HTML v1.0 — 2026-09-05
+            </p>
+        </footer>
+    </div>
+
+    <button class="scroll-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑ Volver arriba</button>
+</body>
+</html>
