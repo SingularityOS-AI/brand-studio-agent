@@ -878,6 +878,17 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       supabase = window.supabase.createClient(config.supabase_url, config.supabase_publishable_key);
 
+      // Listen for auth state changes
+      supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          jwtToken = session.access_token;
+          user = session.user;
+          showMainApp();
+        } else if (event === 'SIGNED_OUT') {
+          logout();
+        }
+      });
+
       // Check for existing session
       const { data: { session } } = await supabase.auth.getSession();
 
@@ -969,19 +980,6 @@ Always respond in English. Keep your responses conversational and engaging.`;
     } catch (e) {
       console.error('[Auth] Failed to fetch session:', e);
     }
-  }
-
-  // Listen for auth state changes
-  if (window.supabase) {
-    window.supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        jwtToken = session.access_token;
-        user = session.user;
-        showMainApp();
-      } else if (event === 'SIGNED_OUT') {
-        logout();
-      }
-    });
   }
 
   // Initialize on page load
