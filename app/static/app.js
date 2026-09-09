@@ -1390,6 +1390,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
   const brandSoulLoading = document.getElementById('BrandSoul-Loading');
   const brandSoulCloseBtn = document.getElementById('BrandSoul-CloseBtn');
   const brandSoulDownloadBtn = document.getElementById('BrandSoul-DownloadBtn');
+  const brandSoulRegenerateBtn = document.getElementById('BrandSoul-RegenerateBtn');
 
   // Update Brand Soul button state based on confirmed sections count
   function updateBrandSoulButton(sections) {
@@ -1420,58 +1421,95 @@ Always respond in English. Keep your responses conversational and engaging.`;
       brandSoulContent.innerHTML = '';
       brandSoulLoading.style.display = 'flex';
 
-      const response = await authenticatedFetch('/api/soul/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ regenerate: false })
+      // Step 1: Try to get cached Brand Soul first (no credits charged)
+      const cacheResponse = await authenticatedFetch('/api/soul', {
+        method: 'GET'
       });
 
-      const data = await response.json();
-      const body = 'detail' in data ? data.detail : data;
-
-      if (!response.ok) {
-        // Handle specific error cases
-        if (response.status === 400 && body.error) {
-          // Incomplete brain - extract missing sections count
-          const match = body.error.match(/(\d+)\s*of\s*9/);
-          if (match) {
-            const confirmed = parseInt(match[1]);
-            const missing = 9 - confirmed;
-            alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your Brand Soul. Keep talking with Brandy to complete them.`);
-          } else {
-            alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
-          }
-        } else if (response.status === 429) {
-          alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
-        } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {
-          // No se promete que no se cobro: los creditos se descuentan ANTES de
-          // llamar al LLM (main.py y generator.py), asi que en este punto ya se
-          // fueron. Mentirle al usuario sobre su dinero es peor que el fallo.
-          alert('We could not verify that every quote in your Brand Soul came from your own words, so the document was not shown. This is the guarantee that makes it trustworthy. Please try generating it again.');
-        } else {
-          alert(`Failed to generate Brand Soul: ${body.error || body || response.status}`);
+      if (cacheResponse.ok) {
+        // Cached document exists - display it without charging credits
+        const cacheData = await cacheResponse.json();
+        brandSoulLoading.style.display = 'none';
+        brandSoulContent.style.display = 'block';
+        brandSoulContent.innerHTML = cacheData.html;
+        
+        // Show regenerate button since we have a cached document
+        if (brandSoulRegenerateBtn) {
+          brandSoulRegenerateBtn.style.display = 'flex';
         }
-
-        // Hide overlay on error
-        brandSoulOverlay.style.display = 'none';
+        
+        console.log('[Brand Soul] Loaded from cache - no credits charged');
         return;
       }
 
-      // Success - display the HTML document
-      brandSoulLoading.style.display = 'none';
-      brandSoulContent.style.display = 'block';
-      brandSoulContent.innerHTML = data.html;
+      // Step 2: If cache returns 404, generate new document (charges 20 credits)
+      if (cacheResponse.status === 404) {
+        const response = await authenticatedFetch('/api/soul/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ regenerate: false })
+        });
 
-      // Update credits display if included in response
-      if (data.credits_remaining !== undefined) {
-        updateCreditsUI(data.credits_remaining, initialSessionCredits);
+        const data = await response.json();
+        const body = 'detail' in data ? data.detail : data;
+
+        if (!response.ok) {
+          // Handle specific error cases
+          if (response.status === 400 && body.error) {
+            // Incomplete brain - extract missing sections count
+            const match = body.error.match(/(\d+)\s*of\s*9/);
+            if (match) {
+              const confirmed = parseInt(match[1]);
+              const missing = 9 - confirmed;
+              alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your Brand Soul. Keep talking with Brandy to complete them.`);
+            } else {
+              alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
+            }
+          } else if (response.status === 402) {
+            alert('Not enough credits to generate Brand Soul. Please purchase more credits to continue.');
+          } else if (response.status === 429) {
+            alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+          } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {
+            // No se promete que no se cobro: los creditos se descuentan ANTES de
+            // llamar al LLM (main.py y generator.py), asi que en este punto ya se
+            // fueron. Mentirle al usuario sobre su dinero es peor que el fallo.
+            alert('We could not verify that every quote in your Brand Soul came from your own words, so the document was not shown. This is the guarantee that makes it trustworthy. Please try generating it again.');
+          } else {
+            alert(`Failed to generate Brand Soul: ${body.error || body || response.status}`);
+          }
+
+          // Hide overlay on error
+          brandSoulOverlay.style.display = 'none';
+          return;
+        }
+
+        // Success - display the HTML document
+        brandSoulLoading.style.display = 'none';
+        brandSoulContent.style.display = 'block';
+        brandSoulContent.innerHTML = data.html;
+
+        // Update credits display if included in response
+        if (data.credits_remaining !== undefined) {
+          updateCreditsUI(data.credits_remaining, initialSessionCredits);
+        }
+
+        // Show regenerate button since we now have a generated document
+        if (brandSoulRegenerateBtn) {
+          brandSoulRegenerateBtn.style.display = 'flex';
+        }
+
+        console.log('[Brand Soul] Document generated successfully');
+        return;
       }
 
-      console.log('[Brand Soul] Document generated successfully');
+      // Handle other cache errors
+      const cacheError = await cacheResponse.json();
+      alert(`Failed to load Brand Soul: ${cacheError.error || cacheError.detail || cacheResponse.status}`);
+      brandSoulOverlay.style.display = 'none';
 
     } catch (error) {
-      console.error('[Brand Soul] Generation error:', error);
-      alert('Failed to generate Brand Soul: ' + error.message);
+      console.error('[Brand Soul] Loading error:', error);
+      alert('Failed to load Brand Soul: ' + error.message);
       brandSoulOverlay.style.display = 'none';
     } finally {
       // Remove loading state from button and restore state
@@ -1525,10 +1563,84 @@ ${htmlContent}
     }
   }
 
+  // Regenerate Brand Soul document (requires 20 credits)
+  async function regenerateBrandSoul() {
+    try {
+      // Show loading state on regenerate button
+      if (brandSoulRegenerateBtn) {
+        brandSoulRegenerateBtn.classList.add('loading');
+        brandSoulRegenerateBtn.disabled = true;
+      }
+
+      // Show loading spinner and hide content
+      brandSoulLoading.style.display = 'flex';
+      brandSoulContent.style.display = 'none';
+
+      const response = await authenticatedFetch('/api/soul/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regenerate: true })
+      });
+
+      const data = await response.json();
+      const body = 'detail' in data ? data.detail : data;
+
+      if (!response.ok) {
+        // Handle specific error cases
+        if (response.status === 402) {
+          alert('Not enough credits to regenerate Brand Soul. Please purchase more credits to continue.');
+        } else if (response.status === 429) {
+          alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+        } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {
+          alert('We could not verify that every quote in your Brand Soul came from your own words, so the document was not shown. This is the guarantee that makes it trustworthy. Please try generating it again.');
+        } else {
+          alert(`Failed to regenerate Brand Soul: ${body.error || body || response.status}`);
+        }
+
+        // Show previous content on error
+        brandSoulLoading.style.display = 'none';
+        if (brandSoulContent.innerHTML) {
+          brandSoulContent.style.display = 'block';
+        }
+        return;
+      }
+
+      // Success - display the new HTML document
+      brandSoulLoading.style.display = 'none';
+      brandSoulContent.style.display = 'block';
+      brandSoulContent.innerHTML = data.html;
+
+      // Update credits display if included in response
+      if (data.credits_remaining !== undefined) {
+        updateCreditsUI(data.credits_remaining, initialSessionCredits);
+      }
+
+      console.log('[Brand Soul] Document regenerated successfully - 20 credits charged');
+
+    } catch (error) {
+      console.error('[Brand Soul] Regeneration error:', error);
+      alert('Failed to regenerate Brand Soul: ' + error.message);
+      brandSoulLoading.style.display = 'none';
+      if (brandSoulContent.innerHTML) {
+        brandSoulContent.style.display = 'block';
+      }
+    } finally {
+      // Remove loading state from regenerate button
+      if (brandSoulRegenerateBtn) {
+        brandSoulRegenerateBtn.classList.remove('loading');
+        brandSoulRegenerateBtn.disabled = false;
+      }
+    }
+  }
+
   // Close Brand Soul overlay
   function closeBrandSoulOverlay() {
     if (brandSoulOverlay) {
       brandSoulOverlay.style.display = 'none';
+    }
+    // Hide regenerate button when overlay is closed
+    if (brandSoulRegenerateBtn) {
+      brandSoulRegenerateBtn.style.display = 'none';
     }
   }
 
@@ -1539,6 +1651,10 @@ ${htmlContent}
 
   if (brandSoulDownloadBtn) {
     brandSoulDownloadBtn.addEventListener('click', downloadBrandSoul);
+  }
+
+  if (brandSoulRegenerateBtn) {
+    brandSoulRegenerateBtn.addEventListener('click', regenerateBrandSoul);
   }
 
   if (brandSoulCloseBtn) {

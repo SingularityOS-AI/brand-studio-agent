@@ -296,8 +296,11 @@ async def get_brand_soul(request: Request):
             content={"error": "Brand brain not found for this session"}
         )
 
-    # Check if cached HTML exists
-    cached_html = _check_cache(brain)
+    # Check if cached HTML exists.
+    # _check_cache exige (brain, session_token): llamarla con un solo argumento
+    # lanzaba TypeError y este endpoint devolvia 500 siempre. El bug estuvo
+    # dormido mientras nadie llamaba a GET /api/soul desde el frontend.
+    cached_html = _check_cache(brain, session_token)
     if not cached_html:
         return JSONResponse(
             status_code=404,
