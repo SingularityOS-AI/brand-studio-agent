@@ -544,10 +544,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
         console.log('[Tool Call] Sending tool_result to backend:', tool_result);
 
         // Call backend extraction endpoint
-        const response = await fetch('/api/brain/extract', {
+        const response = await authenticatedFetch('/api/brain/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include', // Include cookies for session token
           body: JSON.stringify({
             transcript: transcriptText,
             turn_count: turnCount,
@@ -911,10 +910,24 @@ Always respond in English. Keep your responses conversational and engaging.`;
     mainApp.style.display = 'none';
   }
 
+  async function loadExistingBrain() {
+    try {
+      const response = await authenticatedFetch('/api/brain');
+      if (!response.ok) return;              // 404 = todavía no hay cerebro, es normal
+      const data = await response.json();
+      if (data.brand_brain && data.brand_brain.sections && data.brand_brain.sections.length) {
+        appendExtractedSections(data.brand_brain.sections);
+      }
+    } catch (e) {
+      console.error('[Brain] No se pudo cargar el cerebro existente:', e);
+    }
+  }
+
   function showMainApp() {
     loginOverlay.style.display = 'none';
     mainApp.style.display = 'flex';
     updateCreditsDisplay();
+    loadExistingBrain();
   }
 
   function logout() {
