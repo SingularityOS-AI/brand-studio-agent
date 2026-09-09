@@ -688,6 +688,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
         // Update UI with extracted sections
         if (result.brand_brain && result.brand_brain.sections) {
           appendExtractedSections(result.brand_brain.sections);
+          updateBrandSoulButton(result.brand_brain.sections);
+
+          // Refresh cached brain after successful extraction
+          await loadBrandBrain();
         }
 
       } catch (error) {
@@ -1024,6 +1028,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       const brain = await loadBrandBrain();
       if (brain && brain.sections && brain.sections.length) {
         appendExtractedSections(brain.sections);
+        updateBrandSoulButton(brain.sections);
       }
     } catch (e) {
       console.error('[Brain] No se pudo cargar el cerebro existente:', e);
@@ -1101,6 +1106,207 @@ Always respond in English. Keep your responses conversational and engaging.`;
       console.error('[Auth] Failed to fetch session:', e);
     }
   }
+
+  // Update credits UI (helper function)
+  function updateCreditsUI(remaining, initial) {
+    const creditsLabel = document.getElementById('Credits-Label');
+    const creditsBar = document.getElementById('Credits-Bar');
+
+    if (creditsLabel) {
+      creditsLabel.innerHTML = `${remaining} <span style="font-size:12px;color:#5C6675">/ ${initial}</span>`;
+    }
+
+    if (creditsBar) {
+      const percentage = Math.max(0, Math.min(100, (remaining / initial) * 100));
+      creditsBar.style.width = `${percentage}%`;
+
+      // Change color when low
+      if (percentage < 20) {
+        creditsBar.style.background = '#ef4444';
+      } else if (percentage < 50) {
+        creditsBar.style.background = '#f59e0b';
+      } else {
+        creditsBar.style.background = '#2B4CD8';
+      }
+    }
+
+    console.log(`[Credits] ${remaining} of ${initial} (${percentage.toFixed(1)}%)`);
+  }
+
+  // =============================================================================
+  // BRAND SOUL GENERATION BUTTON
+  // =============================================================================
+
+  const brandSoulBtn = document.getElementById('BrandSoul-Btn');
+  const brandSoulLabel = document.getElementById('BrandSoul-Label');
+  const brandSoulOverlay = document.getElementById('BrandSoul-Overlay');
+  const brandSoulContent = document.getElementById('BrandSoul-Content');
+  const brandSoulLoading = document.getElementById('BrandSoul-Loading');
+  const brandSoulCloseBtn = document.getElementById('BrandSoul-CloseBtn');
+  const brandSoulDownloadBtn = document.getElementById('BrandSoul-DownloadBtn');
+
+  // Update Brand Soul button state based on confirmed sections count
+  function updateBrandSoulButton(sections) {
+    if (!brandSoulBtn || !brandSoulLabel) return;
+
+    const confirmedCount = sections.filter(s => s.status === 'confirmado').length;
+    brandSoulLabel.textContent = `Brand Soul — ${confirmedCount} of 9 sections ready`;
+
+    if (confirmedCount >= 9) {
+      brandSoulBtn.disabled = false;
+    } else {
+      brandSoulBtn.disabled = true;
+    }
+  }
+
+  // Generate Brand Soul document
+  async function generateBrandSoul() {
+    if (!brandSoulBtn || brandSoulBtn.disabled) return;
+
+    try {
+      // Show loading state on button
+      brandSoulBtn.classList.add('loading');
+      brandSoulBtn.disabled = true;
+
+      // Show overlay with loading spinner
+      brandSoulOverlay.style.display = 'flex';
+      brandSoulContent.style.display = 'none';
+      brandSoulContent.innerHTML = '';
+      brandSoulLoading.style.display = 'flex';
+
+      const response = await authenticatedFetch('/api/soul/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regenerate: false })
+      });
+
+      const data = await response.json();
+      const body = 'detail' in data ? data.detail : data;
+
+      if (!response.ok) {
+        // Handle specific error cases
+        if (response.status === 400 && body.error) {
+          // Incomplete brain - extract missing sections count
+          const match = body.error.match(/(\d+)\s*of\s*9/);
+          if (match) {
+            const confirmed = parseInt(match[1]);
+            const missing = 9 - confirmed;
+            alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your Brand Soul. Keep talking with Brandy to complete them.`);
+          } else {
+            alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
+          }
+        } else if (response.status === 402) {
+          alert('You ran out of credits. Brand Soul generation requires 20 credits.');
+        } else if (response.status === 429) {
+          alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+        } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {
+          // No se promete que no se cobro: los creditos se descuentan ANTES de
+          // llamar al LLM (main.py y generator.py), asi que en este punto ya se
+          // fueron. Mentirle al usuario sobre su dinero es peor que el fallo.
+          alert('We could not verify that every quote in your Brand Soul came from your own words, so the document was not shown. This is the guarantee that makes it trustworthy. Please try generating it again.');
+        } else {
+          alert(`Failed to generate Brand Soul: ${body.error || body || response.status}`);
+        }
+
+        // Hide overlay on error
+        brandSoulOverlay.style.display = 'none';
+        return;
+      }
+
+      // Success - display the HTML document
+      brandSoulLoading.style.display = 'none';
+      brandSoulContent.style.display = 'block';
+      brandSoulContent.innerHTML = data.html;
+
+      // Update credits display if included in response
+      if (data.credits_remaining !== undefined) {
+        updateCreditsUI(data.credits_remaining, 250);
+      }
+
+      console.log('[Brand Soul] Document generated successfully');
+
+    } catch (error) {
+      console.error('[Brand Soul] Generation error:', error);
+      alert('Failed to generate Brand Soul: ' + error.message);
+      brandSoulOverlay.style.display = 'none';
+    } finally {
+      // Remove loading state from button and restore state
+      brandSoulBtn.classList.remove('loading');
+      if (cachedBrain && cachedBrain.sections) {
+        const confirmedCount = cachedBrain.sections.filter(s => s.status === 'confirmado').length;
+        brandSoulBtn.disabled = confirmedCount < 9;
+      } else {
+        brandSoulBtn.disabled = true;
+      }
+    }
+  }
+
+  // Download Brand Soul as HTML file
+  function downloadBrandSoul() {
+    if (!brandSoulContent || !brandSoulContent.innerHTML) {
+      alert('No document to download. Please generate your Brand Soul first.');
+      return;
+    }
+
+    try {
+      const htmlContent = brandSoulContent.innerHTML;
+
+      // Create a complete HTML document
+      const fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brand Soul</title>
+</head>
+<body>
+${htmlContent}
+</body>
+</html>`;
+
+      const blob = new Blob([fullHtml], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'brand-soul.html';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log('[Brand Soul] Document downloaded as brand-soul.html');
+    } catch (error) {
+      console.error('[Brand Soul] Download error:', error);
+      alert('Failed to download document: ' + error.message);
+    }
+  }
+
+  // Close Brand Soul overlay
+  function closeBrandSoulOverlay() {
+    if (brandSoulOverlay) {
+      brandSoulOverlay.style.display = 'none';
+    }
+  }
+
+  // Wire up Brand Soul button and overlay controls
+  if (brandSoulBtn) {
+    brandSoulBtn.addEventListener('click', generateBrandSoul);
+  }
+
+  if (brandSoulDownloadBtn) {
+    brandSoulDownloadBtn.addEventListener('click', downloadBrandSoul);
+  }
+
+  if (brandSoulCloseBtn) {
+    brandSoulCloseBtn.addEventListener('click', closeBrandSoulOverlay);
+  }
+
+  // Close overlay on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && brandSoulOverlay && brandSoulOverlay.style.display !== 'none') {
+      closeBrandSoulOverlay();
+    }
+  });
 
   // Initialize on page load
   document.addEventListener('DOMContentLoaded', async () => {
