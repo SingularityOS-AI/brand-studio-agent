@@ -24,6 +24,14 @@
     options.headers = options.headers || {};
     options.headers['Authorization'] = `Bearer ${jwtToken}`;
     const response = await fetch(url, { ...options, credentials: 'same-origin' });
+
+    // Centralized 402 handling - show paywall
+    if (response.status === 402) {
+      console.log('[Paywall] 402 response detected, showing paywall');
+      showPaywall();
+      throw new Error('PAYWALL_402');
+    }
+
     return response;
   }
 
@@ -41,8 +49,6 @@
         if (response.status === 401) {
           alert('Authentication required. Please login again.');
           logout();
-        } else if (response.status === 402) {
-          alert('You ran out of credits.');
         } else if (response.status === 429) {
           alert('Too many requests. Please wait a minute.');
         } else {
@@ -57,7 +63,9 @@
       return API_KEY;
     } catch (e) {
       console.error('[Voice Client] Failed to fetch token:', e);
-      alert('Could not contact server for voice token.');
+      if (e.message !== 'PAYWALL_402') {
+        alert('Could not contact server for voice token.');
+      }
       apiKeyRequested = false;
       return null;
     }
@@ -237,16 +245,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       });
 
       if (!response.ok) {
-        if (response.status === 402) {
-          // Out of credits
-          const body = await response.json();
-          return {
-            success: false,
-            error: 'out_of_credits',
-            message: 'You ran out of voice credits. Please purchase more to continue.',
-            payment_url: body.payment_url
-          };
-        } else if (response.status === 401) {
+        if (response.status === 401) {
           return {
             success: false,
             error: 'unauthorized',
@@ -275,10 +274,17 @@ Always respond in English. Keep your responses conversational and engaging.`;
       };
     } catch (e) {
       console.error('[Voice] Failed to reserve credits:', e);
+      if (e.message !== 'PAYWALL_402') {
+        return {
+          success: false,
+          error: 'network',
+          message: 'Could not contact server to reserve credits.'
+        };
+      }
       return {
         success: false,
-        error: 'network',
-        message: 'Could not contact server to reserve credits.'
+        error: 'out_of_credits',
+        message: 'You ran out of credits.'
       };
     }
   }
@@ -289,34 +295,6 @@ Always respond in English. Keep your responses conversational and engaging.`;
       clearInterval(voiceRenewalTimer);
       voiceRenewalTimer = null;
       console.log('[Voice] Stopped credit renewal timer');
-    }
-  }
-    if (brainFetchInProgress) {
-      console.log('[Brain] Fetch already in progress, waiting...');
-      return cachedBrain;
-    }
-
-    try {
-      brainFetchInProgress = true;
-      console.log('[Brain] Loading brand brain from backend...');
-      const response = await authenticatedFetch('/api/brain');
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log('[Brain] No brand brain found yet (normal for new users)');
-        } else {
-          console.warn('[Brain] Failed to load brain:', response.status);
-        }
-        return null;
-      }
-      const data = await response.json();
-      cachedBrain = data.brand_brain;
-      console.log('[Brain] Loaded brand brain with', cachedBrain?.sections?.length || 0, 'sections');
-      return cachedBrain;
-    } catch (e) {
-      console.error('[Brain] Error loading brand brain:', e);
-      return null;
-    } finally {
-      brainFetchInProgress = false;
     }
   }
 
@@ -361,7 +339,8 @@ Always respond in English. Keep your responses conversational and engaging.`;
       if (!reservation.success) {
         // Handle reservation failure
         if (reservation.error === 'out_of_credits') {
-          alert('You ran out of voice credits. Please purchase more to continue: ' + reservation.payment_url);
+          // Paywall already shown by authenticatedFetch, no need for alert
+          console.log('[Voice] Out of credits, cannot start session');
         } else if (reservation.error === 'unauthorized') {
           alert('Authentication failed. Please login again.');
           logout();
@@ -481,7 +460,8 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
             // Close the voice session on credit exhaustion
             if (renewal.error === 'out_of_credits') {
-              alert('You ran out of voice credits. The microphone will now close.');
+              // Paywall already shown by authenticatedFetch
+              console.log('[Voice Renewal] Out of credits, closing session');
               stopSession();
             } else if (renewal.error === 'unauthorized') {
               alert('Authentication failed. Please login again.');
@@ -1127,6 +1107,122 @@ Always respond in English. Keep your responses conversational and engaging.`;
     micBtn.addEventListener('click', toggleMicrophone);
   }
 
+  // =============================================================================
+  // PAYWALL
+  // =============================================================================
+
+  const paywallOverlay = document.getElementById('Paywall-Overlay');
+  const paywallCloseBtn = document.getElementById('Paywall-CloseBtn');
+
+  // Show paywall overlay
+  function showPaywall() {
+    if (paywallOverlay) {
+      paywallOverlay.style.display = 'flex';
+    }
+  }
+
+  // Hide paywall overlay
+  function hidePaywall() {
+    if (paywallOverlay) {
+      paywallOverlay.style.display = 'none';
+    }
+  }
+
+  // Close paywall when X button clicked
+  if (paywallCloseBtn) {
+    paywallCloseBtn.addEventListener('click', hidePaywall);
+  }
+
+  // Handle plan selection buttons (placeholder - not enabled yet)
+  document.querySelectorAll('.plan-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const plan = btn.dataset.plan;
+      alert(`Payments are not enabled yet. The ${plan} plan (${btn.textContent.trim()}) will be available when Stripe integration is added.`);
+    });
+  });
+
+  // Track credits state for depleted mode
+  let creditsDepleted = false;
+
+  // Update credits UI (helper function)
+  function updateCreditsUI(remaining, initial) {
+    const creditsLabel = document.getElementById('Credits-Label');
+    const creditsBar = document.getElementById('Credits-Bar');
+
+    if (creditsLabel) {
+      creditsLabel.innerHTML = `${remaining} <span style="font-size:12px;color:#5C6675">/ ${initial}</span>`;
+    }
+
+    // percentage se calcula FUERA del if: abajo se usa en el log, y declararla
+    // dentro del bloque lanzaba ReferenceError en cada llamada, abortando la
+    // funcion justo antes de la deteccion de saldo agotado. El paywall no se
+    // activaba nunca.
+    const percentage = Math.max(0, Math.min(100, (remaining / initial) * 100));
+
+    if (creditsBar) {
+      creditsBar.style.width = `${percentage}%`;
+
+      // Change color when low
+      if (percentage < 20) {
+        creditsBar.style.background = '#ef4444';
+      } else if (percentage < 50) {
+        creditsBar.style.background = '#f59e0b';
+      } else {
+        creditsBar.style.background = '#2B4CD8';
+      }
+    }
+
+    console.log(`[Credits] ${remaining} of ${initial} (${percentage.toFixed(1)}%)`);
+
+    // Check if depleted
+    const wasDepleted = creditsDepleted;
+    creditsDepleted = remaining <= 0;
+
+    // If just became depleted, show paywall and disable controls
+    if (!wasDepleted && creditsDepleted) {
+      console.log('[Paywall] Credits depleted, enabling depleted mode');
+      disableDepletedControls();
+      showPaywall();
+    } else if (wasDepleted && !creditsDepleted) {
+      // If no longer depleted, re-enable controls
+      console.log('[Paywall] Credits available again, disabling depleted mode');
+      enableDepletedControls();
+    }
+  }
+
+  // Disable controls when credits are depleted
+  function disableDepletedControls() {
+    // Disable microphone button
+    if (micBtn) {
+      micBtn.disabled = true;
+      micBtn.style.background = 'var(--line)';
+      micBtn.style.cursor = 'not-allowed';
+      micBtn.title = 'No credits available - please purchase more to continue';
+    }
+
+    // Stop any active session
+    if (isSessionActive) {
+      stopSession();
+    }
+
+    // Note: Brand Soul button is NOT disabled - users can still view/download
+    // their existing Brand Soul even with 0 credits
+  }
+
+  // Re-enable controls when credits become available again
+  function enableDepletedControls() {
+    // Re-enable microphone button
+    if (micBtn) {
+      micBtn.disabled = false;
+      micBtn.style.background = '';
+      micBtn.style.cursor = 'pointer';
+      micBtn.title = '';
+    }
+  }
+
+
+
   // ==============================================================================
   // GOOGLE OAUTH AUTHENTICATION
   // ==============================================================================
@@ -1281,31 +1377,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
     }
   }
 
-  // Update credits UI (helper function)
-  function updateCreditsUI(remaining, initial) {
-    const creditsLabel = document.getElementById('Credits-Label');
-    const creditsBar = document.getElementById('Credits-Bar');
-
-    if (creditsLabel) {
-      creditsLabel.innerHTML = `${remaining} <span style="font-size:12px;color:#5C6675">/ ${initial}</span>`;
-    }
-
-    if (creditsBar) {
-      const percentage = Math.max(0, Math.min(100, (remaining / initial) * 100));
-      creditsBar.style.width = `${percentage}%`;
-
-      // Change color when low
-      if (percentage < 20) {
-        creditsBar.style.background = '#ef4444';
-      } else if (percentage < 50) {
-        creditsBar.style.background = '#f59e0b';
-      } else {
-        creditsBar.style.background = '#2B4CD8';
-      }
-    }
-
-    console.log(`[Credits] ${remaining} of ${initial} (${percentage.toFixed(1)}%)`);
-  }
+{}
 
   // =============================================================================
   // BRAND SOUL GENERATION BUTTON
@@ -1369,8 +1441,6 @@ Always respond in English. Keep your responses conversational and engaging.`;
           } else {
             alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
           }
-        } else if (response.status === 402) {
-          alert('You ran out of credits. Brand Soul generation requires 20 credits.');
         } else if (response.status === 429) {
           alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
         } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {

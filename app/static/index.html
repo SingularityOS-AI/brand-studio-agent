@@ -217,6 +217,64 @@
 
 </div>
 
+<!-- Paywall Overlay -->
+<div class="paywall-overlay" id="Paywall-Overlay" style="display:none">
+  <div class="paywall-modal">
+    <div class="paywall-header">
+      <h2 class="paywall-title">You've used up your free credits</h2>
+      <button class="paywall-close-btn" id="Paywall-CloseBtn" aria-label="Close">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="paywall-body">
+      <p class="paywall-subtitle">Choose a plan to continue your brand journey with Brandy</p>
+      <div class="paywall-cards">
+        <!-- Starter Plan -->
+        <div class="paywall-card">
+          <div class="plan-name">Starter</div>
+          <div class="plan-price">$5<span class="period">/mo</span></div>
+          <div class="plan-credits">150 credits/mo</div>
+          <ul class="plan-features">
+            <li>Perfect for occasional use</li>
+            <li>Brand brain tracking</li>
+            <li>Brand Soul generation</li>
+          </ul>
+          <button class="plan-btn" data-plan="starter">Choose Starter</button>
+        </div>
+        <!-- Pro Plan (Featured) -->
+        <div class="paywall-card featured">
+          <div class="popular-badge">Most Popular</div>
+          <div class="plan-name">Pro</div>
+          <div class="plan-price">$15<span class="period">/mo</span></div>
+          <div class="plan-credits">400 credits/mo</div>
+          <ul class="plan-features">
+            <li>Ideal for active founders</li>
+            <li>Everything in Starter</li>
+            <li>Priority processing</li>
+            <li>Full Brand Soul access</li>
+          </ul>
+          <button class="plan-btn featured-btn" data-plan="pro">Choose Pro</button>
+        </div>
+        <!-- Studio Plan -->
+        <div class="paywall-card">
+          <div class="plan-name">Studio</div>
+          <div class="plan-price">$20<span class="period">/mo</span></div>
+          <div class="plan-credits">600 credits/mo</div>
+          <ul class="plan-features">
+            <li>For power users & agencies</li>
+            <li>Everything in Pro</li>
+            <li>Unlimited brand revisions</li>
+          </ul>
+          <button class="plan-btn" data-plan="studio">Choose Studio</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Brand Soul Document Overlay -->
 <div class="brand-soul-overlay" id="BrandSoul-Overlay" style="display:none">
   <div class="brand-soul-overlay-header">
@@ -374,6 +432,236 @@
 .brand-soul-overlay-content * {
   max-width:none !important;
   box-sizing:border-box !important
+}
+
+/* Paywall Overlay Styles */
+.paywall-overlay {
+  position:fixed;
+  inset:0;
+  background:rgba(20,24,31,0.92);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:10000;
+  animation:fadeIn 0.2s ease;
+}
+
+.paywall-modal {
+  background:var(--surface);
+  border-radius:16px;
+  max-width:960px;
+  width:90%;
+  max-height:90vh;
+  overflow-y:auto;
+  box-shadow:0 24px 64px rgba(20,24,31,0.4);
+}
+
+.paywall-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:24px 32px;
+  border-bottom:1px solid var(--line);
+}
+
+.paywall-title {
+  margin:0;
+  font-family:'Space Grotesk',Inter,sans-serif;
+  font-size:22px;
+  font-weight:600;
+  color:var(--ink);
+}
+
+.paywall-close-btn {
+  background:none;
+  border:none;
+  padding:8px;
+  cursor:pointer;
+  color:var(--ink-soft);
+  transition:color 0.2s ease;
+  border-radius:6px;
+}
+
+.paywall-close-btn:hover {
+  color:var(--ink);
+  background:var(--surface-alt);
+}
+
+.paywall-body {
+  padding:32px;
+}
+
+.paywall-subtitle {
+  margin:0 0 32px;
+  font-size:14px;
+  color:var(--ink-soft);
+  text-align:center;
+  line-height:1.6;
+}
+
+.paywall-cards {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:20px;
+  align-items:flex-start;
+}
+
+.paywall-card {
+  position:relative;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:24px 20px;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  transition:border-color 0.2s ease,box-shadow 0.2s ease;
+}
+
+.paywall-card:hover {
+  border-color:var(--accent-soft);
+  box-shadow:0 4px 20px rgba(43,76,216,0.1);
+}
+
+.paywall-card.featured {
+  border:2px solid var(--accent);
+  box-shadow:0 8px 32px rgba(43,76,216,0.15);
+}
+
+.paywall-card.featured:hover {
+  border-color:var(--accent);
+  box-shadow:0 12px 40px rgba(43,76,216,0.2);
+}
+
+.popular-badge {
+  position:absolute;
+  top:-12px;
+  left:50%;
+  transform:translateX(-50%);
+  background:var(--accent);
+  color:#fff;
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  padding:6px 12px;
+  border-radius:10px;
+}
+
+.plan-name {
+  font-family:'Space Grotesk',Inter,sans-serif;
+  font-size:16px;
+  font-weight:600;
+  color:var(--ink);
+  text-align:center;
+}
+
+.plan-price {
+  font-family:'Space Grotesk',Inter,sans-serif;
+  font-size:36px;
+  font-weight:700;
+  color:var(--ink);
+  text-align:center;
+  line-height:1;
+}
+
+.plan-price .period {
+  font-size:14px;
+  font-weight:400;
+  color:var(--ink-soft);
+}
+
+.plan-credits {
+  font-size:13px;
+  color:var(--accent);
+  font-weight:500;
+  text-align:center;
+  padding:8px;
+  background:rgba(43,76,216,0.06);
+  border-radius:6px;
+}
+
+.plan-features {
+  list-style:none;
+  padding:0;
+  margin:0;
+  flex:1;
+}
+
+.plan-features li {
+  font-size:13px;
+  color:var(--ink-soft);
+  padding:8px 0;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  line-height:1.5;
+}
+
+.plan-features li::before {
+  content:"✓";
+  color:var(--accent);
+  font-weight:600;
+  flex-shrink:0;
+}
+
+.plan-btn {
+  width:100%;
+  padding:14px 16px;
+  background:var(--surface-alt);
+  border:1px solid var(--line);
+  border-radius:8px;
+  font-size:14px;
+  font-weight:500;
+  color:var(--ink);
+  cursor:pointer;
+  transition:all 0.2s ease;
+  font-family:Inter,-apple-system,Segoe UI,sans-serif;
+}
+
+.plan-btn:hover:not(:disabled) {
+  border-color:var(--accent);
+  background:#fff;
+  color:var(--accent);
+  box-shadow:0 2px 8px rgba(43,76,216,0.15);
+}
+
+.plan-btn:active:not(:disabled) {
+  transform:scale(0.98);
+}
+
+.plan-btn.featured-btn {
+  background:var(--accent);
+  border-color:var(--accent);
+  color:#fff;
+}
+
+.plan-btn.featured-btn:hover:not(:disabled) {
+  background:#1f3bb0;
+  border-color:#1f3bb0;
+  box-shadow:0 4px 16px rgba(43,76,216,0.25);
+}
+
+.plan-btn:disabled {
+  opacity:0.5;
+  cursor:not-allowed;
+}
+
+/* Responsive: stack cards on mobile */
+@media(max-width:768px) {
+  .paywall-cards {
+    grid-template-columns:1fr;
+  }
+  .paywall-modal {
+    width:95%;
+    max-height:95vh;
+  }
+  .paywall-header {
+    padding:20px;
+  }
+  .paywall-body {
+    padding:20px;
+  }
 }
 </style>
 
