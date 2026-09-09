@@ -43,24 +43,109 @@ def complete_confirmed_brain():
     brain = BrandBrain()
 
     sections_data = [
-        {"id": "brand_journey", "label": "Viaje del Cliente", "content": {
-            "stage_1_unaware": "No sabe que tiene un problema",
-            "stage_2_problem_aware": "Siente el dolor",
-            "stage_3_solution_aware": "Busca soluciones",
-            "stage_4_product_aware": "Conoce tu marca",
-            "stage_5_most_aware": "Listo para comprar"
-        }, "citation_text": "Elvia explicó que el cliente viaja del 'no saber' al 'sí quiero'", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "etapa", "label": "Etapa del Negocio", "content": {"stage": "Momentum"}, "citation_text": "Elvia dice que estás en Momentum, ya tienes tracción", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "charco", "label": "El Charco", "content": {"pain_point": "Las personas perdidas en su propósito"}, "citation_text": "Elvia identificó que tu servicio es para personas perdidas en su propósito", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "credibilidad", "label": "Credibilidad", "content": {"evidence": "10 años de experiencia"}, "citation_text": "Elvia validó que tienes 10 años de experiencia que respaldan tu propuesta", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "contrarian", "label": "Postura Contraria", "content": {
-            "common_belief": "Necesitas más redes sociales",
-            "contrarian_position": "Necesitas menos redes, más profundidad"
-        }, "citation_text": "Elvia desafió la creencia de que necesitas más redes sociales", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "asociaciones", "label": "Asociaciones", "content": {"associations": {"desired": ["auténtico", "profundo"], "prohibited": [ "superficial", "spam"]}}, "citation_text": "Elvia clarificó cómo quieres ser percibido", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "identidad", "label": "Identidad", "content": {"values": ["autenticidad", "profundidad"], "associations": {"desired": ["auténtico", "profundo"], "prohibited": ["superficial", "spam"]}}, "citation_text": "Elvia dijo que tu marca es auténtica y profunda, nunca superficial", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "oferta", "label": "Oferta", "content": {"offer_components": ["Consultoría", "Mentoria"], "guarantee": "Satisfacción garantizada"}, "citation_text": "Elvia definió tu oferta como consultoría + mentoría con garantía", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "lead_magnet", "label": "Lead Magnet", "content": {"what_they_get": "Ebook gratuito sobre propósito"}, "citation_text": "Elvia propuso un ebook gratuito como regalo inicial", "citation_source": "usuario", "status": "confirmado"},
+        {
+            "id": "diagnostico", "label": "Diagnóstico",
+            "content": {
+                "etapa": "creador atascado",
+                "sintoma_diagnostico": "Engrosar embudo sin convertir",
+                "habilidad_a_desbloquear": "Ingeniería de ofertas",
+                "prohibicion": "No hacer género vertical",
+                "postura": "experto"
+            },
+            "citation_text": "Elvia diagnosticó que estás en creador atascado con engrosamiento de embudo",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "brand_journey", "label": "Brand Journey",
+            "content": {
+                "resultado_deseado": "Ser referente en consultoría",
+                "de_que_ser_conocido": "Transformación empresarial",
+                "que_hacer": "Consultoría 1:1",
+                "que_aprender": "Diseño de programas"
+            },
+            "citation_text": "Elvia explicó que el cliente viaja del 'no saber' al 'sí quiero'",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "charco", "label": "El Charco",
+            "content": {
+                "problema": "Pymes que no convertían tráfico",
+                "nivel": "charco",
+                "logro_que_lo_respalda": "300 empresas digitalizadas"
+            },
+            "citation_text": "Elvia identificó que tu servicio es para pymes con problema de conversión",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "icp", "label": "ICP — A quién le mandas la factura",
+            "content": {
+                "quien_decide": "CEO de pymes",
+                "disparador_de_urgencia": "Q3 audiencia externa",
+                "poder_adquisitivo": "50-100k€"
+            },
+            "citation_text": "Elvia validó que tu cliente ideal son CEOs de pymes con presupuesto",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "contrarian", "label": "Postura Contraria",
+            "content": {
+                "creencia_comun": "Necesitas más redes sociales",
+                "postura_opuesta": "Necesitas menos redes, más profundidad",
+                "prueba": "Clientes redujeron redes y duplicaron engagement"
+            },
+            "citation_text": "Elvia desafió la creencia de que necesitas más redes sociales",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "asociaciones", "label": "Asociaciones",
+            "content": {
+                "deseadas": "auténtico, profundo",
+                "prohibidas": "superficial, spam"
+            },
+            "citation_text": "Elvia clarificó cómo quieres ser percibido",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "identidad", "label": "Identidad",
+            "content": {
+                "voz": "Directa, profesional",
+                "colores": "#2563EB, #000000",
+                "tipografias": "Inter, Roboto"
+            },
+            "citation_text": "Elvia dijo que tu marca es auténtica y profunda, nunca superficial",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "oferta", "label": "Oferta",
+            "content": {
+                "resultado_sonado": "Duplicar ingresos",
+                "probabilidad_percibida": "50 casos verificados",
+                "retraso": "30 días",
+                "esfuerzo": "2h/semana",
+                "componentes": "3 emails/semana"
+            },
+            "citation_text": "Elvia definió tu oferta con resultado soñado y componentes específicos",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "lead_magnet", "label": "Lead Magnet",
+            "content": {
+                "tipo": "revelador",
+                "problema_A": "Baja conversión",
+                "problema_B_que_revela": "Falta de nurturing"
+            },
+            "citation_text": "Elvia propuso un lead magnet revelador como regalo inicial",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
     ]
 
     for section_data in sections_data:
@@ -76,11 +161,69 @@ def incomplete_brain():
     brain = BrandBrain()
 
     sections_data = [
-        {"id": "brand_journey", "label": "Viaje del Cliente", "content": {"stage_1_unaware": "No sabe"}, "citation_text": "Elvia explicó el viaje del cliente", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "etapa", "label": "Etapa del Negocio", "content": {"stage": "Exploración"}, "citation_text": "Estás en etapa de exploración", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "charco", "label": "El Charco", "content": {"pain_point": "Dolor"}, "citation_text": "Elvia identificó el dolor", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "credibilidad", "label": "Credibilidad", "content": {"evidence": "Experiencia"}, "citation_text": "Elvia validó tu experiencia", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "contrarian", "label": "Postura Contraria", "content": {"common_belief": "Creencia común", "contrarian_position": "Posición contraria"}, "citation_text": "Elvia desafió la creencia común", "citation_source": "usuario", "status": "confirmado"},
+        {
+            "id": "brand_journey",
+            "label": "Brand Journey",
+            "content": {
+                "resultado_deseado": "Ser referente",
+                "de_que_ser_conocido": "Transformación",
+                "que_hacer": "Consultoría",
+                "que_aprender": "Diseño"
+            },
+            "citation_text": "Elvia explicó el viaje del cliente",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "diagnostico",
+            "label": "Diagnóstico",
+            "content": {
+                "etapa": "explorador",
+                "sintoma_diagnostico": "Testing etapas",
+                "habilidad_a_desbloquear": "Skills",
+                "prohibicion": "Prohibiciones",
+                "postura": "experto"
+            },
+            "citation_text": "Estás en etapa de exploración",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "charco",
+            "label": "El Charco",
+            "content": {
+                "problema": "Dolor genérico",
+                "nivel": "charco",
+                "logro_que_lo_respalda": "Logros"
+            },
+            "citation_text": "Elvia identificó el dolor",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "icp",
+            "label": "ICP — A quién le mandas la factura",
+            "content": {
+                "quien_decide": "Decisor",
+                "disparador_de_urgencia": "Urgencia",
+                "poder_adquisitivo": "Presupuesto"
+            },
+            "citation_text": "Elvia validó tu cliente ideal",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
+        {
+            "id": "contrarian",
+            "label": "Postura Contraria",
+            "content": {
+                "creencia_comun": "Creencia común",
+                "postura_opuesta": "Posición contraria",
+                "prueba": "Pruebas"
+            },
+            "citation_text": "Elvia desafió la creencia común",
+            "citation_source": "usuario",
+            "status": "confirmado"
+        },
     ]
 
     for section_data in sections_data:
@@ -96,8 +239,8 @@ def sample_html_with_citations():
     html = """
     <div class="soul-document">
         <div class="citation">"Elvia explicó que el cliente viaja del 'no saber' al 'sí quiero'"</div>
-        <div class="citation">"Elvia dice que estás en Momentum, ya tienes tracción"</div>
-        <div class="citation">"Elvia identificó que tu servicio es para personas perdidas en su propósito"</div>
+        <div class="citation">"Elvia identificó que tu servicio es para pymes con problema de conversión"</div>
+        <div class="citation">"Elvia desafió la creencia de que necesitas más redes sociales"</div>
     </div>
     """
     return html
@@ -109,7 +252,7 @@ def sample_html_with_invented_citations():
     html = """
     <div class="soul-document">
         <div class="citation">"Elvia explicó que el cliente viaja del 'no saber' al 'sí quiero'"</div>
-        <div class="citation">"Elvia dice que estás en Momentum, ya tienes tracción"</div>
+        <div class="citation">"Elvia diagnostic&oacute; que est&aacute;s en creador atascado con engrosamiento de embudo"</div>
         <div class="citation">"Esta cita fue inventada por el LLM y no existe en el cerebro"</div>
     </div>
     """
@@ -148,11 +291,11 @@ def test_generate_soul_complete_brain_produces_valid_html(
     assert html is not None
     assert "<!DOCTYPE html>" in html
 
-    # The template renders 8 sections. "credibilidad" and "asociaciones" are integrated
-    # into other sections and may not have their own standalone citation blocks.
+    # The template renders 8 sections, but "asociaciones" is merged into "identidad",
+    # so only "identidad" citation appears. ICP is metadata-only and not rendered.
     # Check that main section citations appear in HTML:
     sections_in_document = [
-        "brand_journey", "etapa", "charco", "contrarian",
+        "diagnostico", "brand_journey", "charco", "contrarian",
         "identidad", "oferta", "lead_magnet"
     ]
     expected_citations_in_doc = [
@@ -319,7 +462,7 @@ def test_check_all_sections_confirmed_incomplete(incomplete_brain):
     # Check specific missing sections are mentioned
     missing_text = ", ".join(missing)
     assert "asociaciones" in missing_text  # One of the missing sections
-    assert "oferta" in missing_text  # Another missing section
+    assert "identidad" in missing_text  # Another missing section
 
 
 # =============================================================================
@@ -336,8 +479,8 @@ def test_extract_literal_citations(complete_confirmed_brain):
 
     assert len(citations) == 9
     assert "brand_journey" in citations
-    assert "etapa" in citations
-    assert citations["brand_journey"] == complete_confirmed_brain.sections[0].citation_text
+    assert "diagnostico" in citations
+    assert citations["brand_journey"] == complete_confirmed_brain.sections[1].citation_text
 
 
 # =============================================================================
@@ -457,15 +600,51 @@ def test_generate_soul_with_cache_hit(mock_check_cache, mock_get_brain):
     # Setup mocks - manually create a complete brain
     brain = BrandBrain()
     for import_data in [
-        {"id": "brand_journey", "label": "Viaje", "content": {"stage_1_unaware": "X"}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "etapa", "label": "Etapa", "content": {"stage": "Momentum"}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "charco", "label": "Charco", "content": {"pain_point": "Dolor"}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "credibilidad", "label": "Credibilidad", "content": {"evidence": "E"}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "contrarian", "label": "Contrarian", "content": {"common_belief": "A", "contrarian_position": "B"}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "asociaciones", "label": "Asoc", "content": {"associations": {"desired": [], "prohibited": []}}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "identidad", "label": "Id", "content": {"values": [], "associations": {"desired": [], "prohibited": []}}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "oferta", "label": "Oferta", "content": {"offer_components": [], "guarantee": ""}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
-        {"id": "lead_magnet", "label": "Lead", "content": {"what_they_get": "Algo"}, "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"},
+        {
+            "id": "diagnostico", "label": "Diagnóstico",
+            "content": {"etapa": "momentum", "sintoma_diagnostico": "X", "habilidad_a_desbloquear": "Y", "prohibicion": "Z", "postura": "ex"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "brand_journey", "label": "Brand Journey",
+            "content": {"resultado_deseado": "X", "de_que_ser_conocido": "Y", "que_hacer": "Z", "que_aprender": "W"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "charco", "label": "Charco",
+            "content": {"problema": "Dolor", "nivel": "charco", "logro_que_lo_respalda": "Logro"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "icp", "label": "ICP",
+            "content": {"quien_decide": "CEO", "disparador_de_urgencia": "Q4", "poder_adquisitivo": "50k"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "contrarian", "label": "Postura Contraria",
+            "content": {"creencia_comun": "A", "postura_opuesta": "B", "prueba": "C"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "asociaciones", "label": "Asociaciones",
+            "content": {"deseadas": ["a"], "prohibidas": ["b"]},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "identidad", "label": "Identidad",
+            "content": {"voz": "X", "colores": "#FFF", "tipografias": "Y"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "oferta", "label": "Oferta",
+            "content": {"resultado_sonado": "X", "probabilidad_percibida": "Y", "retraso": "Z", "esfuerzo": "W", "componentes": "V"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
+        {
+            "id": "lead_magnet", "label": "Lead Magnet",
+            "content": {"tipo": "X", "problema_A": "Y", "problema_B_que_revela": "Z"},
+            "citation_text": "Cita", "citation_source": "usuario", "status": "confirmado"
+        },
     ]:
         brain.sections.append(Section(**import_data))
 

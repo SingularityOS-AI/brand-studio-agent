@@ -3,30 +3,20 @@ Brand Brain Extraction Logic
 
 Validates schema, extracts content, and converts to BrandBrain model.
 Called by `/api/brain/extract` endpoint.
+
+Follows spec_cerebro_9_nodos.md (CEO-signed 2026-09-09) as source of truth.
 """
 
-import json
-from pathlib import Path
 from typing import Dict, List, Optional, Any
+import re
 
-from app.tools.brand_brain.models import BrandBrain, Section
+from app.tools.brand_brain.models import BrandBrain, Section, CitationInvariantError
 from app.tools.brand_brain.questions import (
     get_section_by_id,
     all_required_fields_gathered,
     get_section_order
 )
 from app.tools.brand_brain.store import save_brand_brain, get_brand_brain
-
-
-# Load JSON schema
-_SCHEMA_PATH = Path(__file__).parent.parent.parent.parent / "tools" / "brand_extraction_schema.json"
-
-if _SCHEMA_PATH.exists():
-    with open(_SCHEMA_PATH, "r", encoding="utf-8") as f:
-        _EXTRACTION_SCHEMA = json.load(f)
-else:
-    _EXTRACTION_SCHEMA = None
-    print(f"[WARNING] brand_extraction_schema.json not found at {_SCHEMA_PATH}")
 
 
 class ExtractionError(Exception):
@@ -48,316 +38,316 @@ def validate_extraction_input(transcript: str, turn_count: int = None) -> None:
     # Sections are validated by content and citation, not turn count
 
 
-def parse_extraction_result(raw_result: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_citation_for_matching(citation: str) -> str:
     """
-    Parse and validate the LLM extraction result.
+    Normalize citation for ASR-robust matching.
+
+    Normalization: lowercase, remove punctuation, collapse spaces.
+
+    Uses substring match per spec: agent provides exact citation, we verify
+    it appears literally in transcript after normalization.
 
     Args:
-        raw_result: The raw output from the LLM/tool
+        citation: The citation text from the agent
 
     Returns:
-        Parsed and validated extraction result
-
-    Raises:
-        ExtractionError: If schema validation fails
+        Normalized citation string for matching
     """
-    if not raw_result or not isinstance(raw_result, dict):
-        raise ExtractionError("Extraction result must be a dict")
+    # Lowercase
+    normalized = citation.lower()
 
-    # Check for validation status - be lenient, default to "valid"
-    validation_status = raw_result.get("validation_status", "valid")
-    if validation_status not in ["valid", "partial", "invalid"]:
-        # Normalize to "valid" if unknown status
-        validation_status = "valid"
-        raw_result["validation_status"] = validation_status
+    # Remove punctuation (keep letters, numbers, spaces)
+    normalized = re.sub(r'[^\w\s]', ' ', normalized)
 
-    # Check for brand_brain - could be empty dict if agent didn't extract anything
-    brand_brain = raw_result.get("brand_brain", {})
-    if not isinstance(brand_brain, dict):
-        raise ExtractionError("brand_brain must be a dict")
+    # Collapse multiple spaces to single
+    normalized = re.sub(r'\s+', ' ', normalized)
 
-    # Ensure brand_brain exists in result
-    if "brand_brain" not in raw_result:
-        raw_result["brand_brain"] = brand_brain
-
-    return raw_result
+    # Strip leading/trailing spaces
+    return normalized.strip()
 
 
-def convert_to_sections(session_token: str, extraction_result: Dict[str, Any], transcript: str) -> List[Section]:
+def normalized_citation_matches_transcript(citation: str, transcript: str) -> bool:
     """
-    Convert extraction result into Section objects.
+    Check if normalized citation appears in normalized transcript.
 
-    This is where we enforce citations and proper section structure.
-    
-    CORE INVARIANT: If a section has no valid citation from the transcript,
-    it is NOT created. The agent will ask the user instead.
+    Uses substring match (not exact match) to be lenient with ASR variations.
+    If the normalized citation text is a substring of the normalized transcript,
+    we consider it a match.
 
     Args:
-        session_token: Session token for persistence
-        extraction_result: Validated extraction result
-        transcript: Full transcript for citation extraction
+        citation: citation text from agent
+        transcript: full conversation transcript
+
+    Returns:
+        True if citation appears in transcript after normalization
+    """
+    norm_citation = normalize_citation_for_matching(citation)
+    norm_transcript = normalize_citation_for_matching(transcript)
+
+    # ponytail: match normalizado por substring; subir a fuzzy si el ASR lo exige
+    return norm_citation in norm_transcript
+
+
+def extract_citation_from_transcript(section_data: Dict, transcript: str) -> Optional[str]:
+    """
+    Extract citation from transcript.
+
+    DISCARDED: Previous implementation used 3-char prefix matching of Spanish phrases,
+    which produced garbage like ["el ", "la ", "las", "qué"].
+
+    New implementation: use agent-provided citation directly with normalized
+    substring matching.
+
+    Args:
+        section_data: Section data containing citation_text
+        transcript: Full conversation transcript
+
+    Returns:
+        citation_text if valid and found in transcript, None otherwise
+    """
+    citation_text = section_data.get("citation_text")
+    if not citation_text:
+        return None
+
+    # Verify citation appears in transcript
+    if not normalized_citation_matches_transcript(citation_text, transcript):
+        return None
+
+    return citation_text
+
+
+def normalize_section_content(section_id: str,
+                               content: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize and validate section content per spec_cerebro_9_nodos.md.
+
+    Handles per-node field mappings from agent output to canonical schema.
+
+    Args:
+        section_id: Section ID (one of the 9 nodes)
+        content: Raw content from extraction agent
+
+    Returns:
+        Normalized content dict for storage
+    """
+    normalized = {}
+
+    # Per-node normalization blocks
+    if section_id == "diagnostico":
+        normalized["etapa"] = content.get("etapa")
+        normalized["nivel_ramiro"] = content.get("nivel_ramiro")
+        normalized["sintoma_diagnostico"] = content.get("sintoma_diagnostico")
+        normalized["habilidad_a_desbloquear"] = content.get("habilidad_a_desbloquear")
+        normalized["prohibicion"] = content.get("prohibicion")
+        normalized["postura"] = content.get("postura")
+        normalized["justificacion_postura"] = content.get("justificacion_postura")
+
+    elif section_id == "brand_journey":
+        normalized["resultado_deseado"] = content.get("resultado_deseado")
+        normalized["de_que_ser_conocido"] = content.get("de_que_ser_conocido")
+        normalized["que_hacer"] = content.get("que_hacer")
+        normalized["que_aprender"] = content.get("que_aprender")
+
+    elif section_id == "charco":
+        normalized["problema"] = content.get("problema")
+        normalized["nivel"] = content.get("nivel")
+        normalized["logro_que_lo_respalda"] = content.get("logro_que_lo_respalda")
+        normalized["costo_de_no_resolverlo"] = content.get("costo_de_no_resolverlo")
+        normalized["intentos_fallidos"] = content.get("intentos_fallidos")
+
+    elif section_id == "icp":
+        normalized["quien_decide"] = content.get("quien_decide")
+        normalized["tamano_empresa"] = content.get("tamano_empresa")
+        normalized["disparador_de_urgencia"] = content.get("disparador_de_urgencia")
+        normalized["poder_adquisitivo"] = content.get("poder_adquisitivo")
+        normalized["comite_de_compra"] = content.get("comite_de_compra")
+        normalized["a_quien_le_rinde_cuentas"] = content.get("a_quien_le_rinde_cuentas")
+
+    elif section_id == "contrarian":
+        normalized["creencia_comun"] = content.get("creencia_comun")
+        normalized["postura_opuesta"] = content.get("postura_opuesta")
+        normalized["prueba"] = content.get("prueba")
+        normalized["por_que_no_es_provocacion"] = content.get("por_que_no_es_provocacion")
+
+    elif section_id == "asociaciones":
+        normalized["deseadas"] = content.get("deseadas")
+        normalized["prohibidas"] = content.get("prohibidas")
+
+    elif section_id == "identidad":
+        normalized["voz"] = content.get("voz")
+        normalized["colores"] = content.get("colores")
+        normalized["tipografias"] = content.get("tipografias")
+        normalized["narrativa_de_origen"] = content.get("narrativa_de_origen")
+
+    elif section_id == "oferta":
+        normalized["resultado_sonado"] = content.get("resultado_sonado")
+        normalized["probabilidad_percibida"] = content.get("probabilidad_percibida")
+        normalized["retraso"] = content.get("retraso")
+        normalized["esfuerzo"] = content.get("esfuerzo")
+        normalized["componentes"] = content.get("componentes")
+        normalized["garantia"] = content.get("garantia")
+
+    elif section_id == "lead_magnet":
+        normalized["tipo"] = content.get("tipo")
+        normalized["problema_A"] = content.get("problema_A")
+        normalized["problema_B_que_revela"] = content.get("problema_B_que_revela")
+        normalized["formato"] = content.get("formato")
+        normalized["captura"] = content.get("captura")
+
+    else:
+        # Unknown section - passthrough
+        normalized = content.copy()
+
+    return normalized
+
+
+def convert_to_sections(transcript: str,
+                        tool_result: Dict[str, Any]) -> List[Section]:
+    """
+    Convert extraction tool result to Section objects.
+
+    Validates citations (must appear in transcript) and checks required fields.
+
+    Args:
+        transcript: Full conversation transcript
+        tool_result: Dict from extraction agent with section data
 
     Returns:
         List of Section objects
 
     Raises:
-        ExtractionError: If section conversion fails
+        ExtractionError: If section structure is invalid
     """
-    brand_brain_data = extraction_result.get("brand_brain", {})
     sections = []
 
-    # Map extraction framework to our section IDs
-    # The JSON schema uses different keys than our section IDs
-    section_mapping = {
-        "ralston_journey": "brand_journey",
-        "segues_stage": "etapa",
-        "pain_puddle": "charco",
-        "credibility": "credibilidad",
-        "contrarian_position": "contrarian",
-        "mental_associations": "asociaciones",
-        "brand_identity": "identidad",
-        "irresistible_offer": "oferta",
-        "lead_magnet": "lead_magnet"
-    }
+    # Mapping from old IDs to new IDs is NO LONGER NEEDED - direct ID-to-ID
+    # Agent now returns correct IDs per spec
 
-    # Process each section
-    for framework_key, section_id in section_mapping.items():
+    # Extract citations map if present
+    citations_map = tool_result.get("citations", {})
+
+    # Extract section data
+    sections_data = tool_result.get("sections", [])
+
+    for section_data in sections_data:
+        section_id = section_data.get("id")
+        if not section_id:
+            continue
+
         section_def = get_section_by_id(section_id)
         if not section_def:
-            print(f"[WARNING] Unknown section_id: {section_id}")
+            # Skip unknown sections
+            print(f"[WARNING] Unknown section ID: {section_id}")
             continue
 
-        section_data = brand_brain_data.get(framework_key)
-        if not section_data:
-            # Skip missing sections for now (agent will ask)
-            continue
+        # Extract citation
+        citation_text = section_data.get("citation_text")
+        citation_source = section_data.get("citation_source", "usuario")
 
-        # Extract citation from transcript
-        # THIS MAY RETURN None if no valid citation exists
-        citation_text = extract_citation_from_transcript(section_id, transcript, section_data)
-        
-        # CORE INVARIANT: Skip section if no valid citation
-        # We do NOT create sections with empty citations
         if not citation_text:
-            print(f"[INFO] Skipping section '{section_id}' - no valid citation found in transcript")
-            continue
-        
-        citation_source = "usuario"  # Default until we implement public analysis
-
-        # Convert framework-specific format to our Section content format
-        content = normalize_section_content(section_id, section_data)
-
-        # Validate section content
-        if not all_required_fields_gathered(section_id, content):
-            # If validation fails, skip this section
-            print(f"[INFO] Skipping section '{section_id}' - missing required fields")
+            print(f"[WARNING] Section {section_id} missing citation_text, skipping")
             continue
 
-        # Create section (will enforce citation invariant at construction)
-        section = Section(
-            id=section_id,
-            label=section_def.label,
-            status="propuesto",  # Initially proposed by agent
-            content=content,
-            citation_text=citation_text,
-            citation_source=citation_source
-        )
+        # Verify citation appears in transcript
+        if not normalized_citation_matches_transcript(citation_text, transcript):
+            print(f"[WARNING] Section {section_id} citation not found in transcript, skipping")
+            continue
 
-        sections.append(section)
+        # Extract content
+        raw_content = section_data.get("content", {})
+        content = normalize_section_content(section_id, raw_content)
+
+        # Derive status from confirmed flag (FIX #3)
+        confirmed = section_data.get("confirmed", False)
+        status = "confirmado" if confirmed else "propuesto"
+
+        try:
+            section = Section(
+                id=section_id,
+                label=section_def.title,
+                status=status,
+                content=content,
+                citation_text=citation_text,
+                citation_source=citation_source
+            )
+            sections.append(section)
+        except CitationInvariantError as e:
+            print(f"[WARNING] Section {section_id} failed citation invariant: {e}, skipping")
+            continue
 
     return sections
 
 
-def extract_citation_from_transcript(section_id: str, transcript: str, section_data: Dict) -> Optional[str]:
+def extract_and_persist(session_token: str,
+                       transcript: str,
+                       turn_count: Optional[int] = None,
+                       tool_result: Dict[str, Any] = None) -> BrandBrain:
     """
-    Extract relevant citation text from transcript for a section.
-
-    CORE INVARIANT: Returns None if no valid citation exists, NOT a placeholder.
-    The caller must handle None by NOT creating the section.
-
-    For now, this is a simplified implementation.
-    In production, this would use NLP/agentic approach to find the most relevant quote.
+    Extract brand brain sections from transcript and persist to database.
 
     Args:
-        section_id: The section ID
+        session_token: User session token
         transcript: Full conversation transcript
-        section_data: Extracted section data
+        turn_count: Number of conversation turns (optional, unused per CEO)
+        tool_result: Extraction agent output dict
 
     Returns:
-        Citation text (quote from user or analysis), or None if no valid citation exists
-    """
-    # Simple approach: find longest user utterance that mentions section-specific keywords
-    from app.tools.brand_brain.questions import get_section_by_id
-
-    section_def = get_section_by_id(section_id)
-    if not section_def:
-        return None
-
-    # Get deducible requirements as search terms
-    search_terms = [req.lower()[:3] for req in section_def.deducible_requirements]
-
-    # Split transcript into utterances
-    utterances = transcript.split("\n")
-
-    best_citation = None
-    best_match_count = 0
-
-    for utterance in utterances:
-        if not utterance.strip():
-            continue
-
-        match_count = sum(1 for term in search_terms if term in utterance.lower())
-
-        if match_count > best_match_count and match_count >= 2:  # Require at least 2 keyword matches
-            best_match_count = match_count
-            best_citation = utterance.strip()
-
-    # Return None if no valid citation found (NOT a placeholder)
-    return best_citation if best_citation else None
-
-
-def normalize_section_content(section_id: str, framework_data: Dict) -> Dict:
-    """
-    Convert framework-specific JSON schema format to our normalized Section.content format.
-
-    Args:
-        section_id: Our section ID
-        framework_data: Data from JSON schema format
-
-    Returns:
-        Normalized content dict
-    """
-    if section_id == "brand_journey":
-        # Map ralston_journey stages to our format
-        return {
-            "stage_1_unaware": framework_data.get("stage_1_unaware", ""),
-            "stage_2_problem_aware": framework_data.get("stage_2_problem_aware", ""),
-            "stage_3_solution_aware": framework_data.get("stage_3_solution_aware", ""),
-            "stage_4_product_aware": framework_data.get("stage_4_product_aware", ""),
-            "stage_5_most_aware": framework_data.get("stage_5_most_aware", ""),
-            "current_stage": framework_data.get("current_stage", ""),
-            "journey_narrative": framework_data.get("journey_narrative", "")
-        }
-    elif section_id == "etapa":
-        return {
-            "stage": framework_data.get("stage", ""),
-            "revenue": framework_data.get("revenue", ""),
-            "team_size": framework_data.get("team_size", ""),
-            "primary_focus": framework_data.get("primary_focus", ""),
-            "pain_points": framework_data.get("pain_points", [])
-        }
-    elif section_id == "charco":
-        return {
-            "pain_point": framework_data.get("pain_point", ""),
-            "urgency": framework_data.get("urgency", ""),
-            "consequences": framework_data.get("consequences", ""),
-            "failed_attempts": framework_data.get("failed_attempts", "")
-        }
-    elif section_id == "credibilidad":
-        return {
-            "evidence": framework_data.get("evidence", ""),
-            "sources": framework_data.get("sources", [])
-        }
-    elif section_id == "contrarian":
-        return {
-            "common_belief": framework_data.get("common_belief", ""),
-            "contrarian_position": framework_data.get("contrarian_position", ""),
-            "proof": framework_data.get("proof", ""),
-            "differentiation": framework_data.get("differentiation", "")
-        }
-    elif section_id == "asociaciones":
-        return {
-            "associations": framework_data.get("associations", []),
-            "market_position": framework_data.get("market_position", "")
-        }
-    elif section_id == "identidad":
-        return {
-            "values": framework_data.get("values", []),
-            "principles": framework_data.get("principles", []),
-            "voice": framework_data.get("voice", ""),
-            "relationship_goal": framework_data.get("relationship_goal", "")
-        }
-    elif section_id == "oferta":
-        return {
-            "offer_components": framework_data.get("offer_components", []),
-            "result_guaranteed": framework_data.get("result_guaranteed", ""),
-            "delivery_format": framework_data.get("delivery_format", ""),
-            "guarantee": framework_data.get("guarantee", "")
-        }
-    elif section_id == "lead_magnet":
-        return {
-            "format": framework_data.get("format", ""),
-            "what_they_get": framework_data.get("what_they_get", ""),
-            "value_delivered": framework_data.get("value_delivered", ""),
-            "how_to_get_it": framework_data.get("how_to_get_it", "")
-        }
-    else:
-        return framework_data
-
-
-def extract_and_persist(
-    session_token: str,
-    transcript: str,
-    turn_count: int = None,
-    tool_result: Dict[str, Any] = None
-) -> BrandBrain:
-    """
-    Main extraction workflow: validate → parse → convert → persist.
-
-    Args:
-        session_token: Session token
-        transcript: Full conversation transcript
-        turn_count: Number of turns (optional, no longer enforced)
-        tool_result: Raw result from extract_brand_brain tool
-
-    Returns:
-        Persisted BrandBrain object
+        Updated BrandBrain object
 
     Raises:
-        ExtractionError: If any validation fails
+        ExtractionError: If extraction or persistence fails
     """
-    # 1. Validate inputs (turn_count no longer required per CEO decision)
     validate_extraction_input(transcript, turn_count)
 
-    # 2. Parse tool result
-    extraction_result = parse_extraction_result(tool_result)
+    if not tool_result:
+        tool_result = {}
 
-    # 3. Convert to sections with citations
-    sections = convert_to_sections(session_token, extraction_result, transcript)
-
-    # 4. Get existing brand brain (if any) and merge
+    # Get existing brain or create new
     existing_brain = get_brand_brain(session_token)
     if existing_brain:
-        # Merge sections, keeping confirmed ones, replacing proposed ones
-        for new_section in sections:
-            existing_section = existing_brain.get_section(new_section.id)
-            if existing_section and existing_section.status == "confirmado":
-                # Keep confirmed section, don't overwrite
-                continue
-            existing_brain.upsert_section(
-                section_id=new_section.id,
-                label=new_section.label,
-                content=new_section.content,
-                citation_text=new_section.citation_text,
-                citation_source=new_section.citation_source,
-                status=new_section.status
-            )
-        brand_brain = existing_brain
+        brain = existing_brain
     else:
-        # Create new brand brain
-        brand_brain = BrandBrain(sections=sections)
+        brain = BrandBrain(session_token=session_token, sections=[])
 
-    # 5. Validate all sections (enforce citation invariant)
-    # This is defense in depth - sections should already be valid due to construction
-    validation = brand_brain.validate_all_sections()
-    invalid_sections = [sid for sid, is_valid in validation.items() if not is_valid]
+    # Extract new sections from tool_result
+    new_sections = convert_to_sections(transcript, tool_result)
 
-    if invalid_sections:
-        raise ExtractionError(
-            f"Sections violate invariant (missing citation_text): {', '.join(invalid_sections)}"
-        )
+    # Merge with existing sections (overwrite by ID)
+    existing_section_ids = {s.id for s in brain.sections}
+    for new_section in new_sections:
+        if new_section.id in existing_section_ids:
+            # Replace existing section
+            brain.sections = [s for s in brain.sections if s.id != new_section.id]
+        brain.sections.append(new_section)
 
-    # 6. Persist to Supabase
-    save_brand_brain(session_token, brand_brain)
+    # Determine which sections are still missing (not meeting TERMINADO criteria)
+    # TERMINADO = (a) all required fields filled, (b) citation verified, (c) confirmed=true
+    all_section_ids = get_section_order()
+    missing_sections = []
 
-    return brand_brain
+    for section_id in all_section_ids:
+        section = next((s for s in brain.sections if s.id == section_id), None)
+
+        if not section:
+            missing_sections.append(section_id)
+            continue
+
+        # Check required fields
+        if not all_required_fields_gathered(section_id, section.content):
+            missing_sections.append(section_id)
+            continue
+
+        # Check confirmed status
+        if section.status != "confirmado":
+            missing_sections.append(section_id)
+            continue
+
+    # Save to database
+    save_brand_brain(session_token, brain)
+
+    # Store missing_sections as metadata for agent to use in next prompt
+    if not hasattr(brain, '_metadata'):
+        brain._metadata = {}
+    brain._metadata['missing_sections'] = missing_sections
+
+    return brain

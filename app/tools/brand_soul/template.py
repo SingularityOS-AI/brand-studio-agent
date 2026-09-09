@@ -128,11 +128,11 @@ def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
     Returns:
         Stage ID string (e.g., "invisible", "exploracion") or None
     """
-    etapa_section = brand_brain.get_section("etapa")
-    if not etapa_section:
+    diagnostico_section = brand_brain.get_section("diagnostico")
+    if not diagnostico_section:
         return None
 
-    stage_content = etapa_section.content.get("stage", "").lower()
+    stage_content = diagnostico_section.content.get("etapa", "").lower()
 
     # Map content to stage IDs
     stage_mapping = {

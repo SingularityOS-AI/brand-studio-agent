@@ -62,10 +62,10 @@ def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
         Tuple of (is_complete, list_of_missing_sections)
     """
     required_section_ids = [
+        "diagnostico",
         "brand_journey",
-        "etapa",
         "charco",
-        "credibilidad",
+        "icp",
         "contrarian",
         "asociaciones",
         "identidad",
@@ -191,10 +191,10 @@ def _redact_section_content_with_llm(
     content = section.content
 
     # These sections don't need LLM redaction - they're structured data
-    if section.id == "etapa":
-        # Extract knowledge level (experto vs estudiante)
-        stage_name = content.get("stage", "")
-        if "seed" in stage_name.lower():
+    if section.id == "diagnostico":
+        # Extract knowledge level (experto vs estudiante) from etapa field
+        etapa_name = content.get("etapa", "")
+        if "invisible" in etapa_name.lower() or "explorador" in etapa_name.lower():
             knowledge_level = "ESTUDIANTE"
             implication = "Estás al principio. Tu perspectiva única es más valiosa que tu experiencia."
         else:
@@ -204,40 +204,33 @@ def _redact_section_content_with_llm(
         return {
             "knowledge_level": knowledge_level,
             "implication": implication,
-            "citation": all_citations["etapa"]
+            "citation": all_citations["diagnostico"]
         }, _estimate_tokens(implication) + 100  # Estimate
 
     elif section.id == "identidad":
-        values = content.get("values", [])
-        desired = content.get("associations", {}).get("desired", [])
-        prohibited = content.get("associations", {}).get("prohibited", [])
+        voz = content.get("voz", "")
+        colores = content.get("colores", "")
+        tipografias = content.get("tipografias", "")
+        voice_text = f"Voz: {voz}. Colores: {colores}. Tipografías: {tipografias}"
 
-        voice_text = f"Valores: {', '.join(values) if values else 'N/A'}"
-
-        desired_html = "\\n".join(
-            f'<li class="associations-desired">{item}</li>'
-            for item in (desired if isinstance(desired, list) else [desired])
-        )
-
-        prohibited_html = "\\n".join(
-            f'<li class="associations-prohibited">{item}</li>'
-            for item in (prohibited if isinstance(prohibited, list) else [prohibited])
-        )
+        voz = content.get("voz", "")
+        voice_text = f"Voz de marca: {voz}"
 
         return {
             "voice": voice_text,
-            "associations_desired": desired_html,
-            "associations_prohibited": prohibited_html,
+            "associations_desired": "",  # Not used in this template
+            "associations_prohibited": "",  # Not used in this template
             "citation": all_citations["identidad"]
         }, _estimate_tokens(voice_text) + 200
 
     elif section.id == "oferta":
-        components = content.get("offer_components", [])
-        guarantee = content.get("guarantee", "")
+        resultado = content.get("resultado_sonado", "")
+        probabilidad = content.get("probabilidad_percibida", "")
+        retraso = content.get("retraso", "")
+        esfuerzo = content.get("esfuerzo", "")
 
-        equation_text = f"{', '.join(components) if components else 'Tu oferta'}"
-        if guarantee:
-            equation_text += f" + {guarantee}"
+        equation_parts = [resultado, probabilidad, retraso, esfuerzo]
+        equation_text = " | ".join(filter(None, equation_parts))
 
         return {
             "equation": equation_text,
@@ -245,23 +238,23 @@ def _redact_section_content_with_llm(
         }, _estimate_tokens(equation_text) + 50
 
     elif section.id == "lead_magnet":
+        tipo = content.get("tipo", "")
+        problema_a = content.get("problema_A", "")
+
+        text = f"{tipo}: {problema_a}" if tipo or problema_a else ""
+
         return {
-            "text": content.get("what_they_get", ""),
+            "text": text,
             "citation": all_citations["lead_magnet"]
-        }, _estimate_tokens(content.get("what_they_get", "")) + 50
+        }, _estimate_tokens(text) + 50
 
     elif section.id == "brand_journey":
-        stages = [
-            content.get(k, "")
-            for k in [
-                "stage_1_unaware",
-                "stage_2_problem_aware",
-                "stage_3_solution_aware",
-                "stage_4_product_aware",
-                "stage_5_most_aware"
-            ]
-        ]
+        resultado = content.get("resultado_deseado", "")
+        conocido_por = content.get("de_que_ser_conocido", "")
+        que_hacer = content.get("que_hacer", "")
+        que_aprender = content.get("que_aprender", "")
 
+        stages = [resultado, conocido_por, que_hacer, que_aprender]
         stages_text = " → ".join(filter(None, stages))
 
         return {
@@ -273,21 +266,21 @@ def _redact_section_content_with_llm(
         # This section is used for evidence, not as a main section in the document
         return {"citation": all_citations["credibilidad"]}, 50
 
-    elif section.id == "asociaciones":
-        # This section is integrated into the identity section
-        return {"citation": all_citations["asociaciones"]}, 50
+    elif section.id == "icp":
+        # This section is used for persona info, integrated into other sections
+        return {"citation": all_citations["icp"]}, 50
 
     # Sections that NEED LLM redaction (prose sections)
     elif section.id == "charco":
-        pain_point = content.get("pain_point", "")
-        if not pain_point:
+        problema = content.get("problema", "")
+        if not problema:
             return {
                 "content": "",
                 "citation": all_citations["charco"]
             }, 50
 
         redacted_text = _call_llm_for_redaction(
-            section_text=pain_point,
+            section_text=problema,
             citation_text=all_citations["charco"],
             instruction=(
                 "Redacta el punto de dolor de forma estratégica, como lo haría un consultor de marca. "
@@ -298,11 +291,11 @@ def _redact_section_content_with_llm(
         return {
             "content": redacted_text,
             "citation": all_citations["charco"]
-        }, _estimate_tokens(pain_point) + _estimate_tokens(redacted_text) + 500
+        }, _estimate_tokens(problema) + _estimate_tokens(redacted_text) + 500
 
     elif section.id == "contrarian":
-        common_belief = content.get("common_belief", "")
-        contrarian_position = content.get("contrarian_position", "")
+        common_belief = content.get("creencia_comun", "")
+        contrarian_position = content.get("postura_opuesta", "")
 
         if not common_belief or not contrarian_position:
             return {
@@ -681,9 +674,9 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
             etapa_context=etapa_context,
             charco_content=redacted["charco"]["content"],
             charco_citation=redacted["charco"]["citation"],
-            knowledge_level=redacted["etapa"]["knowledge_level"],
-            knowledge_implication=redacted["etapa"]["implication"],
-            knowledge_citation=redacted["etapa"]["citation"],
+            knowledge_level=redacted["diagnostico"]["knowledge_level"],
+            knowledge_implication=redacted["diagnostico"]["implication"],
+            knowledge_citation=redacted["diagnostico"]["citation"],
             common_belief=redacted["contrarian"]["common_belief"],
             contrarian_position=redacted["contrarian"]["contrarian_position"],
             contrarian_citation=redacted["contrarian"]["citation"],

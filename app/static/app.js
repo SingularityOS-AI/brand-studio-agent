@@ -107,6 +107,9 @@
   let cachedBrain = null;
   let brainFetchInProgress = false;
 
+  // Missing sections tracking for agent guidance
+  let missingSections = [];
+
   // Transcript limits for context window protection
   const MAX_TRANSCRIPT_TURNS = 20;  // Maximum number of recent turns to include
   const MAX_TRANSCRIPT_CHARS = 4000; // Maximum characters for recent transcript
@@ -116,37 +119,78 @@
 
 Speak naturally in short, clear sentences. Be direct and helpful. Keep responses concise - no more than 2-3 sentences unless more detail is needed.
 
-Your goal is to gather information about:
-1. What they do and who they do it for
-2. THEIR stage as a founder (1-5), not their company's stage
-3. Whether they speak as an Expert (proven achievement) or a Student (documenting in real time)
-4. THEIR brand journey: where they want to end up and what they want to be known for
+Your goal is to gather information across NINE brand sections. The model is an octagon, not a list — if the founder drops data about section 08 while discussing section 03, note it in section 08. Data said once is never lost by being "out of turn."
 
-After exploring their business, you have access to a tool called "extract_brand_brain" that analyzes our conversation and extracts nine key brand sections:
-- Brand Journey (founder's journey: desired result → what they want to be known for → what to DO → what to LEARN)
-- Etapa del Fundador (Founder Stage 1-5: not started · invisible pro · stuck creator · not monetizing · authority figure)
-- El Charco del Dolor (Core Pain Point)
-- Experto o Estudiante (Expert or Student: triage that governs the rest of the session - if "student", frame as scientist documenting, NOT expert claiming)
-- Punto Contrarian (Contrarian Position)
-- Asociaciones Mentales (Mental Associations)
-- Identidad de Marca (Brand Identity)
-- Oferta Irresistible (Irresistible Offer)
-- Lead Magnet (Lead Magnet)
+THE 9 SECTIONS (in spec order — governs the document, not the conversation):
 
-CRITICAL: Before finalizing ANY section, you must confirm with the user. Repeat what you understood in your own words and ask for correction. Example: "If I understand correctly, your core pain point is X — and it's NOT Y. Am I on track?" This validates the understanding and gets their exact words for citation.
+01 - Where you stand (diagnostico): Founder's HARD triage that governs everything Brandy says afterward.
+   • Stage (1-5): 1=not started · 2=invisible pro · 3=stuck creator · 4=not monetizing · 5=authority figure
+   • Ramiro level (1-6): 1=invisibility · 2=packaging · 3=bridge · 4=bottleneck · 5=CEO real · 6=transcendence
+   • Observable symptom: what you see without asking (e.g. "posts nonstop, 500 views, zero engagement")
+   • KEY skill to unlock (ONE thing that matters at that level)
+   • What's PROHIBITED (what they must NOT do yet)
+   • Posture — THREE VALUES: expert (proven achievement) · student (documenting experiments, never faking expertise) · hypothesis (pure theory without evidence or experiment in progress — most fragile case, frame explicitly)
 
-Never propose empty content without a citation. If you don't have a user quote to support a section, leave it blank and ask more questions.
+02 - Brand Journey (brand_journey): THE FOUNDER'S journey, not the customer's.
+   • Desired result: what justifies the sacrifice of time, money, and privacy
+   • What to be known for: exact reputation needed to achieve it
+   • What to DO: to be known for that, what they must DO
+   • What to LEARN: to do that, what they must LEARN
 
-When identifying their FOUNDER stage, always specify:
-- The stage name, from this exact scale — never invent one:
-  1 = has not started · 2 = invisible professional · 3 = stuck creator
-  4 = creator not monetizing · 5 = authority figure
-- The ONE key skill to unlock at that level
-- What's PROHIBITED at that level (what they must NOT do yet)
+03 - The pond (charco): Chosen by real achievements, not ambition.
+   • Problem: concrete symptom the prospect falls into daily
+   • Level: charco | lago | oceano
+   • Achievement that backs you: the receipt giving you the right to speak on this
+   • Cost of not resolving: in money, time, or operational wear
+   • Failed attempts: what they tried before and why it failed
 
-For example: "You're at stage 2, the invisible professional. The only thing that matters now is your perspective — your scar. And it's forbidden to optimize posting times: no magic hour saves a message that sounds like everyone else's."
+04 - The ICP (icp): SINGLE ICP required (primary+secondary not accepted).
+   • Decision maker: exact job title with signing power
+   • Company size: revenue, headcount, or applicable range
+   • Urgency trigger: event that makes them buy NOW, not in 6 months
+   • Purchasing power: actual budget available
+   • Buying committee: who else must say yes (B2B: 30-90 day cycles)
+   • Who they report to: who looks good or bad (feeds section 08 result_sonado)
 
-When confirming stages or major conclusions, always include context like: "I see you as Stage 3 because... The key to unlock now is... Before this, avoid..."
+05 - Contrarian stance (contrarian): NOT cheap provocation — honest belief that helps.
+   • Common belief: left column, industry-accepted truth you disagree with
+   • Opposite stance: right column, your alternative belief
+   • Proof: evidence you have of the opposite truth
+   • Why not provocation: guardrail. Contrarian = helpful belief. Controversial = cheap attention seeking.
+
+06 - Desired and forbidden associations (asociaciones):
+   • Desired: few key associations to pair with per piece
+   • Forbidden: people, behaviors, or reputations you DON'T want linked to you
+   (Prohibited associations usually deduced from section 05's common belief.)
+
+07 - Identity map (identidad): governs visual packaging.
+   • Voice: 3-5 words describing the tone
+   • Colors: 2-4 colors
+   • Typography: 1-2 fonts
+   • Origin narrative: personal story, past defeats, real motivation
+
+08 - The offer (oferta): Value = (Dream Result × Perceived Probability) ÷ (Delay × Effort).
+   • Dream result (B2B adaptation): revenue, costs, risk mitigated, OR decision maker's status before their board
+   • Perceived probability: validated cases, testimonials, audits, guarantees. B2B buyer risks their job.
+   • Delay: time to first benefit. Quick wins in 7-14 days.
+   • Effort: how much work remains for the client. "Done For You" justifies up to 5× pricing.
+   • Components: specific, not vague (e.g. "3 emails/week for 90 days" not "marketing services").
+   • Guarantee: conditional (by result) OR unconditional.
+
+09 - The lead magnet (lead_magnet): Revelation principle — solve Problem A so well it demonstrates authority, and in solving it reveals Problem B (what the paid offer solves).
+   • Type: revelador (diagnosis/audit) | muestra (trial/pilot) | primer_paso (template/calculator/checklist)
+   • Problem A: what it solves free, complete
+   • Problem B that reveals: link to paid offer from section 08
+   • Format: PDF, tool, video, session
+   • Capture: how data is collected with least friction
+
+CRITICAL RULES (CEO-mandated):
+
+1. CONFIRMED: true ONLY after an EXPLICIT YES from the founder. citation_text must have their exact literal words. If founder says "I don't know" and there's no way to extract it: propose a concrete angle, negotiate until there's agreement, THEN confirm with the citation of where they accepted your proposal. Never leave a section hanging.
+
+2. Call extract_brand_brain AFTER EACH SECTION CLOSED, not once at the end. This is what makes details appear on screen during conversation.
+
+3. SECTIONS OUT OF ORDER: If the founder drops data from section 08 while discussing section 03, note it in section 08. The model is an octagon, not a list. A datum said once is never lost by being said "out of turn."
 
 No gamification. No points, badges, streaks, or celebrations. Be direct and expert.
 
@@ -201,6 +245,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
     // Add explicit instruction for reconnections
     if (hasMemory) {
       prompt += 'CRITICAL: This is a reconnection within the same conversation. DO NOT repeat your initial greeting or introduce yourself again. Continue naturally from where we left off, using the context above.\n';
+    }
+
+    // Add missing sections guidance
+    if (missingSections && missingSections.length > 0) {
+      prompt += '\n=== SECTIONS STILL MISSING ===\n';
+      prompt += `You still need to complete these sections: ${missingSections.join(', ') }. Focus your next questions on these missing areas.\n`;
     }
 
     return prompt;
@@ -518,21 +568,43 @@ Always respond in English. Keep your responses conversational and engaging.`;
               {
                 type: 'function',
                 name: 'extract_brand_brain',
-                description: 'Extract nine brand sections from our conversation to backend. Return a JSON object with "validation_status" ("valid"/"partial"/"invalid") and "brand_brain" dict. For EACH section: provide content AND exact user quote (citation). Skip sections without user support. Sections: brand_journey, etapa, charco, credibilidad, contrarian, asociaciones, identidad, oferta, lead_magnet.',
+                description: 'Extract nine brand sections from our conversation to backend. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed (true only after explicit yes), content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
                 parameters: {
                   type: 'object',
                   properties: {
-                    validation_status: {
-                      type: 'string',
-                      enum: ['valid', 'partial', 'invalid'],
-                      description: 'Status of extraction'
-                    },
-                    brand_brain: {
-                      type: 'object',
-                      description: 'Extracted brand sections with framework names as keys (pain_puddle, segues_stage, ralston_journey, etc.)'
+                    sections: {
+                      type: 'array',
+                      description: 'Extracted brand sections, each with id, citation_text, citation_source, confirmed, and content dict',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: {
+                            type: 'string',
+                            description: 'Section id (one of: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet)'
+                          },
+                          citation_text: {
+                            type: 'string',
+                            description: 'Exact literal words from the founder that support this section'
+                          },
+                          citation_source: {
+                            type: 'string',
+                            enum: ['usuario', 'analisis_publico'],
+                            description: 'Source: "usuario" for founder voice transcript, "analisis_publico" for public analysis'
+                          },
+                          confirmed: {
+                            type: 'boolean',
+                            description: 'true only after founder explicitly says yes'
+                          },
+                          content: {
+                            type: 'object',
+                            description: 'Section content dict with fields specific to each section type'
+                          }
+                        },
+                        required: ['id', 'citation_text', 'citation_source', 'confirmed', 'content']
+                      }
                     }
                   },
-                  required: ['validation_status', 'brand_brain']
+                  required: ['sections']
                 }
               }
             ]
@@ -778,10 +850,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
         const turnCount = Math.ceil(fullTranscript.length / 2); // Agent + user pairs
 
         // args is what the agent extracted - pass it as tool_result directly
-        // Agent should have provided validation_status and brand_brain with extracted sections
+        // Agent should have provided sections array with extracted data
         const tool_result = args || {
-          validation_status: 'valid',
-          brand_brain: {}
+          sections: []
         };
 
         console.log('[Tool Call] Sending tool_result to backend:', tool_result);
@@ -814,13 +885,19 @@ Always respond in English. Keep your responses conversational and engaging.`;
             result: JSON.stringify({
               success: true,
               brand_brain: result.brand_brain,
-              sections_extracted: result.sections_count
+              sections_count: result.sections_count,
+              missing_sections: result.missing_sections
             })
           }));
         }
 
         // Update UI with extracted sections
         if (result.brand_brain && result.brand_brain.sections) {
+          // Save missing_sections for prompt injection
+          if (result.missing_sections) {
+            missingSections = result.missing_sections;
+          }
+
           appendExtractedSections(result.brand_brain.sections);
           updateBrandSoulButton(result.brand_brain.sections);
 
@@ -862,12 +939,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
     // Clear existing ghost sections and replace with live sections
     docBody.innerHTML = '';
 
-    const sectionOrder = ['brand_journey', 'etapa', 'charco', 'credibilidad', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet'];
+    const sectionOrder = ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet'];
     const labels = {
+      'diagnostico': 'Where you stand',
       'brand_journey': 'Brand Journey',
-      'etapa': 'Stage',
       'charco': 'The pond',
-      'credibilidad': 'Expert or Student',
+      'icp': 'The ICP',
       'contrarian': 'Contrarian stance',
       'asociaciones': 'Desired and forbidden associations',
       'identidad': 'Identity map',
@@ -1398,6 +1475,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
     const confirmedCount = sections.filter(s => s.status === 'confirmado').length;
     brandSoulLabel.textContent = `Brand Soul — ${confirmedCount} of 9 sections ready`;
+
+    // Update progress bar width
+    const brandSoulBar = document.getElementById('BrandSoul-Bar');
+    if (brandSoulBar) {
+      const progress = (confirmedCount / 9) * 100;
+      brandSoulBar.style.width = `${progress}%`;
+    }
 
     if (confirmedCount >= 9) {
       brandSoulBtn.disabled = false;

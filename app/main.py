@@ -475,9 +475,9 @@ async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainR
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    # 2. Deduct credits (extraction costs 5 credits)
+    # 2. Deduct credits (extraction costs 1 credit)
     try:
-        remaining = guard.deduct_credits(session_token, amount=5)
+        remaining = guard.deduct_credits(session_token, amount=1)
     except HTTPException as e:
         if e.status_code == 402:
             return JSONResponse(
@@ -514,10 +514,12 @@ async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainR
             content={"error": f"Internal extraction error: {str(e)}"}
         )
 
-    # 4. Return success
+    # 4. Return success with missing_sections for agent guidance
+    missing_sections = getattr(brain, '_metadata', {}).get('missing_sections', [])
     return JSONResponse(content={
         "brand_brain": brain.to_dict(),
         "sections_count": len(brain.sections),
+        "missing_sections": missing_sections,
         "credits_remaining": remaining
     })
 
