@@ -71,6 +71,9 @@
   let isSessionActive = false;
   let isReady = false;
 
+  // Session generation token to prevent race conditions between concurrent sessions
+  let sessionGeneration = 0;
+
   // Audio playback state
   let playT = 0;
   let activeSources = [];
@@ -133,14 +136,29 @@ Always respond in English. Keep your responses conversational and engaging.`;
   const voice = "alba"; // AssemblyAI voice: alba, anna, charles, estelle, eve, george, giovanni, jane, jean, juergen, lola, mary, michael, paul, rafael, vera
 
   async function startSession() {
+    // Capture generation for this session - prevents race conditions
+    const myGeneration = ++sessionGeneration;
+
     // Ensure we have API key before starting
     const key = await ensureApiKey();
     if (!key) {
       return;
     }
 
+    // Check if a newer session started while we were getting the API key
+    if (myGeneration !== sessionGeneration) {
+      console.log('[startSession] Superseded by newer session, aborting');
+      return;
+    }
+
     try {
       stopSession();
+
+      // Check again after stopSession - another session might have started
+      if (myGeneration !== sessionGeneration) {
+        console.log('[startSession] Superseded after stopSession, aborting');
+        return;
+      }
 
       // 1. Create AudioContext with 24kHz (matches AssemblyAI requirement)
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -148,6 +166,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       // 2. Get microphone stream
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Check again after getUserMedia - critical race window
+      if (myGeneration !== sessionGeneration) {
+        console.log('[startSession] Superseded after getUserMedia, aborting');
+        return;
+      }
 
       // 3. Create AudioWorklet for PCM16 conversion at 24kHz
       // First, create the worklet script inline
@@ -203,6 +227,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       // Stream mic PCM16 chunks when ready
       workletNode.port.onmessage = (event) => {
+        if (myGeneration !== sessionGeneration) return; // Not the active session
         if (!isReady || ws.readyState !== WebSocket.OPEN) return;
         const uint8 = new Uint8Array(event.data.audio);
         let binary = '';
@@ -218,6 +243,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       micSource.connect(workletNode);
 
       ws.onopen = () => {
+        if (myGeneration !== sessionGeneration) return; // Not the active session
         console.log('[WebSocket] Connected to AssemblyAI Voice Agent');
         setUIStatus('connecting', 'Conectando agente...');
 
@@ -277,17 +303,20 @@ Always respond in English. Keep your responses conversational and engaging.`;
       };
 
       ws.onmessage = (event) => {
+        if (myGeneration !== sessionGeneration) return; // Not the active session
         const msg = JSON.parse(event.data);
         handleAgentEvent(msg);
       };
 
       ws.onerror = (err) => {
+        if (myGeneration !== sessionGeneration) return; // Not the active session
         console.error('[WebSocket Error]', err);
         appendLogMessage('error', 'Error en conexión WebSocket de AssemblyAI');
         stopSession();
       };
 
       ws.onclose = () => {
+        if (myGeneration !== sessionGeneration) return; // Not the active session
         console.log('[WebSocket Closed]');
         stopSession();
       };
@@ -816,7 +845,14 @@ Always respond in English. Keep your responses conversational and engaging.`;
     if (isSessionActive) {
       stopSession();
     } else {
-      await startSession();
+      // Disable button while starting to prevent race condition from double-clicks
+      if (micBtn) micBtn.disabled = true;
+      try {
+        await startSession();
+      } finally {
+        // Re-enable button after startSession completes (success or error)
+        if (micBtn) micBtn.disabled = false;
+      }
     }
   }
 
