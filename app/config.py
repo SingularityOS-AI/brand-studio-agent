@@ -59,6 +59,11 @@ class Settings(BaseSettings):
         os.getenv("SOUL_GENERATE_RATE_LIMIT_PER_MINUTE", "5")
     )
 
+    # Rate Limiting for Voice Reserve (called every minute during voice sessions)
+    voice_reserve_rate_limit_per_minute: int = int(
+        os.getenv("VOICE_RESERVE_RATE_LIMIT_PER_MINUTE", "10")
+    )
+
     # Session Budget Settings (credits per session)
     initial_session_credits: int = int(
         os.getenv("INITIAL_SESSION_CREDITS", "250")

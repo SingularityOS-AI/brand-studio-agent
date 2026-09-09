@@ -58,12 +58,13 @@ async def health_check():
 @app.get("/api/config", response_class=JSONResponse)
 async def get_config():
     """
-    Returns frontend configuration including Supabase settings.
+    Returns frontend configuration including Supabase settings and initial credits.
     This endpoint is public - it only contains the publishable key, not the service key.
     """
     return JSONResponse(content={
         "supabase_url": settings.supabase_url,
         "supabase_publishable_key": settings.supabase_publishable_key,
+        "initial_session_credits": settings.initial_session_credits,
     })
 
 
@@ -176,6 +177,72 @@ async def get_session_status(request: Request):
         raise HTTPException(status_code=401, detail="Invalid session")
 
     return JSONResponse(content={"credits_remaining": credits})
+
+
+@app.post("/api/voice/reserve", response_class=JSONResponse)
+async def reserve_voice_credits(request: Request):
+    """
+    Reserves a block of voice credits for 1 minute of conversation.
+
+    DEBIT BY RESERVATION NOT PROXY:
+    The audio flows directly from browser to AssemblyAI (that path already works
+    and rewriting it 3 weeks before launch is high risk). The backend charges
+    IN ADVANCE, in short renewable blocks.
+
+    BLOCKS OF 1 MINUTE (7.5 CREDITS):
+    - Short by design: gives near-exact granularity WITHOUT needing to refund unused time
+    - If the browser crashes or user closes tab, billing simply stops renewing
+    - No cleanup needed; no detection required
+
+    Returns 402 Payment Required if insufficient balance.
+
+    Requires JWT authentication.
+    Rate limited to voice_reserve_rate_limit_per_minute (default: 10/min).
+    """
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # 2. Rate limit check by IP (this endpoint called every minute during voice sessions)
+    client_ip = request.client.host
+    guard.check_rate_limit(
+        client_ip,
+        max_requests_per_minute=settings.voice_reserve_rate_limit_per_minute
+    )
+
+    # 3. Deduct credits for 1 minute of voice
+    # Round 7.5 to 8 credits because deduct_credits only accepts integers
+    # We overcharge slightly rather than undercharge; the difference is negligible ($0.008/min)
+    credits_to_deduct = 8  # Rounded up from 7.5
+    try:
+        remaining = guard.deduct_credits(session_token, amount=credits_to_deduct)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted. Please purchase more credits to continue.",
+                    "credits_remaining": session["credits"],
+                    "payment_url": settings.payment_url,
+                }
+            )
+        raise
+
+    # 4. Return granted seconds and remaining credits
+    return JSONResponse(content={
+        "seconds_granted": 60,  # 1 minute
+        "credits_remaining": remaining
+    })
 
 
 # =============================================================================

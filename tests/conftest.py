@@ -36,6 +36,23 @@ def test_auth_headers(test_jwt_token):
 
 
 @pytest.fixture
+def clean_rate_limit():
+    """
+    Fixture to clean up rate limit state before a test.
+    Clears rate limiting for test client IP.
+    """
+    from app.guard import guard
+    # TestClient uses "testclient" as the client identifier
+    client_ips = ["127.0.0.1", "testclient"]
+    for client_ip in client_ips:
+        if client_ip in guard._rate_limits:
+            del guard._rate_limits[client_ip]
+        if client_ip in guard._blocked_ips:
+            del guard._blocked_ips[client_ip]
+    yield
+
+
+@pytest.fixture
 def authenticated_client(test_user_id, test_jwt_token):
     """
     Fixture providing a TestClient with pre configured authenticated user session.
@@ -65,6 +82,23 @@ def authenticated_client(test_user_id, test_jwt_token):
 
 
 @pytest.fixture
+def clean_rate_limits():
+    """
+    Fixture to clean up ALL rate limit state.
+    Clears all rate limiting state for test client IP.
+    """
+    from app.guard import guard
+    # TestClient uses "testclient" as the client identifier
+    client_ips = ["127.0.0.1", "testclient"]
+    for client_ip in client_ips:
+        if client_ip in guard._rate_limits:
+            del guard._rate_limits[client_ip]
+        if client_ip in guard._blocked_ips:
+            del guard._blocked_ips[client_ip]
+    yield
+
+
+@pytest.fixture
 def client_with_session(authenticated_client):
     """
     Alias for authenticated_client for backward compatibility with older tests.
@@ -79,6 +113,12 @@ def client_with_session(authenticated_client):
         authenticated_client._test_session_token = token
 
     return authenticated_client
+
+
+# Run each test with clean rate limits
+@pytest.fixture(autouse=True)
+def auto_clean_rate_limits(clean_rate_limits):
+    yield
 
 
 def get_session_token_for_user(user_id: str) -> str:

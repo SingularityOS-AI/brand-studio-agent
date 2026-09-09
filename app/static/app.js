@@ -74,6 +74,10 @@
   // Session generation token to prevent race conditions between concurrent sessions
   let sessionGeneration = 0;
 
+  // Voice credits reservation
+  let voiceRenewalTimer = null;
+  let initialSessionCredits = 250; // Will be fetched from /api/config
+
   // Audio playback state
   let playT = 0;
   let activeSources = [];
@@ -225,6 +229,97 @@ Always respond in English. Keep your responses conversational and engaging.`;
     }
   }
 
+  // Reserve voice credits for 1 minute block
+  async function reserveVoiceCredits() {
+    try {
+      const response = await authenticatedFetch('/api/voice/reserve', {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        if (response.status === 402) {
+          // Out of credits
+          const body = await response.json();
+          return {
+            success: false,
+            error: 'out_of_credits',
+            message: 'You ran out of voice credits. Please purchase more to continue.',
+            payment_url: body.payment_url
+          };
+        } else if (response.status === 401) {
+          return {
+            success: false,
+            error: 'unauthorized',
+            message: 'Authentication failed. Please login again.'
+          };
+        } else if (response.status === 429) {
+          return {
+            success: false,
+            error: 'rate_limited',
+            message: 'Too many requests. Please wait a moment.'
+          };
+        } else {
+          return {
+            success: false,
+            error: 'unknown',
+            message: 'Failed to reserve voice credits.'
+          };
+        }
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        seconds_granted: data.seconds_granted,
+        credits_remaining: data.credits_remaining
+      };
+    } catch (e) {
+      console.error('[Voice] Failed to reserve credits:', e);
+      return {
+        success: false,
+        error: 'network',
+        message: 'Could not contact server to reserve credits.'
+      };
+    }
+  }
+
+  // Stop voice credits renewal
+  function stopVoiceRenewal() {
+    if (voiceRenewalTimer) {
+      clearInterval(voiceRenewalTimer);
+      voiceRenewalTimer = null;
+      console.log('[Voice] Stopped credit renewal timer');
+    }
+  }
+    if (brainFetchInProgress) {
+      console.log('[Brain] Fetch already in progress, waiting...');
+      return cachedBrain;
+    }
+
+    try {
+      brainFetchInProgress = true;
+      console.log('[Brain] Loading brand brain from backend...');
+      const response = await authenticatedFetch('/api/brain');
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('[Brain] No brand brain found yet (normal for new users)');
+        } else {
+          console.warn('[Brain] Failed to load brain:', response.status);
+        }
+        return null;
+      }
+      const data = await response.json();
+      cachedBrain = data.brand_brain;
+      console.log('[Brain] Loaded brand brain with', cachedBrain?.sections?.length || 0, 'sections');
+      return cachedBrain;
+    } catch (e) {
+      console.error('[Brain] Error loading brand brain:', e);
+      return null;
+    } finally {
+      brainFetchInProgress = false;
+    }
+  }
+
   async function startSession() {
     // Capture generation for this session - prevents race conditions
     const myGeneration = ++sessionGeneration;
@@ -258,6 +353,28 @@ Always respond in English. Keep your responses conversational and engaging.`;
         console.log('[startSession] Superseded after loading brain, aborting');
         return;
       }
+
+      // Reserve first voice credit block BEFORE opening WebSocket
+      console.log('[Voice] Reserving initial voice credits...');
+      const reservation = await reserveVoiceCredits();
+
+      if (!reservation.success) {
+        // Handle reservation failure
+        if (reservation.error === 'out_of_credits') {
+          alert('You ran out of voice credits. Please purchase more to continue: ' + reservation.payment_url);
+        } else if (reservation.error === 'unauthorized') {
+          alert('Authentication failed. Please login again.');
+          logout();
+        } else {
+          alert('Failed to reserve voice credits: ' + reservation.message);
+        }
+        return;
+      }
+
+      // Update credits UI with remaining balance
+      updateCreditsUI(reservation.credits_remaining, initialSessionCredits);
+
+      console.log('[Voice] Voice credits reserved:', reservation.seconds_granted, 'seconds granted,', reservation.credits_remaining, 'credits remaining');
 
       // 1. Create AudioContext with 24kHz (matches AssemblyAI requirement)
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -345,6 +462,39 @@ Always respond in English. Keep your responses conversational and engaging.`;
         if (myGeneration !== sessionGeneration) return; // Not the active session
         console.log('[WebSocket] Connected to AssemblyAI Voice Agent');
         setUIStatus('connecting', 'Conectando agente...');
+
+        // Start voice credits renewal timer (renew every 50 seconds, before 60s expire)
+        // This timer checks sessionGeneration to prevent old sessions from renewing
+        voiceRenewalTimer = setInterval(async () => {
+          if (myGeneration !== sessionGeneration) {
+            console.log('[Voice Renewal] Old session detected, cancelling renewal');
+            stopVoiceRenewal();
+            return;
+          }
+
+          console.log('[Voice Renewal] Renewing voice credits...');
+          const renewal = await reserveVoiceCredits();
+
+          if (!renewal.success) {
+            console.error('[Voice Renewal] Failed:', renewal.error);
+            stopVoiceRenewal();
+
+            // Close the voice session on credit exhaustion
+            if (renewal.error === 'out_of_credits') {
+              alert('You ran out of voice credits. The microphone will now close.');
+              stopSession();
+            } else if (renewal.error === 'unauthorized') {
+              alert('Authentication failed. Please login again.');
+              stopSession();
+              logout();
+            }
+            return;
+          }
+
+          // Update credits UI with new balance
+          updateCreditsUI(renewal.credits_remaining, initialSessionCredits);
+          console.log('[Voice Renewal] Renewal successful:', renewal.seconds_granted, 'seconds granted,', renewal.credits_remaining, 'credits remaining');
+        }, 50000); // 50 seconds = 10 seconds before 60s block expires
 
         // Build dynamic prompt with memory context
         const dynamicPrompt = buildSystemPrompt();
@@ -551,6 +701,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
     isSessionActive = false;
     isReady = false;
     flushAudioPlayback();
+
+    // CRITICAL: Stop voice credits renewal timer
+    // Without this, the timer would continue charging credits even with mic off
+    stopVoiceRenewal();
 
     if (ws) {
       try { ws.close(); } catch(e){}
@@ -1038,8 +1192,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
   function showMainApp() {
     loginOverlay.style.display = 'none';
     mainApp.style.display = 'flex';
-    updateCreditsDisplay();
-    loadExistingBrain();
+    loadConfig().then(() => {
+      updateCreditsDisplay();
+      loadExistingBrain();
+    });
   }
 
   function logout() {
@@ -1100,10 +1256,28 @@ Always respond in English. Keep your responses conversational and engaging.`;
       const response = await authenticatedFetch('/api/session');
       if (response.ok) {
         const data = await response.json();
-        updateCreditsUI(data.credits_remaining, 250); // 250 is initial balance
+        updateCreditsUI(data.credits_remaining, initialSessionCredits);
       }
     } catch (e) {
       console.error('[Auth] Failed to fetch session:', e);
+    }
+  }
+
+  // Load configuration from backend
+  async function loadConfig() {
+    try {
+      const response = await fetch('/api/config');
+      if (response.ok) {
+        const config = await response.json();
+        if (config.initial_session_credits !== undefined) {
+          initialSessionCredits = config.initial_session_credits;
+          console.log('[Config] Initial session credits:', initialSessionCredits);
+        }
+      }
+    } catch (e) {
+      console.error('[Config] Failed to load config:', e);
+      // Use default value if config fetch fails
+      initialSessionCredits = 250;
     }
   }
 
@@ -1220,7 +1394,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       // Update credits display if included in response
       if (data.credits_remaining !== undefined) {
-        updateCreditsUI(data.credits_remaining, 250);
+        updateCreditsUI(data.credits_remaining, initialSessionCredits);
       }
 
       console.log('[Brand Soul] Document generated successfully');
