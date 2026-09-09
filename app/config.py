@@ -54,6 +54,11 @@ class Settings(BaseSettings):
         os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "30")
     )
 
+    # Rate Limiting for Brand Soul Generate (stricter, as it calls Vertex AI)
+    soul_generate_rate_limit_per_minute: int = int(
+        os.getenv("SOUL_GENERATE_RATE_LIMIT_PER_MINUTE", "5")
+    )
+
     # Session Budget Settings (credits per session)
     initial_session_credits: int = int(
         os.getenv("INITIAL_SESSION_CREDITS", "250")

@@ -250,14 +250,16 @@ async def generate_brand_soul_handler(request: Request, body: SoulGenerateReques
     Generate the Brand Soul document.
 
     This endpoint:
-    1. Validates that all 9 brand brain sections are confirmed
-    2. Checks if cached HTML exists (unless regenerate=True)
-    3. Generates new HTML using LLM redaction with citations
-    4. Validates all citations exist literally in brain
-    5. Caches the result
-    6. Returns the HTML document
+    1. Validates JWT authentication
+    2. Rate limits by IP (stricter limit - 5 requests/min)
+    3. Validates that all 9 brand brain sections are confirmed
+    4. Checks if cached HTML exists (unless regenerate=True)
+    5. Generates new HTML using LLM redaction with citations
+    6. Validates all citations exist literally in brain
+    7. Caches the result
+    8. Returns the HTML document
 
-    Protected by spend_guard - requires 20 credits.
+    Protected by rate limiting and spend_guard - requires 20 credits.
     Requires JWT authentication.
     """
     # 1. Validate JWT
@@ -274,7 +276,14 @@ async def generate_brand_soul_handler(request: Request, body: SoulGenerateReques
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    # 2. Deduct credits (generation costs 20 credits)
+    # 2. Rate limit check by IP (stricter than general rate limit - this endpoint calls Vertex AI)
+    client_ip = request.client.host
+    guard.check_rate_limit(
+        client_ip,
+        max_requests_per_minute=settings.soul_generate_rate_limit_per_minute
+    )
+
+    # 3. Deduct credits (generation costs 20 credits)
     try:
         remaining = guard.deduct_credits(session_token, amount=20)
     except HTTPException as e:
@@ -289,7 +298,7 @@ async def generate_brand_soul_handler(request: Request, body: SoulGenerateReques
             )
         raise
 
-    # 3. Generate document
+    # 4. Generate document
     from app.tools.brand_soul.generator import (
         generate_brand_soul,
         IncompleteBrainError,
