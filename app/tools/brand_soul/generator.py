@@ -365,7 +365,7 @@ IMPORTANTE - REGLAS INVIOLABLES:
 2. NO añadas ejemplos, estadísticas ni testimonios que no estén en el original
 3. NO cambies el significado fundamental de ninguna afirmación
 4. Usa un tono profesional y estratégico, como lo haría un consultor de marca
-5. Si el original es breve, manténlo breve. Si es detallado, mantén su profundidad.
+5. REDACTA CON EXTENSIÓN Y PROFUNDIDAD: escribe 2-3 párrafos bien desarrollados, elaborando sobre los puntos clave del contenido original
 6. La cita vuelve del contexto, pero NO la parafrasees ni la menciones en la redacción
 
 Texto a redactar:
@@ -374,7 +374,7 @@ Texto a redactar:
 Instrucción específica:
 {instruction}
 
-Devuelve SOLO el texto redactado. Sin explicaciones, sin intro, sin formato markdown."""
+Devuelve SOLO el texto redactado (2-3 párrafos extensos). Sin explicaciones, sin intro, sin formato markdown."""
 
     try:
         # Generate with temperature=0 for determinism
@@ -482,9 +482,19 @@ def _compute_brain_hash(brain: BrandBrain) -> str:
 
     Returns:
         SHA256 hash of the brain's serialized state
+
+    NOTE: Only hashes the actual content (sections and formato), NOT
+    created_at/updated_at which change automatically on every DB update.
     """
-    brain_dict = brain.to_dict()
-    brain_json = json.dumps(brain_dict, sort_keys=True)
+    hashable = {
+        "sections": [
+            {"id": s.id, "content": s.content, "citation_text": s.citation_text,
+             "citation_source": s.citation_source, "status": s.status}
+            for s in brain.sections
+        ],
+        "formato": brain.formato,
+    }
+    brain_json = json.dumps(hashable, sort_keys=True)
     return hashlib.sha256(brain_json.encode()).hexdigest()
 
 

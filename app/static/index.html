@@ -28,7 +28,7 @@
     background:var(--surface);
   }
   .voz{width:420px;flex:none;background:var(--surface-alt);border-right:1px solid var(--line);display:flex;flex-direction:column}
-  .doc{flex:1;min-width:0;background:var(--surface);display:flex;flex-direction:column}
+  .doc{flex:1;min-width:0;background:var(--surface);display:flex;flex-direction:column;overflow-y:auto;scroll-behavior:smooth}
   .prod{width:380px;flex:none;background:var(--surface-alt);border-left:1px solid var(--line);display:flex;flex-direction:column}
   .eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);font-weight:600}
   
@@ -703,6 +703,12 @@
   .paywall-body {
     padding:20px;
   }
+}
+
+/* Responsive: mid-range devices (tablets, laptops) */
+@media(max-width:1200px) {
+  .voz{width:clamp(320px, 30%, 380px)}
+  .prod{width:clamp(300px, 28%, 360px)}
 }
 </style>
 

@@ -269,6 +269,15 @@ Always respond in English. Keep your responses conversational and engaging.`;
       prompt += `You still need to complete these sections: ${missingSections.join(', ') }. Focus your next questions on these missing areas.\n`;
     }
 
+    // Add guidance when all 9 sections are complete
+    if (missingSections && missingSections.length === 0 && cachedBrain && cachedBrain.sections &&
+        cachedBrain.sections.filter(s => s.status === 'confirmado').length >= 9) {
+      prompt += '\n=== ALL NINE SECTIONS COMPLETE ===\n';
+      prompt += 'All nine sections are confirmed. Tell the founder their brand foundation is complete and ' +
+                'explicitly instruct them to click the "Generate Brand Soul" button to see their document. ' +
+                'Do not ask if they want a summary or want to dive deeper — direct them to the button.\n';
+    }
+
     return prompt;
   }
 
@@ -1726,6 +1735,12 @@ ${htmlContent}
   // Regenerate Brand Soul document (requires 20 credits)
   async function regenerateBrandSoul() {
     try {
+      // Confirm cost before proceeding
+      const confirmed = confirm("Regenerating costs 20 credits. Your current document will be replaced. Continue?");
+      if (!confirmed) {
+        return; // User cancelled - don't proceed
+      }
+
       // Show loading state on regenerate button
       if (brandSoulRegenerateBtn) {
         brandSoulRegenerateBtn.classList.add('loading');
