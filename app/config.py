@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     # Vertex AI Configuration (for Gemini 2.5 Flash-Lite - Brand Soul generation)
     vertex_ai_project_id: str = os.getenv("VERTEX_AI_PROJECT_ID", "")
     vertex_ai_location: str = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-    vertex_ai_model: str = "gemini-2.5-flash-lite-preview-06-17"
+    vertex_ai_model: str = "gemini-2.5-flash-lite"
 
     # YouTube Data API Configuration (for Demand Validation)
     youtube_api_key: str = os.getenv("YOUTUBE_API_KEY", "")
