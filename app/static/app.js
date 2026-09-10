@@ -1097,8 +1097,8 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       if (typeof section.content === 'object' && section.content !== null) {
         // For nested objects (like contrarian, asociaciones), render two-column layout if applicable
+        const entries = Object.entries(section.content);
         if (sectionId === 'contrarian' || sectionId === 'asociaciones') {
-          const entries = Object.entries(section.content);
           const grid = document.createElement('div');
           grid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;';
           entries.forEach(([key, value]) => {

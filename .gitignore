@@ -14,6 +14,10 @@ debug_*.json
 TEST_RESULTS.json
 transcriptions/
 
+# PIEZA 19 — artefactos generados por tests/e2e/ (HTML del Brand Soul y
+# screenshots) para que el CEO los abra localmente. No son codigo.
+tests/e2e/_salida/
+
 # Python
 __pycache__/
 *.py[cod]

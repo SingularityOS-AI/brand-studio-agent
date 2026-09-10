@@ -1,6 +1,9 @@
 """
 Tests for per-second voice credit deduction.
 """
+import importlib
+
+import dotenv
 import pytest
 import time
 from app.guard import guard, Guard
@@ -152,9 +155,30 @@ class TestVoiceCredits:
         # Note: In TEST_MODE, we get HTTPException from guard
         assert exc_info.value.status_code == 402
 
-    def test_initial_session_credits_is_250(self):
-        """Test that initial session credits is 250 (not 500)."""
-        assert settings.initial_session_credits == 250
+    def test_initial_session_credits_default_is_500(self, monkeypatch):
+        """La asignacion inicial gratuita por defecto en el codigo es 500.
+
+        PIEZA 19 (arreglo de deuda): esta asercion decia 250 con el docstring
+        "(not 500)", contradiciendo la decision del CEO de subir la
+        asignacion a 500 (ver tests/test_config_credits.py). El .env local
+        fija INITIAL_SESSION_CREDITS=250 a proposito para no tocar saldos
+        existentes en dev, por eso aqui se desactiva la lectura de .env
+        (_env_file=None) y se limpia el entorno real: se prueba el DEFAULT
+        del codigo (config.py), no el valor efectivo de esta maquina. Mismo
+        patron que test_config_credits.py.
+        """
+        monkeypatch.delenv("INITIAL_SESSION_CREDITS", raising=False)
+        # Sin esto, reload() vuelve a leer .env y repone el 250 local antes
+        # de que se evalue el default de la clase.
+        monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
+
+        import app.config as config_module
+        importlib.reload(config_module)
+        try:
+            reloaded_settings = config_module.Settings(_env_file=None)
+            assert reloaded_settings.initial_session_credits == 500
+        finally:
+            importlib.reload(config_module)  # restaura el estado real (.env con 250)
 
     def test_credit_value_is_one_cent(self):
         """Test that 1 credit = $0.01 USD."""
