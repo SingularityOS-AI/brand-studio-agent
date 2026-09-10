@@ -912,10 +912,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
           ws.send(JSON.stringify({
             type: 'tool.result',
             call_id: callId,
-            result: {
+            result: JSON.stringify({
               success: false,
               error: error.message
-            }
+            })
           }));
         }
       }

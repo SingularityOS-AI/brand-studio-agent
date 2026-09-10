@@ -307,7 +307,7 @@ def extract_and_persist(session_token: str,
     if existing_brain:
         brain = existing_brain
     else:
-        brain = BrandBrain(session_token=session_token, sections=[])
+        brain = BrandBrain(sections=[])
 
     # Extract new sections from tool_result
     new_sections = convert_to_sections(transcript, tool_result)

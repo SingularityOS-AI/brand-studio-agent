@@ -12,6 +12,7 @@ import os
 os.environ["TEST_MODE"] = "true"
 
 import pytest
+from unittest.mock import patch
 from app.tools.brand_brain.models import BrandBrain, Section, CitationInvariantError
 from app.tools.brand_brain.extractor import normalize_citation_for_matching, normalized_citation_matches_transcript
 from app.tools.brand_brain.questions import (
@@ -405,6 +406,87 @@ def test_all_required_fields_gathered_checks_content():
 
     result = all_required_fields_gathered("icp", incomplete_content)
     assert result is False
+
+
+@patch("app.tools.brand_brain.extractor.get_brand_brain")
+@patch("app.tools.brand_brain.extractor.save_brand_brain")
+def test_brand_brain_constructs_when_no_existing_brain(
+    mock_save_brain,
+    mock_get_brain
+):
+    """
+    Test the exact production code path from extractor.py line 310:
+    When no existing brain exists, extract_and_persist creates a new
+    BrandBrain with correct constructor (no session_token parameter).
+
+    This test detects the regression on line 310 where someone might
+    incorrectly pass session_token to BrandBrain.__init__():
+        brain = BrandBrain(session_token=session_token, sections=[])
+
+    The test calls extract_and_persist() for real (not just BrandBrain()),
+    ensuring the production path executes and any change to line 310
+    causes a test failure.
+    """
+    # Mock get_brand_brain to return None -> forces the "no existing brain" path
+    mock_get_brain.return_value = None
+
+    # Mock save_brand_brain to avoid touching Supabase
+    mock_save_brain.return_value = None
+
+    # Import inside test to avoid circular import issues
+    from app.tools.brand_brain.extractor import extract_and_persist
+
+    # Must be >= 100 characters or validate_extraction_input raises ExtractionError
+    # The citation_text below appears LITERALLY in this transcript
+    transcript = (
+        "En esta conversación con el fundador de la empresa, discutimos el estado actual "
+        "del negocio. El fundador explicó que necesitan avanzar hacia una postura de "
+        "estudiante para abrir nuevas oportunidades. Esta es la clave del diagnostico del"
+        "estado actual de la marca."
+    )
+    tool_result = {
+        "sections": [
+            {
+                "id": "diagnostico",
+                # This citation appears literally in the transcript above
+                "citation_text": "fundador explicó que necesitan avanzar hacia una postura de estudiante",
+                "confirmed": True,
+                "content": {
+                    "etapa": "creador atascado",
+                    "habilidad_a_desbloquear": "perspectiva",
+                    "prohibicion": "optimizar horarios",
+                    "postura": "estudiante"
+                }
+            }
+        ]
+    }
+
+    # Call the REAL production code path - this executes line 310 in extractor.py
+    brain = extract_and_persist(
+        session_token="test_no_brain_token",
+        transcript=transcript,
+        turn_count=5,
+        tool_result=tool_result
+    )
+
+    # Assert that we got a valid BrandBrain back
+    assert isinstance(brain, BrandBrain)
+
+    # Assert that the section was extracted and added to the brain
+    assert len(brain.sections) == 1
+    diagnostico_section = brain.sections[0]
+    assert diagnostico_section.id == "diagnostico"
+    assert diagnostico_section.status == "confirmado"
+    assert "etapa" in diagnostico_section.content
+    assert diagnostico_section.content["postura"] == "estudiante"
+
+    # Assert that _metadata with missing_sections was set (lines 349-351)
+    assert hasattr(brain, "_metadata")
+    assert "missing_sections" in brain._metadata
+
+    # Verify mocks were called correctly
+    mock_get_brain.assert_called_once_with("test_no_brain_token")
+    mock_save_brain.assert_called_once()
 
 
 if __name__ == "__main__":
