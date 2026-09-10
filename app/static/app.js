@@ -985,6 +985,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
           appendExtractedSections(result.brand_brain.sections);
           updateBrandSoulButton(result.brand_brain.sections);
+          updateCatalogButton(result.brand_brain.sections);
 
           // Refresh cached brain after successful extraction
           await loadBrandBrain();
@@ -1441,6 +1442,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       if (brain && brain.sections && brain.sections.length) {
         appendExtractedSections(brain.sections);
         updateBrandSoulButton(brain.sections);
+        updateCatalogButton(brain.sections);
       }
     } catch (e) {
       console.error('[Brain] No se pudo cargar el cerebro existente:', e);
@@ -1819,6 +1821,198 @@ ${htmlContent}
     }
   }
 
+  // =============================================================================
+  // CATALOG FUNCTIONALITY
+  // =============================================================================
+
+  // Catalog DOM elements
+  const catalogBtn = document.getElementById('Catalog-Btn');
+  const catalogLabel = document.getElementById('Catalog-Label');
+  const catalogOverlay = document.getElementById('Catalog-Overlay');
+  const catalogContent = document.getElementById('Catalog-Content');
+  const catalogLoading = document.getElementById('Catalog-Loading');
+  const catalogCloseBtn = document.getElementById('Catalog-CloseBtn');
+
+  // Update Catalog button state based on confirmed sections count
+  function updateCatalogButton(sections) {
+    if (!catalogBtn || !catalogLabel) return;
+
+    const confirmedCount = sections.filter(s => s.status === 'confirmado').length;
+    catalogLabel.textContent = `Catalog — ${confirmedCount} of 9 sections ready`;
+
+    if (confirmedCount >= 9) {
+      catalogBtn.disabled = false;
+    } else {
+      catalogBtn.disabled = true;
+    }
+  }
+
+  // Render Catalog HTML from structured data
+  function renderCatalogHTML(catalog) {
+    const angleColors = {
+      'Útil': '#1B7F4C', 'Inmersivo': '#2B4CD8', 'Reflexivo': '#B5720B', 'Vulnerable': '#C2262E'
+    };
+
+    let html = `<div style="margin-bottom:24px">
+      <span style="font-family:monospace;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#5C6675">Approach</span>
+      <h2 style="margin:4px 0 0;color:#1A1B1D">${catalog.approach}</h2>
+    </div>`;
+
+    if (!catalog.gate_passed) {
+      html += `<div style="background:#FDF3F3;border-left:3px solid #C2262E;padding:12px 16px;border-radius:6px;margin-bottom:24px">
+        <b style="color:#1A1B1D">Catalog not sustainable yet</b><br><span style="color:#5C6675">${catalog.gate_reason || 'Missing valid ideas.'}</span>
+      </div>`;
+    }
+
+    catalog.categories.forEach(cat => {
+      html += `<h3 style="margin:32px 0 12px;color:#1A1B1D;font-size:18px">${cat.name}</h3>`;
+      cat.ideas.forEach(idea => {
+        const color = angleColors[idea.angle] || '#5C6675';
+        html += `<div style="border:1px solid #D5DAE4;border-radius:6px;padding:14px 16px;margin-bottom:10px;background:#FFFFFF">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">
+            <b style="color:#1A1B1D;font-size:15px">${idea.title}</b>
+            <span style="font-size:11px;font-weight:600;color:${color};border:1px solid ${color};border-radius:999px;padding:2px 10px;white-space:nowrap">${idea.angle}</span>
+          </div>
+          <div style="font-family:monospace;font-size:12.5px;color:#5C6675;margin-top:8px">${idea.demand_signal}</div>
+        </div>`;
+      });
+    });
+
+    return html;
+  }
+
+  // Generate Catalog
+  async function generateCatalog() {
+    if (!catalogBtn || catalogBtn.disabled) return;
+
+    try {
+      // Show loading state on button
+      catalogBtn.classList.add('loading');
+      catalogBtn.disabled = true;
+
+      // Show overlay with loading spinner
+      catalogOverlay.style.display = 'flex';
+      catalogContent.style.display = 'none';
+      catalogContent.innerHTML = '';
+      catalogLoading.style.display = 'flex';
+
+      // Step 1: Try to get cached catalog first (no credits charged)
+      const cacheResponse = await authenticatedFetch('/api/catalog', {
+        method: 'GET'
+      });
+
+      if (cacheResponse.ok) {
+        // Cached catalog exists - display it without charging credits
+        const cacheData = await cacheResponse.json();
+        catalogLoading.style.display = 'none';
+        catalogContent.style.display = 'block';
+        catalogContent.innerHTML = renderCatalogHTML(cacheData.catalog);
+
+        console.log('[Catalog] Loaded from cache - no credits charged');
+        return;
+      }
+
+      // Step 2: If cache returns 404, generate new catalog (charges 15 credits)
+      if (cacheResponse.status === 404) {
+        // Confirm cost before proceeding
+        const confirmed = confirm('Generating your content catalog costs 15 credits. Continue?');
+        if (!confirmed) {
+          catalogOverlay.style.display = 'none';
+          return;
+        }
+
+        const response = await authenticatedFetch('/api/catalog/generate', {
+          method: 'POST'
+        });
+
+        const data = await response.json();
+        const body = 'detail' in data ? data.detail : data;
+
+        if (!response.ok) {
+          // Handle specific error cases
+          if (response.status === 400 && body.error) {
+            // Incomplete brain - extract missing sections count
+            const match = body.error.match(/(\d+)\s*of\s*9/);
+            if (match) {
+              const confirmed = parseInt(match[1]);
+              const missing = 9 - confirmed;
+              alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your catalog. Keep talking with Brandy to complete them.`);
+            } else {
+              alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
+            }
+          } else if (response.status === 402) {
+            alert('Not enough credits to generate catalog. Please purchase more credits to continue.');
+          } else if (response.status === 429) {
+            alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+          } else {
+            alert(`Failed to generate catalog: ${body.error || body || response.status}`);
+          }
+
+          catalogOverlay.style.display = 'none';
+          return;
+        }
+
+        // Success - display the catalog
+        catalogLoading.style.display = 'none';
+        catalogContent.style.display = 'block';
+        catalogContent.innerHTML = renderCatalogHTML(data.catalog);
+
+        // Update credits display if included in response
+        if (data.credits_remaining !== undefined) {
+          updateCreditsUI(data.credits_remaining, initialSessionCredits);
+        }
+
+        console.log('[Catalog] Document generated successfully');
+        return;
+      }
+
+      // Handle other cache errors
+      const cacheError = await cacheResponse.json();
+      alert(`Failed to load catalog: ${cacheError.error || cacheError.detail || cacheResponse.status}`);
+      catalogOverlay.style.display = 'none';
+
+    } catch (error) {
+      console.error('[Catalog] Loading error:', error);
+      alert('Failed to load catalog: ' + error.message);
+      catalogOverlay.style.display = 'none';
+    } finally {
+      // Remove loading state from button and restore state
+      catalogBtn.classList.remove('loading');
+      if (cachedBrain && cachedBrain.sections) {
+        const confirmedCount = cachedBrain.sections.filter(s => s.status === 'confirmado').length;
+        catalogBtn.disabled = confirmedCount < 9;
+      } else {
+        catalogBtn.disabled = true;
+      }
+    }
+  }
+
+  // Close Catalog overlay
+  function closeCatalogOverlay() {
+    if (catalogOverlay) {
+      catalogOverlay.style.display = 'none';
+    }
+  }
+
+  // Wire up Catalog button and overlay controls
+  if (catalogBtn) {
+    catalogBtn.addEventListener('click', generateCatalog);
+  }
+
+  if (catalogCloseBtn) {
+    catalogCloseBtn.addEventListener('click', closeCatalogOverlay);
+  }
+
+  // Close overlay on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && brandSoulOverlay && brandSoulOverlay.style.display !== 'none') {
+      closeBrandSoulOverlay();
+    }
+    if (e.key === 'Escape' && catalogOverlay && catalogOverlay.style.display !== 'none') {
+      closeCatalogOverlay();
+    }
+  });
+
   // Wire up Brand Soul button and overlay controls
   if (brandSoulBtn) {
     brandSoulBtn.addEventListener('click', generateBrandSoul);
@@ -1842,6 +2036,226 @@ ${htmlContent}
       closeBrandSoulOverlay();
     }
   });
+
+  // =============================================================================
+  // RESIZABLE COLUMNS
+  // =============================================================================
+
+  // DOM elements
+  const voz = document.querySelector('.voz');
+  const doc = document.querySelector('.doc');
+  const prod = document.querySelector('.prod');
+  const resizerVDoc = document.getElementById('Resizer-VDoc');
+  const resizerDProd = document.getElementById('Resizer-DProd');
+  const collapseVoz = document.getElementById('Collapse-Voz');
+  const expandVoz = document.getElementById('Expand-Voz');
+  const collapseProd = document.getElementById('Collapse-Prod');
+  const expandProd = document.getElementById('Expand-Prod');
+
+  // Constants
+  const COLAPSE_THRESHOLD = 120;
+  const ICON_BAR_WIDTH = 48;
+  const MIN_WIDTH = 200;
+  const MAX_WIDTH = 600;
+  const STORAGE_KEY = 'brandStudioColWidths';
+
+  // State
+  let isResizing = false;
+  let activeResizer = null;
+  let startX = 0;
+  let startVozWidth = 0;
+  let startProdWidth = 0;
+
+  // Load saved widths from localStorage
+  function loadColumnWidths() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const widths = JSON.parse(saved);
+        if (widths.voz && widths.voz >= MIN_WIDTH && widths.voz <= MAX_WIDTH) {
+          voz.style.width = widths.voz + 'px';
+        }
+        if (widths.prod && widths.prod >= MIN_WIDTH && widths.prod <= MAX_WIDTH) {
+          prod.style.width = widths.prod + 'px';
+        }
+      }
+    } catch (e) {
+      console.warn('[Columns] Failed to load widths:', e);
+    }
+  }
+
+  // Save widths to localStorage
+  function saveColumnWidths() {
+    try {
+      const widths = {
+        voz: parseInt(voz.style.width) || 420,
+        prod: parseInt(prod.style.width) || 380
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
+    } catch (e) {
+      console.warn('[Columns] Failed to save widths:', e);
+    }
+  }
+
+  // Initialize resizer events
+  function initResizer(resizer, isLeftResizer) {
+    if (!resizer) return;
+
+    resizer.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      activeResizer = isLeftResizer ? 'vdoc' : 'dprod';
+      startX = e.clientX;
+      startVozWidth = parseInt(voz.style.width) || 420;
+      startProdWidth = parseInt(prod.style.width) || 380;
+
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      e.preventDefault();
+    });
+  }
+
+  // Initialize collapse buttons
+  function initCollapseButtons() {
+    if (collapseVoz) {
+      collapseVoz.addEventListener('click', () => {
+        voz.classList.add('collapsed');
+        collapseVoz.style.display = 'none';
+        expandVoz.style.display = 'flex';
+      });
+    }
+
+    if (expandVoz) {
+      expandVoz.addEventListener('click', () => {
+        voz.classList.remove('collapsed');
+        expandVoz.style.display = 'none';
+        collapseVoz.style.display = 'flex';
+        // Restore default width
+        voz.style.width = '420px';
+        saveColumnWidths();
+      });
+    }
+
+    if (collapseProd) {
+      collapseProd.addEventListener('click', () => {
+        prod.classList.add('collapsed');
+        collapseProd.style.display = 'none';
+        expandProd.style.display = 'flex';
+      });
+    }
+
+    if (expandProd) {
+      expandProd.addEventListener('click', () => {
+        prod.classList.remove('collapsed');
+        expandProd.style.display = 'none';
+        collapseProd.style.display = 'flex';
+        // Restore default width
+        prod.style.width = '380px';
+        saveColumnWidths();
+      });
+    }
+  }
+
+  // Handle global mouse move during resizing
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+
+    const deltaX = e.clientX - startX;
+
+    if (activeResizer === 'vdoc') {
+      const newVozWidth = startVozWidth + deltaX;
+      if (newVozWidth >= MIN_WIDTH && newVozWidth <= MAX_WIDTH) {
+        voz.style.width = newVozWidth + 'px';
+
+        // Auto-collapse if dragged below threshold
+        if (newVozWidth < COLAPSE_THRESHOLD) {
+          voz.classList.add('collapsed');
+          collapseVoz.style.display = 'none';
+          expandVoz.style.display = 'flex';
+          voz.style.width = ICON_BAR_WIDTH + 'px';
+        }
+      }
+    } else if (activeResizer === 'dprod') {
+      const newProdWidth = startProdWidth - deltaX;
+      if (newProdWidth >= MIN_WIDTH && newProdWidth <= MAX_WIDTH) {
+        prod.style.width = newProdWidth + 'px';
+
+        // Auto-collapse if dragged below threshold
+        if (newProdWidth < COLAPSE_THRESHOLD) {
+          prod.classList.add('collapsed');
+          collapseProd.style.display = 'none';
+          expandProd.style.display = 'flex';
+          prod.style.width = ICON_BAR_WIDTH + 'px';
+        }
+      }
+    }
+  });
+
+  // Handle global mouse up after resizing
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      activeResizer = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      // Save widths after resize
+      saveColumnWidths();
+    }
+  });
+
+  // Initialize on page load
+  loadColumnWidths();
+  initResizer(resizerVDoc, true);
+  initResizer(resizerDProd, false);
+  initCollapseButtons();
+
+  // Handle responsive auto-collapse
+  function handleResponsiveCollapse() {
+    const width = window.innerWidth;
+
+    if (width <= 768) {
+      // Mobile: collapse both columns
+      voz.classList.add('collapsed');
+      prod.classList.add('collapsed');
+      if (collapseVoz) collapseVoz.style.display = 'none';
+      if (expandVoz) expandVoz.style.display = 'flex';
+      if (collapseProd) collapseProd.style.display = 'none';
+      if (expandProd) expandProd.style.display = 'flex';
+    } else if (width <= 1200) {
+      // Tablet: collapse production only
+      prod.classList.add('collapsed');
+      if (collapseProd) collapseProd.style.display = 'none';
+      if (expandProd) expandProd.style.display = 'flex';
+      voz.classList.remove('collapsed');
+      if (collapseVoz) collapseVoz.style.display = 'flex';
+      if (expandVoz) expandVoz.style.display = 'none';
+    } else {
+      // Desktop: restore both if not manually collapsed
+      if (!voz.classList.contains('collapsed')) {
+        voz.classList.remove('collapsed');
+        if (collapseVoz) collapseVoz.style.display = 'flex';
+        if (expandVoz) expandVoz.style.display = 'none';
+      }
+      if (!prod.classList.contains('collapsed')) {
+        prod.classList.remove('collapsed');
+        if (collapseProd) collapseProd.style.display = 'flex';
+        if (expandProd) expandProd.style.display = 'none';
+      }
+    }
+  }
+
+  // Listen for window resize
+  let resizeTimeout;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(handleResponsiveCollapse, 100);
+  });
+
+  // Initial responsive check
+  handleResponsiveCollapse();
+
+  console.log('[Columns] Resizable columns initialized');
 
   // Initialize on page load
   document.addEventListener('DOMContentLoaded', async () => {
