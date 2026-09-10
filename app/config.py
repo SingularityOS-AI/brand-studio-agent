@@ -96,8 +96,18 @@ class Settings(BaseSettings):
     vertex_ai_location: str = os.getenv("VERTEX_AI_LOCATION", "us-central1")
     vertex_ai_model: str = "gemini-2.5-flash-lite-preview-06-17"
 
+    # YouTube Data API Configuration (for Demand Validation)
+    youtube_api_key: str = os.getenv("YOUTUBE_API_KEY", "")
+
 
 settings = Settings()
+
+# Fail loud if YouTube API Key is not configured (skip in test mode)
+# Only warn for YouTube - it's optional for core functionality
+import logging
+if not settings.youtube_api_key:
+    logging.warning("YOUTUBE_API_KEY is not configured - demand validation endpoints will be disabled")
+
 
 # Fail loud if API Key is not configured (skip in test mode)
 _test_mode = os.getenv("TEST_MODE", "false").lower() == "true"

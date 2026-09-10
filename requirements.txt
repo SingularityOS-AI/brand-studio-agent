@@ -27,3 +27,7 @@ cryptography>=41.0.0  # For ES256 key generation in tests
 
 # Vertex AI SDK for Gemini 2.5 Flash-Lite (Brand Soul generation)
 google-cloud-aiplatform>=1.70.0
+
+# Demand Validation - Public Data Sources
+pytrends>=4.9.2
+google-api-python-client>=2.138.0

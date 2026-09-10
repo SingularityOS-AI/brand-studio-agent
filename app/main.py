@@ -450,6 +450,91 @@ class ExtractBrandBrainRequest(BaseModel):
     tool_result: dict
 
 
+# =============================================================================
+# DEMAND VALIDATION ENDPOINTS (Pieza 3 — Validación de Demanda Automatizada)
+# =============================================================================
+
+from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+
+
+@app.get("/api/demand", response_class=JSONResponse)
+async def get_demand_validation(request: Request):
+    """
+    Validate demand for a niche using public data sources.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Rate limits by IP
+    3. Deducts credits (10 credits for demand validation)
+    4. Analyzes niche using YouTube Data API and pytrends
+    5. Sets abort_recommended=True if trend_direction == "baja"
+    6. Returns structured NicheReport with citable signals
+
+    Protected by rate limiting and spend_guard - requires 10 credits.
+    Requires JWT authentication.
+    """
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    # 2. Extract niche from query parameter
+    niche = request.query_params.get("niche")
+    if not niche:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing 'niche' query parameter"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # 3. Rate limit check
+    client_ip = request.client.host
+    guard.check_rate_limit(
+        client_ip,
+        max_requests_per_minute=settings.rate_limit_requests_per_minute
+    )
+
+    # 4. Deduct credits (demand validation costs 10 credits)
+    try:
+        remaining = guard.deduct_credits(session_token, amount=10)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": session["credits"],
+                    "payment_url": settings.payment_url,
+                }
+            )
+        raise
+
+    # 5. Validate demand
+    try:
+        report = await validate_niche_demand(niche=niche, use_cache=True)
+    except Exception as e:
+        logger.error(f"[demand] Validation error for '{niche}': {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Demand validation failed: {str(e)}"}
+        )
+
+    # 6. Return report
+    return JSONResponse(content={
+        "report": report.model_dump(),
+        "credits_remaining": remaining
+    })
+
+
+
 @app.post("/api/brain/extract", response_class=JSONResponse)
 async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainRequest):
     """
