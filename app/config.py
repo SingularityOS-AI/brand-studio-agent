@@ -66,7 +66,7 @@ class Settings(BaseSettings):
 
     # Session Budget Settings (credits per session)
     initial_session_credits: int = int(
-        os.getenv("INITIAL_SESSION_CREDITS", "250")
+        os.getenv("INITIAL_SESSION_CREDITS", "500")
     )
 
     # Payment URL for 402 Payment Required response

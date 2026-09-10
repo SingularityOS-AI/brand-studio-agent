@@ -94,7 +94,13 @@
 
   // Voice credits reservation
   let voiceRenewalTimer = null;
-  let initialSessionCredits = 250; // Will be fetched from /api/config
+  let initialSessionCredits = 500; // Will be fetched from /api/config
+
+  // Silence auto-suspend (AssemblyAI bills connected time, silence included)
+  const SILENCE_SUSPEND_MS = 45000;
+  const SILENCE_CHECK_INTERVAL_MS = 5000;
+  let lastVoiceActivityAt = 0;
+  let silenceWatchdogTimer = null;
 
   // Audio playback state
   let playT = 0;
@@ -358,6 +364,34 @@ Always respond in English. Keep your responses conversational and engaging.`;
     }
   }
 
+  // Pure decision function: has silence exceeded the suspend threshold?
+  function shouldSuspendForSilence(lastActivityMs, nowMs, thresholdMs) {
+    return (nowMs - lastActivityMs) >= thresholdMs;
+  }
+
+  function markVoiceActivity() {
+    lastVoiceActivityAt = Date.now();
+  }
+
+  function startSilenceWatchdog() {
+    stopSilenceWatchdog();
+    markVoiceActivity();
+    silenceWatchdogTimer = setInterval(async () => {
+      if (shouldSuspendForSilence(lastVoiceActivityAt, Date.now(), SILENCE_SUSPEND_MS)) {
+        console.log('[Voice] Silence threshold exceeded, suspending session');
+        await stopSession();
+        if (orbState) orbState.textContent = 'Paused — tap the mic to continue';
+      }
+    }, SILENCE_CHECK_INTERVAL_MS);
+  }
+
+  function stopSilenceWatchdog() {
+    if (silenceWatchdogTimer) {
+      clearInterval(silenceWatchdogTimer);
+      silenceWatchdogTimer = null;
+    }
+  }
+
   async function startSession() {
     // Capture generation for this session - prevents race conditions
     const myGeneration = ++sessionGeneration;
@@ -501,6 +535,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         if (myGeneration !== sessionGeneration) return; // Not the active session
         console.log('[WebSocket] Connected to AssemblyAI Voice Agent');
         setUIStatus('connecting', 'Conectando agente...');
+        startSilenceWatchdog();
 
         // Start voice credits renewal timer (renew every 50 seconds, before 60s expire)
         // This timer checks sessionGeneration to prevent old sessions from renewing
@@ -669,10 +704,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
         break;
 
       case 'input.speech.started':
+        markVoiceActivity();
         if (orbState) orbState.textContent = 'Hablando...';
         break;
 
       case 'transcript.user':
+        markVoiceActivity();
         // User final transcript
         appendUserMessage(msg.text);
         // Track turn for extraction
@@ -690,6 +727,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         break;
 
       case 'reply.started':
+        markVoiceActivity();
         if (orbState) orbState.textContent = 'Brandy hablando...';
         break;
 
@@ -699,6 +737,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         break;
 
       case 'transcript.agent':
+        markVoiceActivity();
         // Agent final transcript
         appendAgentMessage(msg.text);
         // Track turn for extraction
@@ -786,6 +825,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
     // CRITICAL: Stop voice credits renewal timer
     // Without this, the timer would continue charging credits even with mic off
     stopVoiceRenewal();
+    stopSilenceWatchdog();
 
     if (ws) {
       try { ws.close(); } catch(e){}
@@ -870,6 +910,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
   // Handle tool calls (extract_brand_brain)
   async function handleToolCall(toolName, args, callId) {
+    markVoiceActivity();
     console.log('[Tool Call]', toolName, args);
 
     if (toolName === 'extract_brand_brain') {
@@ -1485,7 +1526,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
     } catch (e) {
       console.error('[Config] Failed to load config:', e);
       // Use default value if config fetch fails
-      initialSessionCredits = 250;
+      initialSessionCredits = 500;
     }
   }
 
