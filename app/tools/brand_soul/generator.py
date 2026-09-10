@@ -36,7 +36,6 @@ from app.tools.brand_soul.template import (
     detect_etapa_from_brand_brain
 )
 from app.config import settings
-from app.guard import guard
 
 
 class SoulGenerationError(Exception):
@@ -635,22 +634,9 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
         else:
             return cached_html, "cached"
 
-    # 3.5. Check credits before calling LLM
-    # Gemini 2.5 Flash-Lite costs: Input $0.075/1M tokens, Output $0.30/1M tokens
-    # Estimate 2000 input tokens + 500 output tokens = ~2500 tokens total
-    # Cost: (2000 * 0.075 + 500 * 0.30) / 1,000,000 = $0.0003 = 0.03 credits
-    # Add 50% buffer for safety: ~50 credits estimated
-    estimated_credits = 50
-
-    # Skip credit deduction in test mode
-    if os.getenv("TEST_MODE") != "true":
-        try:
-            guard.deduct_credits(session_token, amount=estimated_credits)
-        except Exception as e:
-            # If credit deduction fails, re-raise as specific error
-            if hasattr(e, 'status_code') and e.status_code == 402:
-                raise SoulGenerationError("Insufficient credits to generate Brand Soul") from e
-            raise
+    # Credit deduction for this generation happens once, in app/main.py's
+    # /soul/generate endpoint (20 credits), before this function is called.
+    # Do not deduct here too.
 
     # 4. Generate new HTML
     # 4a. Extract etapa context
