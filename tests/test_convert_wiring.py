@@ -54,7 +54,7 @@ def test_los_nueve_nodos_se_construyen_por_el_camino_real():
     ids = get_section_order()
     assert len(ids) == 9, f"la spec exige 9 nodos, hay {len(ids)}"
 
-    secciones = convert_to_sections(_transcript(), _tool_result(ids))
+    secciones, _skips = convert_to_sections(_transcript(), _tool_result(ids))
 
     construidos = {s.id for s in secciones}
     faltan = set(ids) - construidos
@@ -64,7 +64,7 @@ def test_los_nueve_nodos_se_construyen_por_el_camino_real():
 
 
 def test_confirmed_false_deja_el_nodo_propuesto():
-    secciones = convert_to_sections(_transcript(), _tool_result(["charco"], confirmed=False))
+    secciones, _skips = convert_to_sections(_transcript(), _tool_result(["charco"], confirmed=False))
     assert len(secciones) == 1
     assert secciones[0].status == "propuesto"
 
@@ -73,18 +73,22 @@ def test_cita_ausente_del_transcript_descarta_el_nodo():
     """El invariante anti-alucinacion: si el fundador no lo dijo, no entra."""
     tr = {"sections": [{"id": "charco", "citation_text": "esto jamas se dijo en la conversacion",
                         "confirmed": True, "content": CONTENIDO["charco"]}]}
-    assert convert_to_sections(_transcript(), tr) == []
+    secciones, skips = convert_to_sections(_transcript(), tr)
+    assert secciones == []
+    assert skips == [{"id": "charco", "reason": "cita_no_encontrada"}]
 
 
 def test_sin_cita_descarta_el_nodo():
     tr = {"sections": [{"id": "charco", "citation_text": "", "confirmed": True,
                         "content": CONTENIDO["charco"]}]}
-    assert convert_to_sections(_transcript(), tr) == []
+    secciones, skips = convert_to_sections(_transcript(), tr)
+    assert secciones == []
+    assert skips == [{"id": "charco", "reason": "sin_cita"}]
 
 
 def test_brandbrain_acepta_las_secciones_del_camino_real():
     """El paso siguiente en produccion: las secciones entran a un BrandBrain sin reventar."""
-    secciones = convert_to_sections(_transcript(), _tool_result(get_section_order()))
+    secciones, _skips = convert_to_sections(_transcript(), _tool_result(get_section_order()))
     brain = BrandBrain(sections=secciones)
     assert len(brain.sections) == 9
     assert all(brain.validate_all_sections().values())
@@ -93,7 +97,8 @@ def test_brandbrain_acepta_las_secciones_del_camino_real():
 def test_roundtrip_to_dict_from_dict():
     """Camino de lectura de produccion (store.get_brand_brain usa from_dict).
     Su test se perdio en la pieza 15A; se restituye aqui."""
-    brain = BrandBrain(sections=convert_to_sections(_transcript(), _tool_result(get_section_order())))
+    secciones, _skips = convert_to_sections(_transcript(), _tool_result(get_section_order()))
+    brain = BrandBrain(sections=secciones)
     vuelta = BrandBrain.from_dict(brain.to_dict())
     assert len(vuelta.sections) == 9
     assert {s.id for s in vuelta.sections} == set(get_section_order())

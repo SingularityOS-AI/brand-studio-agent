@@ -516,10 +516,14 @@ async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainR
 
     # 4. Return success with missing_sections for agent guidance
     missing_sections = getattr(brain, '_metadata', {}).get('missing_sections', [])
+    # FALLO 3 (PIEZA_17): descartes explicitos, no mudos. Diagnostico para
+    # consola del frontend, nunca UI del fundador.
+    skipped_sections = getattr(brain, '_metadata', {}).get('skipped_sections', [])
     return JSONResponse(content={
         "brand_brain": brain.to_dict(),
         "sections_count": len(brain.sections),
         "missing_sections": missing_sections,
+        "skipped_sections": skipped_sections,
         "credits_remaining": remaining
     })
 

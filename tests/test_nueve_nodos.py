@@ -489,5 +489,167 @@ def test_brand_brain_constructs_when_no_existing_brain(
     mock_save_brain.assert_called_once()
 
 
+@patch("app.tools.brand_brain.extractor.get_brand_brain")
+@patch("app.tools.brand_brain.extractor.save_brand_brain")
+def test_cita_partida_por_turno_fragmentado_se_guarda(mock_save_brain, mock_get_brain):
+    """
+    PIEZA_17, FALLO 2. El fundador dice una frase entera, pero min_silence=200
+    la parte en DOS turnos `user:`. El frontend arma el transcript con
+    "user: <mitad1>\\nuser: <mitad2>", y la cita del agente cruza el corte.
+
+    Sin el FALLO 2 arreglado, `normalize_citation_for_matching` mete la palabra
+    "user" a mitad de frase y la cita nunca hace substring match: la seccion
+    se descarta EN SILENCIO. Con el arreglo debe guardarse.
+    """
+    mock_get_brain.return_value = None
+    mock_save_brain.return_value = None
+
+    from app.tools.brand_brain.extractor import extract_and_persist
+
+    # La frase del fundador partida en dos eventos transcript.user, tal como
+    # arma el frontend real: "user: " + "user: " (app.js ~linea 849).
+    transcript = (
+        "agent: ¿Cómo te ves ahora mismo en tu negocio?\n"
+        "user: um i mean i do consider myself\n"
+        "user: right now as a student of the craft"
+    )
+
+    tool_result = {
+        "sections": [
+            {
+                "id": "diagnostico",
+                "citation_text": "i do consider myself right now as a student of the craft",
+                "citation_source": "usuario",
+                "confirmed": True,
+                "content": {
+                    "etapa": "creador atascado",
+                    "habilidad_a_desbloquear": "perspectiva",
+                    "prohibicion": "optimizar horarios",
+                    "postura": "estudiante"
+                }
+            }
+        ]
+    }
+
+    brain = extract_and_persist(
+        session_token="test_fragmented_turn_token",
+        transcript=transcript,
+        tool_result=tool_result
+    )
+
+    assert len(brain.sections) == 1, (
+        "la seccion 'diagnostico' debio guardarse: la cita cruza un corte de "
+        "turno pero es literalmente lo que dijo el fundador"
+    )
+    assert brain.sections[0].status == "confirmado"
+    assert brain._metadata["skipped_sections"] == []
+
+
+@patch("app.tools.brand_brain.extractor.get_brand_brain")
+@patch("app.tools.brand_brain.extractor.save_brand_brain")
+def test_cita_usuario_que_solo_dijo_el_agente_se_descarta(mock_save_brain, mock_get_brain):
+    """
+    PIEZA_17, FALLO 2. Invariante del producto: una cita atribuida al fundador
+    (`citation_source: "usuario"`) no puede validarse contra palabras que dijo
+    Brandy. Si esa cita solo aparece en una linea `agent:`, se descarta y
+    queda reportada en `skipped_sections` (FALLO 3), no silenciosamente.
+    """
+    mock_get_brain.return_value = None
+    mock_save_brain.return_value = None
+
+    from app.tools.brand_brain.extractor import extract_and_persist
+
+    transcript = (
+        "agent: it sounds like you are a stuck creator searching for perspective\n"
+        "user: yes that resonates with me a lot honestly"
+    )
+
+    tool_result = {
+        "sections": [
+            {
+                "id": "diagnostico",
+                # Estas palabras las dijo Brandy (agent:), no el fundador.
+                "citation_text": "you are a stuck creator searching for perspective",
+                "citation_source": "usuario",
+                "confirmed": True,
+                "content": {
+                    "etapa": "creador atascado",
+                    "habilidad_a_desbloquear": "perspectiva",
+                    "prohibicion": "optimizar horarios",
+                    "postura": "estudiante"
+                }
+            }
+        ]
+    }
+
+    brain = extract_and_persist(
+        session_token="test_usuario_cita_de_agente_token",
+        transcript=transcript,
+        tool_result=tool_result
+    )
+
+    assert brain.sections == [], "no debe guardarse: el fundador nunca dijo esas palabras"
+    assert brain._metadata["skipped_sections"] == [
+        {"id": "diagnostico", "reason": "cita_no_encontrada"}
+    ]
+
+
+@patch("app.tools.brand_brain.extractor.get_brand_brain")
+@patch("app.tools.brand_brain.extractor.save_brand_brain")
+def test_prosa_de_brandy_con_salto_de_linea_no_pasa_como_cita_del_fundador(
+    mock_save_brain, mock_get_brain
+):
+    """
+    PIEZA_17B, rebote de QA. El texto del agente llega crudo con un `\\n`
+    dentro (respuesta de dos parrafos, ver deltas reales `delta: 'though.\\n\\n'`
+    en app.js). La segunda linea no tiene prefijo `agent:` y ANTES del arreglo
+    caia en el fallback permisivo, entrando en `founder_text` como si el
+    fundador la hubiera dicho. Debe heredar el hablante de la linea anterior
+    (agent) y la seccion con `citation_source: "usuario"` debe descartarse.
+    """
+    mock_get_brain.return_value = None
+    mock_save_brain.return_value = None
+
+    from app.tools.brand_brain.extractor import extract_and_persist
+
+    transcript = (
+        "agent: I apologize, I ran into a glitch.\n"
+        "You are the most precise interpreter in the medical field.\n"
+        "user: okay no problem"
+    )
+
+    tool_result = {
+        "sections": [
+            {
+                "id": "diagnostico",
+                # Solo aparece en la segunda linea del turno del agente.
+                "citation_text": "you are the most precise interpreter in the medical field",
+                "citation_source": "usuario",
+                "confirmed": True,
+                "content": {
+                    "etapa": "creador atascado",
+                    "habilidad_a_desbloquear": "perspectiva",
+                    "prohibicion": "optimizar horarios",
+                    "postura": "estudiante"
+                }
+            }
+        ]
+    }
+
+    brain = extract_and_persist(
+        session_token="test_prosa_brandy_multilinea_token",
+        transcript=transcript,
+        tool_result=tool_result
+    )
+
+    assert brain.sections == [], (
+        "no debe guardarse: esas palabras las dijo Brandy en su segundo "
+        "parrafo, no el fundador"
+    )
+    assert brain._metadata["skipped_sections"] == [
+        {"id": "diagnostico", "reason": "cita_no_encontrada"}
+    ]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

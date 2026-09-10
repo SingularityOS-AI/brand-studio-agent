@@ -88,6 +88,54 @@ def normalized_citation_matches_transcript(citation: str, transcript: str) -> bo
     return norm_citation in norm_transcript
 
 
+_SPEAKER_LINE_RE = re.compile(r'^(user|agent):\s?(.*)$', re.IGNORECASE)
+
+
+def build_verification_transcripts(transcript: str) -> "tuple[str, str]":
+    """
+    FALLO 2 (PIEZA_17): separa el transcript crudo (lineas "user: ..." /
+    "agent: ...", una por linea) en dos textos de verificacion sin las
+    etiquetas de hablante metidas a mitad de frase.
+
+    Devuelve (texto_solo_fundador, texto_completo). Una linea sin prefijo
+    reconocido hereda el hablante de la linea anterior (es continuacion del
+    mismo turno, p. ej. un `\n` dentro de la respuesta de Brandy) y solo entra
+    en el texto de ese hablante. Solo si NINGUNA linea previa tuvo prefijo
+    (fixtures viejos sin etiquetas) se conserva de forma conservadora en
+    ambos textos, para no perder texto cuando no sabemos de quien es.
+
+    Args:
+        transcript: transcript crudo, formato "<speaker>: <texto>" por linea
+
+    Returns:
+        (founder_text, full_text)
+    """
+    founder_parts = []
+    full_parts = []
+    current_speaker = None  # None = todavia no vimos ningun prefijo
+    for line in transcript.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        match = _SPEAKER_LINE_RE.match(line)
+        if match:
+            speaker, text = match.group(1).lower(), match.group(2)
+            current_speaker = speaker
+            full_parts.append(text)
+            if speaker == 'user':
+                founder_parts.append(text)
+        elif current_speaker is None:
+            # Sin prefijo visto aun: conservador, entra en ambos.
+            founder_parts.append(line)
+            full_parts.append(line)
+        else:
+            # Continuacion del turno del hablante actual.
+            full_parts.append(line)
+            if current_speaker == 'user':
+                founder_parts.append(line)
+    return ' '.join(founder_parts), ' '.join(full_parts)
+
+
 def extract_citation_from_transcript(section_data: Dict, transcript: str) -> Optional[str]:
     """
     Extract citation from transcript.
@@ -202,7 +250,7 @@ def normalize_section_content(section_id: str,
 
 
 def convert_to_sections(transcript: str,
-                        tool_result: Dict[str, Any]) -> List[Section]:
+                        tool_result: Dict[str, Any]) -> "tuple[List[Section], List[Dict[str, str]]]":
     """
     Convert extraction tool result to Section objects.
 
@@ -213,12 +261,15 @@ def convert_to_sections(transcript: str,
         tool_result: Dict from extraction agent with section data
 
     Returns:
-        List of Section objects
+        (sections, skipped) — sections construidas, y la lista de descartes
+        (FALLO 3 de PIEZA_17), cada uno {"id": ..., "reason": "sin_cita"|
+        "cita_no_encontrada"|"invariante"}.
 
     Raises:
         ExtractionError: If section structure is invalid
     """
     sections = []
+    skipped = []
 
     # Mapping from old IDs to new IDs is NO LONGER NEEDED - direct ID-to-ID
     # Agent now returns correct IDs per spec
@@ -228,6 +279,10 @@ def convert_to_sections(transcript: str,
 
     # Extract section data
     sections_data = tool_result.get("sections", [])
+
+    # FALLO 2: texto de verificacion sin etiquetas de hablante metidas a mitad
+    # de frase. Citas "usuario" verifican solo contra lo que dijo el fundador.
+    founder_text, full_text = build_verification_transcripts(transcript)
 
     for section_data in sections_data:
         section_id = section_data.get("id")
@@ -246,11 +301,15 @@ def convert_to_sections(transcript: str,
 
         if not citation_text:
             print(f"[WARNING] Section {section_id} missing citation_text, skipping")
+            skipped.append({"id": section_id, "reason": "sin_cita"})
             continue
 
-        # Verify citation appears in transcript
-        if not normalized_citation_matches_transcript(citation_text, transcript):
+        # Verify citation appears in transcript. Una cita "usuario" no puede
+        # validarse contra palabras de Brandy: el invariante es *sus* palabras.
+        verification_text = founder_text if citation_source == "usuario" else full_text
+        if not normalized_citation_matches_transcript(citation_text, verification_text):
             print(f"[WARNING] Section {section_id} citation not found in transcript, skipping")
+            skipped.append({"id": section_id, "reason": "cita_no_encontrada"})
             continue
 
         # Extract content
@@ -273,9 +332,10 @@ def convert_to_sections(transcript: str,
             sections.append(section)
         except CitationInvariantError as e:
             print(f"[WARNING] Section {section_id} failed citation invariant: {e}, skipping")
+            skipped.append({"id": section_id, "reason": "invariante"})
             continue
 
-    return sections
+    return sections, skipped
 
 
 def extract_and_persist(session_token: str,
@@ -310,7 +370,7 @@ def extract_and_persist(session_token: str,
         brain = BrandBrain(sections=[])
 
     # Extract new sections from tool_result
-    new_sections = convert_to_sections(transcript, tool_result)
+    new_sections, skipped_sections = convert_to_sections(transcript, tool_result)
 
     # Merge with existing sections (overwrite by ID)
     existing_section_ids = {s.id for s in brain.sections}
@@ -349,5 +409,8 @@ def extract_and_persist(session_token: str,
     if not hasattr(brain, '_metadata'):
         brain._metadata = {}
     brain._metadata['missing_sections'] = missing_sections
+    # FALLO 3 (PIEZA_17): el descarte ya no es mudo, se propaga hasta la respuesta
+    # de /api/brain/extract via este mismo canal de _metadata.
+    brain._metadata['skipped_sections'] = skipped_sections
 
     return brain

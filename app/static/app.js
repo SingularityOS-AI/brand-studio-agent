@@ -82,6 +82,16 @@
   // Session generation token to prevent race conditions between concurrent sessions
   let sessionGeneration = 0;
 
+  // Turn detection baseline (ver 06_VOICE_AGENT_API_DOCS.md "Turn detection: recommended
+  // defaults"). Se reutiliza aqui y en el patron adaptativo, nunca se copia a mano.
+  const TURN_DETECTION_BASELINE = {
+    vad_threshold: 0.5,
+    min_silence: 1400,
+    max_silence: 4000,
+    interrupt_response: true
+  };
+  let waitingForAnswer = false;
+
   // Voice credits reservation
   let voiceRenewalTimer = null;
   let initialSessionCredits = 250; // Will be fetched from /api/config
@@ -528,6 +538,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
         // Build dynamic prompt with memory context
         const dynamicPrompt = buildSystemPrompt();
+        waitingForAnswer = false;
 
         // Determine if we should use greeting (skip on reconnection)
         const hasBrainOrTranscript = (
@@ -544,12 +555,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
             greeting: hasBrainOrTranscript ? undefined : defaultGreeting,
             input: {
               format: { encoding: 'audio/pcm' },
-              turn_detection: {
-                vad_threshold: 0.5,
-                min_silence: 200,
-                max_silence: 1000,
-                interrupt_response: true
-              }
+              turn_detection: TURN_DETECTION_BASELINE
             },
             output: {
               voice: voice,
@@ -639,6 +645,17 @@ Always respond in English. Keep your responses conversational and engaging.`;
     }
   }
 
+  // Manda solo el bloque turn_detection que cambia (patron adaptativo). turn_detection
+  // es mutable tras session.ready (06_VOICE_AGENT_API_DOCS.md). No repetir greeting
+  // ni system_prompt aqui.
+  function sendTurnDetectionUpdate(turnDetection) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: 'session.update',
+      session: { input: { turn_detection: turnDetection } }
+    }));
+  }
+
   function handleAgentEvent(msg) {
     const type = msg.type;
 
@@ -661,6 +678,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
         // Track turn for extraction
         fullTranscript.push({ speaker: 'user', text: msg.text });
         if (orbState) orbState.textContent = 'Pensando...';
+        // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): el fundador ya respondio,
+        // vuelve a la linea base.
+        if (waitingForAnswer) {
+          waitingForAnswer = false;
+          sendTurnDetectionUpdate(TURN_DETECTION_BASELINE);
+        }
         break;
 
       case 'input.speech.stopped':
@@ -680,6 +703,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
         appendAgentMessage(msg.text);
         // Track turn for extraction
         fullTranscript.push({ speaker: 'agent', text: msg.text });
+        // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): Brandy entrevista, el
+        // fundador piensa en voz alta. Si termino en "?" damos mas tiempo de silencio.
+        if (/\?\s*$/.test(msg.text || '')) {
+          waitingForAnswer = true;
+          sendTurnDetectionUpdate({ ...TURN_DETECTION_BASELINE, min_silence: 2200, max_silence: 6000 });
+        }
         break;
 
       case 'tool.call':
@@ -874,6 +903,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
         const result = await response.json();
         console.log('[Extraction Result]', result);
+
+        // Diagnostico para nosotros, nunca para el fundador (vetada la gamificacion
+        // y el ruido en pantalla): las secciones descartadas van a consola, no a la UI.
+        if (result.skipped_sections && result.skipped_sections.length > 0) {
+          console.warn('[Extraction] secciones descartadas', result.skipped_sections);
+        }
 
         // Send tool.result back to agent
         if (ws && ws.readyState === WebSocket.OPEN) {
