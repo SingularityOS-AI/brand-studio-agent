@@ -534,6 +534,153 @@ async def get_demand_validation(request: Request):
     })
 
 
+# =============================================================================
+# CATALOG ENDPOINTS (Pieza 4 — Bloque B: Catálogo de 30 Ideas de Contenido)
+# =============================================================================
+
+from app.catalog.ideas import generate_catalog
+
+
+@app.get("/api/catalog", response_class=JSONResponse)
+async def get_catalog(request: Request):
+    """
+    Retrieve the cached content catalog (30 content ideas).
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Checks for cached catalog from previous generation
+    3. Returns cached catalog with categories and demand signals
+    4. Returns 404 if catalog not yet generated
+
+    No cost to retrieve cached content.
+    Requires JWT authentication.
+    """
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    # 2. Import here to avoid circular dependency
+    from app.tools.brand_brain.store import get_brand_brain
+
+    # 3. Check if brain exists
+    brain = get_brand_brain(session_token)
+    if not brain:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Brand brain not found. Generate brand brain first."}
+        )
+
+    # 4. Import catalog module (this also defines _check_catalog_cache)
+    from app.catalog import ideas
+
+    # 5. Check for cached catalog
+    catalog = ideas._check_catalog_cache(brain)
+    if not catalog:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Catalog not yet generated",
+                "hint": "Call POST /api/catalog/generate to create catalog (15 credits)"
+            }
+        )
+
+    # 6. Return cached catalog
+    return JSONResponse(content={
+        "catalog": catalog.model_dump(),
+        "cache_status": "hit"
+    })
+
+
+@app.post("/api/catalog/generate", response_class=JSONResponse)
+async def generate_catalog_endpoint(request: Request):
+    """
+    Generate a content catalog with 30 content ideas from brand brain.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Rate limits by IP
+    3. Deducts credits (TODO: 15 credits for catalog generation)
+    4. Generates 3 founder-specific content categories
+    5. Generates 10 ideas per category with 4 possible angles
+    6. Validates each idea against NicheReport demand signals
+    7. Caches result by hash to prevent duplicate work
+    8. Sets catalog_gate_passed=True only when exactly 30 valid ideas exist
+
+    Protected by rate limiting and spend_guard.
+    Requires JWT authentication.
+    Requires BrandBrain to be complete (9 sections propuesto/confirmado).
+    Requires NicheReport to exist (from /api/demand validation).
+    """
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # 2. Check rate limit
+    if not guard.check_rate_limit(request.client.host):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later."
+        )
+
+    # 3. Deduct credits (TODO: CEO said 15 credits, verify cost)
+    from app.catalog.ideas import CREDITS_COST
+    try:
+        remaining = guard.deduct_credits(session_token, amount=CREDITS_COST)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": session["credits"],
+                    "payment_url": settings.payment_url,
+                }
+            )
+        raise
+
+    # 4. Generate catalog (main business logic in ideas.py)
+    try:
+        catalog, cache_status = generate_catalog(session_token)
+    except ValueError as e:
+        # Validation errors (missing brain/demand, etc.)
+        return JSONResponse(
+            status_code=400,
+            content={"error": str(e)}
+        )
+    except Exception as e:
+        print(f"[ERROR] Catalog generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Catalog generation failed: {str(e)}"}
+        )
+
+    # 5. Return success
+    return JSONResponse(content={
+        "catalog": catalog.model_dump(),
+        "cache_status": cache_status,
+        "credits_remaining": remaining,
+        "gate_passed": catalog.gate_passed
+    })
+
 
 @app.post("/api/brain/extract", response_class=JSONResponse)
 async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainRequest):
