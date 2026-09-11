@@ -581,7 +581,7 @@ async def get_catalog(request: Request):
     from app.catalog import ideas
 
     # 5. Check for cached catalog
-    catalog = ideas._check_catalog_cache(brain)
+    catalog = ideas._check_catalog_cache(brain, session_token)
     if not catalog:
         return JSONResponse(
             status_code=404,
