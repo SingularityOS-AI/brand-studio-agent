@@ -27,7 +27,7 @@
     display:flex;
     background:var(--surface);
   }
-  .voz{width:420px;flex:none;background:var(--surface-alt);border-right:1px solid var(--line);display:flex;flex-direction:column}
+  .voz{width:420px;flex:none;background:var(--surface-alt);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto}
   .doc{flex:1;min-width:0;background:var(--surface);display:flex;flex-direction:column;overflow-y:auto;scroll-behavior:smooth}
   .prod{width:380px;flex:none;background:var(--surface-alt);border-left:1px solid var(--line);display:flex;flex-direction:column}
 
@@ -876,6 +876,26 @@
 @media(max-width:1200px) {
   .voz{width:clamp(320px, 30%, 380px)}
   .prod{width:clamp(300px, 28%, 360px)}
+}
+
+/* Responsive: narrow screens - stack 3 panels vertically */
+@media(max-width:820px) {
+  html{overflow-y:hidden}
+  .app{flex-direction:column}
+  .voz{width:100%;max-height:45vh}
+  .doc{flex:1;min-height:0;min-height:calc(100vh - 45vh - 35vh)}
+  .prod{width:100%;max-height:35vh;overflow-y:auto}
+  .resizer{display:none}
+  .collapse-btn{display:none}
+  .expand-btn{display:none}
+  .voz.collapsed,
+  .prod.collapsed{width:100% !important;min-width:100% !important}
+  .voz.collapsed .brandbar{display:flex}
+  .voz.collapsed .orbwrap{display:flex}
+  .voz.collapsed .brand-soul-section{display:block}
+  .prod.collapsed .prodhead{display:block}
+  .prod.collapsed .empty{display:flex}
+  .prod.collapsed .credits-section{display:block}
 }
 </style>
 
