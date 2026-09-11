@@ -8,7 +8,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
   :root{
     --ground:#E7EAF0; --surface:#FFFFFF; --surface-alt:#F5F7FB; --ink:#14181F; --ink-soft:#5C6675;
-    --line:#D5DAE4; --accent:#2B4CD8; --accent-soft:#6E86EE;
+    --line:#D5DAE4; --accent:#2B4CD8; --accent-soft:#6E86EE; --warn:#B5791C;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
   body{
@@ -287,18 +287,46 @@
     <div class="resizer-handle"></div>
   </div>
 
-  <!-- Zone 2中间: Document (9 sections) -->
+  <!-- Zone 2中间: Document (9 sections / Catalog) -->
   <main class="doc">
-    <div class="docbody">
-      <div class="ghost"><span class="gnum mono">01</span><span class="gname">Where you stand</span><span class="gline" style="width:130px"></span></div>
-      <div class="ghost"><span class="gnum mono">02</span><span class="gname">Brand Journey</span><span class="gline" style="width:110px"></span></div>
-      <div class="ghost"><span class="gnum mono">03</span><span class="gname">The pond</span><span class="gline" style="width:80px"></span></div>
-      <div class="ghost"><span class="gnum mono">04</span><span class="gname">The ICP</span><span class="gline" style="width:120px"></span></div>
-      <div class="ghost"><span class="gnum mono">05</span><span class="gname">Contrarian stance</span><span class="gline" style="width:150px"></span></div>
-      <div class="ghost"><span class="gnum mono">06</span><span class="gname">Desired and forbidden associations</span><span class="gline" style="width:140px"></span></div>
-      <div class="ghost"><span class="gnum mono">07</span><span class="gname">Identity map</span><span class="gline" style="width:100px"></span></div>
-      <div class="ghost"><span class="gnum mono">08</span><span class="gname">The offer</span><span class="gline" style="width:100px"></span></div>
-      <div class="ghost"><span class="gnum mono">09</span><span class="gname">The lead magnet</span><span class="gline" style="width:160px"></span></div>
+    <div id="BlockA-View">
+      <div class="docbody">
+        <div class="ghost"><span class="gnum mono">01</span><span class="gname">Where you stand</span><span class="gline" style="width:130px"></span></div>
+        <div class="ghost"><span class="gnum mono">02</span><span class="gname">Brand Journey</span><span class="gline" style="width:110px"></span></div>
+        <div class="ghost"><span class="gnum mono">03</span><span class="gname">The pond</span><span class="gline" style="width:80px"></span></div>
+        <div class="ghost"><span class="gnum mono">04</span><span class="gname">The ICP</span><span class="gline" style="width:120px"></span></div>
+        <div class="ghost"><span class="gnum mono">05</span><span class="gname">Contrarian stance</span><span class="gline" style="width:150px"></span></div>
+        <div class="ghost"><span class="gnum mono">06</span><span class="gname">Desired and forbidden associations</span><span class="gline" style="width:140px"></span></div>
+        <div class="ghost"><span class="gnum mono">07</span><span class="gname">Identity map</span><span class="gline" style="width:100px"></span></div>
+        <div class="ghost"><span class="gnum mono">08</span><span class="gname">The offer</span><span class="gline" style="width:100px"></span></div>
+        <div class="ghost"><span class="gnum mono">09</span><span class="gname">The lead magnet</span><span class="gline" style="width:160px"></span></div>
+      </div>
+    </div>
+    <div id="BlockB-View" style="display:none">
+      <div class="dochead" style="display:flex;align-items:start;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button id="Catalog-BackBtn" style="background:none;border:none;cursor:pointer;font-size:13px;color:#5C6675;padding:0;font-family:inherit">← Back</button>
+          <div>
+            <div class="eyebrow">Block B</div>
+            <h1 class="disp" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">The catalog</h1>
+          </div>
+        </div>
+        <span class="mono" id="Catalog-Progress" style="font-size:12px;color:#5C6675"></span>
+      </div>
+      <div class="docbody" id="Catalog-Categories"></div>
+      <button class="gate" id="Catalog-Gate" style="margin:0 40px 26px;border:1px solid var(--warn);border-radius:4px;padding:16px 20px;display:flex;align-items:center;gap:18px;background:#FFF6E5;cursor:pointer;border:none;width:calc(100% - 80px)">
+        <span class="gateicon" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--warn);display:grid;place-items:center;flex:none;color:var(--warn)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="4" y="10.5" width="16" height="10" rx="2"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path>
+          </svg>
+        </span>
+        <div style="flex:1">
+          <div style="font-size:13.5px;font-weight:600" id="Catalog-GateTitle">No ideas yet</div>
+          <div style="font-size:12.5px;color:#5C6675;margin-top:3px;line-height:1.5" id="Catalog-GateSub">You need to build your catalog first. This is the research phase.</div>
+          <div class="gatebar"><span></span></div>
+        </div>
+        <span class="mono" style="font-size:20px;color:#B5791C;flex:none" id="Catalog-GateCount">0/30</span>
+      </button>
     </div>
   </main>
 
@@ -321,15 +349,17 @@
     </button>
     <div class="prodhead">
       <div class="eyebrow">Production</div>
-      <p style="margin:6px 0 0;font-size:13px;color:#5C6675;line-height:1.5">Empty until there is something to produce.</p>
+      <p style="margin:6px 0 0;font-size:13px;color:#5C6675;line-height:1.5" id="Prod-Subtext">Empty until there is something to produce.</p>
     </div>
 
-    <div class="empty">
+    <div class="empty" id="Prod-Empty">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D5DAE4" stroke-width="1.2">
         <rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 9.5h18"></path>
       </svg>
       <p style="margin:0;font-size:13px;line-height:1.55;max-width:230px">Nothing queued. The first full lap is already paid for: you will not hit a wall halfway through.</p>
     </div>
+
+    <div class="jobs" id="Prod-Jobs" style="display:none"></div>
 
     <div class="credits">
       <div class="creditrow">
@@ -463,25 +493,6 @@
 </div>
 
 <!-- Catalog Overlay -->
-<div class="brand-soul-overlay" id="Catalog-Overlay" style="display:none">
-  <div class="brand-soul-overlay-header">
-    <h2 style="flex:1;margin:0;font-family:'Space Grotesk',Inter,sans-serif;font-size:20px;font-weight:600;color:var(--ink)">Content Catalog</h2>
-    <button id="Catalog-CloseBtn" style="background:none;border:none;padding:8px;cursor:pointer;color:var(--ink-soft);transition:color 0.2s ease">
-      <svg style="width:24px;height:24px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
-    </button>
-  </div>
-  <div class="brand-soul-overlay-content" id="Catalog-Content"></div>
-  <div class="brand-soul-overlay-loading" id="Catalog-Loading" style="display:none">
-    <svg style="width:48px;height:48px;animation:spin 1s linear infinite" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
-      <circle cx="12" cy="12" r="10" stroke-dasharray="30 70" stroke-dashoffset="0"></circle>
-    </svg>
-    <p style="margin-top:16px;font-size:14px;color:var(--ink-soft)">Generating your catalog...</p>
-  </div>
-</div>
-
 <style>
 @keyframes spin { 100% { transform: rotate(360deg); } }
 
@@ -897,7 +908,47 @@
   .prod.collapsed .empty{display:flex}
   .prod.collapsed .credits-section{display:block}
 }
+
+/* Catalog Design CSS (approved design) */
+.dochead{display:flex;align-items:flex-end;justify-content:space-between;padding:26px 40px 20px;border-bottom:1px solid var(--line)}.cat{display:flex;flex-direction:column;gap:8px}.cathead{display:flex;align-items:baseline;gap:10px;padding-bottom:7px;border-bottom:1px solid var(--line)}.catname{font-size:14px;font-weight:600;letter-spacing:-.01em}.catcount{font-size:11px;color:var(--ink-soft)}.idea{display:flex;align-items:flex-start;gap:12px;padding:9px 2px}.ideatitle{font-size:14px;line-height:1.45;flex:1;min-width:0}.angle{font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border:1px solid var(--line);border-radius:3px;color:var(--ink-soft);white-space:nowrap;flex:none}.signal{font-size:11px;color:var(--ink-soft);width:210px;flex:none;line-height:1.4}.more{font-size:12px;color:var(--accent-soft);padding:4px 2px}.gate{margin:0 40px 26px;border:1px solid var(--warn);border-radius:4px;padding:16px 20px;display:flex;align-items:center;gap:18px;background:#FFF6E5}.gateicon{width:34px;height:34px;border-radius:50%;border:1px solid var(--warn);display:grid;place-items:center;flex:none;color:var(--warn)}@keyframes grow{from{width:60%}to{width:74%}}.gatebar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:9px}.gatebar span{display:block;height:100%;background:var(--warn);width:73%;animation:grow 6s ease-in-out infinite alternate}.jobs{padding:16px 24px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line)}.job{border:1px solid var(--line);border-radius:4px;padding:12px 14px;background:var(--surface)}.jobtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:9px}.joblabel{font-size:13px;font-weight:500}.cost{font-size:11px;color:var(--ink-soft);white-space:nowrap}.player{flex:1;margin:16px 24px;border:1px dashed var(--line);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px;color:var(--ink-soft)}
+
+/* Credit Gate Modal CSS */
+.veil{position:fixed;inset:0;background:rgba(36,25,22,.46);display:grid;place-items:center;animation:fade .35s ease-out both;z-index:9999}@keyframes fade{from{opacity:0}to{opacity:1}}.modal{width:588px;background:var(--surface);border:1px solid var(--warn);border-radius:6px;padding:30px 34px 26px;box-shadow:0 24px 60px rgba(36,25,22,.28);animation:rise .38s cubic-bezier(.2,.8,.3,1) both;animation-delay:.08s}@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}.mhead{display:flex;align-items:center;gap:11px;margin-bottom:16px}.micon{width:30px;height:30px;border-radius:50%;border:1px solid var(--warn);color:var(--warn);display:grid;place-items:center;flex:none}.meyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--warn);font-weight:600}.mtitle{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}.mlead{font-size:14px;color:var(--ink-soft);line-height:1.55;margin:0 0 20px}.rows{border-top:1px solid var(--line)}.row{display:flex;align-items:baseline;gap:14px;padding:11px 0;border-bottom:1px solid var(--line)}.rowname{flex:1;font-size:14px}.rowqty{font-size:12px;color:var(--ink-soft)}.rowcost{font-size:13px;width:64px;text-align:right}.total{display:flex;align-items:baseline;gap:14px;padding:15px 0 6px}.totallabel{flex:1;font-size:14px;font-weight:600}.totalcost{font-size:22px;font-weight:500}.after{font-size:12px;color:var(--ink-soft);margin:0 0 22px;line-height:1.55}.acts{display:flex;gap:12px}.btn{flex:1;border-radius:4px;padding:13px 18px;font-size:14px;font-weight:600;text-align:center;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);font-family:inherit}.btn:hover{border-color:var(--ink-soft)}.btn--go{background:var(--accent);border-color:var(--accent);color:#FFFFFF}.btn--go:hover{background:var(--accent-soft);border-color:var(--accent-soft)}.foot{margin:16px 0 0;font-size:12px;color:var(--ink-soft);line-height:1.55;text-align:center}
 </style>
+
+<!-- Credit Gate Modal -->
+<div class="veil" id="CreditGate-Overlay" style="display:none">
+  <div class="modal">
+    <div class="mhead">
+      <span class="micon"></span>
+      <span class="meyebrow">Credit Gate</span>
+    </div>
+    <h2 class="mtitle">Generate 30 Brand Ideas</h2>
+    <p class="mlead">None of this happens without your approval. Here is the exact cost, before a single credit is spent.</p>
+
+    <div class="rows">
+      <div class="row">
+        <div class="rowname">Catalog -- 30 ideas, 3 categories</div>
+        <div class="rowqty"></div>
+        <div class="rowcost">15 cr</div>
+      </div>
+    </div>
+
+    <div class="total">
+      <div class="totallabel">Total spend</div>
+      <div class="totalcost" style="color:#B5791C">15 credits</div>
+    </div>
+
+    <div class="after">Balance after: <strong id="Gate-BalanceAfter">Calculating<span class="dots">.</span></strong></div>
+
+    <div class="acts">
+      <button class="btn" id="Gate-CancelBtn" style="margin:0 4px">Cancel</button>
+      <button class="btn btn--go" id="Gate-ApproveBtn" style="margin:0 4px">Approve &amp; Generate</button>
+    </div>
+
+    <div class="foot">Iterating never costs. Only generation does.</div>
+  </div>
+</div>
 
 <!-- Supabase Auth SDK -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

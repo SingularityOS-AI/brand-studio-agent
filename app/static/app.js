@@ -1828,10 +1828,21 @@ ${htmlContent}
   // Catalog DOM elements
   const catalogBtn = document.getElementById('Catalog-Btn');
   const catalogLabel = document.getElementById('Catalog-Label');
-  const catalogOverlay = document.getElementById('Catalog-Overlay');
-  const catalogContent = document.getElementById('Catalog-Content');
-  const catalogLoading = document.getElementById('Catalog-Loading');
-  const catalogCloseBtn = document.getElementById('Catalog-CloseBtn');
+  const blockAView = document.getElementById('BlockA-View');
+  const blockBView = document.getElementById('BlockB-View');
+  const catalogCategories = document.getElementById('Catalog-Categories');
+  const catalogGate = document.getElementById('Catalog-Gate');
+  const catalogGateTitle = document.getElementById('Catalog-GateTitle');
+  const catalogGateSub = document.getElementById('Catalog-GateSub');
+  const catalogGateCount = document.getElementById('Catalog-GateCount');
+  const catalogProgress = document.getElementById('Catalog-Progress');
+  const creditGateOverlay = document.getElementById('CreditGate-Overlay');
+  const gateCancelBtn = document.getElementById('Gate-CancelBtn');
+  const gateApproveBtn = document.getElementById('Gate-ApproveBtn');
+  const gateBalanceAfter = document.getElementById('Gate-BalanceAfter');
+
+  // Flag to prevent re-charging for already generated catalog
+  let catalogAlreadyGenerated = false;
 
   // Update Catalog button state based on confirmed sections count
   function updateCatalogButton(sections) {
@@ -1847,169 +1858,224 @@ ${htmlContent}
     }
   }
 
-  // Render Catalog HTML from structured data
-  function renderCatalogHTML(catalog) {
+  // Render Catalog in panel (BlockB view)
+  function renderCatalogInPanel(catalog) {
     const angleColors = {
       'Útil': '#1B7F4C', 'Inmersivo': '#2B4CD8', 'Reflexivo': '#B5720B', 'Vulnerable': '#C2262E'
     };
 
-    let html = `<div style="margin-bottom:24px">
-      <span style="font-family:monospace;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#5C6675">Approach</span>
-      <h2 style="margin:4px 0 0;color:#1A1B1D">${catalog.approach}</h2>
-    </div>`;
+    let totalIdeas = 0;
 
-    if (!catalog.gate_passed) {
-      html += `<div style="background:#FDF3F3;border-left:3px solid #C2262E;padding:12px 16px;border-radius:6px;margin-bottom:24px">
-        <b style="color:#1A1B1D">Catalog not sustainable yet</b><br><span style="color:#5C6675">${catalog.gate_reason || 'Missing valid ideas.'}</span>
-      </div>`;
-    }
+    catalogCategories.innerHTML = '';
 
     catalog.categories.forEach(cat => {
-      html += `<h3 style="margin:32px 0 12px;color:#1A1B1D;font-size:18px">${cat.name}</h3>`;
+      totalIdeas += cat.ideas.length;
+
+      const catDiv = document.createElement('div');
+      catDiv.className = 'cat';
+
+      const catHead = document.createElement('div');
+      catHead.className = 'cathead';
+      catHead.innerHTML = `<span class="catname">${cat.name}</span><span class="catcount">${cat.ideas.length}</span>`;
+      catDiv.appendChild(catHead);
+
       cat.ideas.forEach(idea => {
         const color = angleColors[idea.angle] || '#5C6675';
-        html += `<div style="border:1px solid #D5DAE4;border-radius:6px;padding:14px 16px;margin-bottom:10px;background:#FFFFFF">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">
-            <b style="color:#1A1B1D;font-size:15px">${idea.title}</b>
-            <span style="font-size:11px;font-weight:600;color:${color};border:1px solid ${color};border-radius:999px;padding:2px 10px;white-space:nowrap">${idea.angle}</span>
-          </div>
-          <div style="font-family:monospace;font-size:12.5px;color:#5C6675;margin-top:8px">${idea.demand_signal}</div>
-        </div>`;
+        const ideaDiv = document.createElement('div');
+        ideaDiv.className = 'idea';
+        ideaDiv.innerHTML = `
+          <span class="ideatitle">${idea.title}</span>
+          <span class="angle" style="border-color:${color};color:${color}">${idea.angle}</span>
+          <span class="signal">${idea.demand_signal}</span>
+        `;
+        catDiv.appendChild(ideaDiv);
       });
+
+      catalogCategories.appendChild(catDiv);
     });
 
-    return html;
+    // Update gate button state
+    if (totalIdeas >= 30) {
+      catalogAlreadyGenerated = true;
+      catalogGateTitle.textContent = 'Catalog ready';
+      catalogGateSub.textContent = 'Your 30 brand ideas are already generated.';
+      catalogGateCount.textContent = `${totalIdeas}/30`;
+      catalogGate.style.background = '#F0F7FF';
+      catalogGate.style.borderColor = '#2B4CD8';
+    } else if (totalIdeas > 0) {
+      catalogAlreadyGenerated = false;
+      catalogGateTitle.textContent = 'Ready to generate';
+      catalogGateSub.textContent = 'Click to unlock your Brand Soul.';
+      catalogGateCount.textContent = `${totalIdeas}/30`;
+      catalogGate.style.background = '#FFF6E5';
+      catalogGate.style.borderColor = 'var(--warn)';
+    }
   }
 
-  // Generate Catalog
-  async function generateCatalog() {
-    if (!catalogBtn || catalogBtn.disabled) return;
+  // Open credit gate modal
+  function openCreditGateModal() {
+    // Prevent re-charging if catalog already generated
+    if (catalogAlreadyGenerated) {
+      alert('Your catalog is already generated. You have 30 brand ideas ready to use.');
+      return;
+    }
+
+    // Calculate balance after 15 credits
+    const currentCredits = remainingCredits;
+    const afterCredits = Math.max(0, currentCredits - 15);
+    gateBalanceAfter.textContent = `${afterCredits} credits`;
+
+    creditGateOverlay.style.display = 'grid';
+  }
+
+  // Close credit gate modal
+  function closeCreditGateModal() {
+    creditGateOverlay.style.display = 'none';
+  }
+
+  // Handle credit gate approval - generate catalog
+  async function handleGateApprove() {
+    closeCreditGateModal();
 
     try {
-      // Show loading state on button
-      catalogBtn.classList.add('loading');
-      catalogBtn.disabled = true;
+      // Show loading state
+      catalogGateTitle.textContent = 'Generating...';
+      catalogGateSub.textContent = 'Please wait while we create your brand ideas.';
+      catalogGate.style.cursor = 'wait';
+      catalogGate.style.opacity = '0.7';
 
-      // Show overlay with loading spinner
-      catalogOverlay.style.display = 'flex';
-      catalogContent.style.display = 'none';
-      catalogContent.innerHTML = '';
-      catalogLoading.style.display = 'flex';
+      const response = await authenticatedFetch('/api/catalog/generate', {
+        method: 'POST'
+      });
 
-      // Step 1: Try to get cached catalog first (no credits charged)
+      const data = await response.json();
+      const body = 'detail' in data ? data.detail : data;
+
+      if (!response.ok) {
+        // Handle errors
+        if (response.status === 400 && body.error) {
+          const match = body.error.match(/(\d+)\s*of\s*9/);
+          if (match) {
+            const confirmed = parseInt(match[1]);
+            const missing = 9 - confirmed;
+            alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your catalog. Keep talking with Brandy to complete them.`);
+          } else {
+            alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
+          }
+        } else if (response.status === 402) {
+          alert('Not enough credits to generate catalog. Please purchase more credits to continue.');
+        } else if (response.status === 429) {
+          alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+        } else {
+          alert(`Failed to generate catalog: ${body.error || body || response.status}`);
+        }
+
+        // Reset gate state
+        catalogGateTitle.textContent = 'No ideas yet';
+        catalogGateSub.textContent = 'You need to build your catalog first. This is the research phase.';
+        catalogGateCount.textContent = '0/30';
+        return;
+      }
+
+      // Success - render catalog
+      renderCatalogInPanel(data.catalog);
+
+      // Update credits display if included in response
+      if (data.credits_remaining !== undefined) {
+        updateCreditsUI(data.credits_remaining, initialSessionCredits);
+      }
+
+      console.log('[Catalog] Document generated successfully');
+
+    } catch (error) {
+      console.error('[Catalog] Loading error:', error);
+      alert('Failed to load catalog: ' + error.message);
+
+      // Reset gate state
+      catalogGateTitle.textContent = 'No ideas yet';
+      catalogGateSub.textContent = 'You need to build your catalog first. This is the research phase.';
+      catalogGateCount.textContent = '0/30';
+    } finally {
+      catalogGate.style.cursor = 'pointer';
+      catalogGate.style.opacity = '1';
+    }
+  }
+
+  // Show BlockA view (original ghost sections)
+  function showBlockAView() {
+    blockAView.style.display = 'block';
+    blockBView.style.display = 'none';
+  }
+
+  // Show BlockB view (catalog)
+  function showBlockBView() {
+    blockAView.style.display = 'none';
+    blockBView.style.display = 'block';
+  }
+
+  // Load cache and show catalog
+  async function loadCatalogCache() {
+    try {
+      catalogProgress.textContent = 'Loading...';
+
       const cacheResponse = await authenticatedFetch('/api/catalog', {
         method: 'GET'
       });
 
       if (cacheResponse.ok) {
-        // Cached catalog exists - display it without charging credits
         const cacheData = await cacheResponse.json();
-        catalogLoading.style.display = 'none';
-        catalogContent.style.display = 'block';
-        catalogContent.innerHTML = renderCatalogHTML(cacheData.catalog);
-
+        renderCatalogInPanel(cacheData.catalog);
+        catalogProgress.textContent = 'Cached';
         console.log('[Catalog] Loaded from cache - no credits charged');
-        return;
+      } else if (cacheResponse.status === 404) {
+        catalogProgress.textContent = 'Not generated';
+        catalogGateTitle.textContent = 'No ideas yet';
+        catalogGateSub.textContent = 'You need to build your catalog first. This is the research phase.';
+        catalogGateCount.textContent = '0/30';
+        catalogAlreadyGenerated = false;
       }
-
-      // Step 2: If cache returns 404, generate new catalog (charges 15 credits)
-      if (cacheResponse.status === 404) {
-        // Confirm cost before proceeding
-        const confirmed = confirm('Generating your content catalog costs 15 credits. Continue?');
-        if (!confirmed) {
-          catalogOverlay.style.display = 'none';
-          return;
-        }
-
-        const response = await authenticatedFetch('/api/catalog/generate', {
-          method: 'POST'
-        });
-
-        const data = await response.json();
-        const body = 'detail' in data ? data.detail : data;
-
-        if (!response.ok) {
-          // Handle specific error cases
-          if (response.status === 400 && body.error) {
-            // Incomplete brain - extract missing sections count
-            const match = body.error.match(/(\d+)\s*of\s*9/);
-            if (match) {
-              const confirmed = parseInt(match[1]);
-              const missing = 9 - confirmed;
-              alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your catalog. Keep talking with Brandy to complete them.`);
-            } else {
-              alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
-            }
-          } else if (response.status === 402) {
-            alert('Not enough credits to generate catalog. Please purchase more credits to continue.');
-          } else if (response.status === 429) {
-            alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
-          } else {
-            alert(`Failed to generate catalog: ${body.error || body || response.status}`);
-          }
-
-          catalogOverlay.style.display = 'none';
-          return;
-        }
-
-        // Success - display the catalog
-        catalogLoading.style.display = 'none';
-        catalogContent.style.display = 'block';
-        catalogContent.innerHTML = renderCatalogHTML(data.catalog);
-
-        // Update credits display if included in response
-        if (data.credits_remaining !== undefined) {
-          updateCreditsUI(data.credits_remaining, initialSessionCredits);
-        }
-
-        console.log('[Catalog] Document generated successfully');
-        return;
-      }
-
-      // Handle other cache errors
-      const cacheError = await cacheResponse.json();
-      alert(`Failed to load catalog: ${cacheError.error || cacheError.detail || cacheResponse.status}`);
-      catalogOverlay.style.display = 'none';
-
     } catch (error) {
-      console.error('[Catalog] Loading error:', error);
-      alert('Failed to load catalog: ' + error.message);
-      catalogOverlay.style.display = 'none';
-    } finally {
-      // Remove loading state from button and restore state
-      catalogBtn.classList.remove('loading');
-      if (cachedBrain && cachedBrain.sections) {
-        const confirmedCount = cachedBrain.sections.filter(s => s.status === 'confirmado').length;
-        catalogBtn.disabled = confirmedCount < 9;
-      } else {
-        catalogBtn.disabled = true;
-      }
+      console.error('[Catalog] Cache load error:', error);
+      catalogProgress.textContent = 'Error';
     }
   }
 
-  // Close Catalog overlay
-  function closeCatalogOverlay() {
-    if (catalogOverlay) {
-      catalogOverlay.style.display = 'none';
-    }
-  }
-
-  // Wire up Catalog button and overlay controls
+  // Wire up Catalog button to toggle views
   if (catalogBtn) {
-    catalogBtn.addEventListener('click', generateCatalog);
+    catalogBtn.addEventListener('click', async () => {
+      await loadCatalogCache();
+      showBlockBView();
+    });
   }
 
-  if (catalogCloseBtn) {
-    catalogCloseBtn.addEventListener('click', closeCatalogOverlay);
+  // Wire up credit gate cancel
+  if (gateCancelBtn) {
+    gateCancelBtn.addEventListener('click', closeCreditGateModal);
   }
 
-  // Close overlay on Escape key
+  // Wire up credit gate approve
+  if (gateApproveBtn) {
+    gateApproveBtn.addEventListener('click', handleGateApprove);
+  }
+
+  // Wire up gate button to open modal
+  if (catalogGate) {
+    catalogGate.addEventListener('click', openCreditGateModal);
+  }
+
+  // Wire up back button from BlockB to BlockA
+  const catalogBackBtn = document.getElementById('Catalog-BackBtn');
+  if (catalogBackBtn) {
+    catalogBackBtn.addEventListener('click', showBlockAView);
+  }
+
+  // Close modal on Escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && brandSoulOverlay && brandSoulOverlay.style.display !== 'none') {
       closeBrandSoulOverlay();
     }
-    if (e.key === 'Escape' && catalogOverlay && catalogOverlay.style.display !== 'none') {
-      closeCatalogOverlay();
+    if (e.key === 'Escape' && creditGateOverlay && creditGateOverlay.style.display !== 'none') {
+      closeCreditGateModal();
     }
   });
 
