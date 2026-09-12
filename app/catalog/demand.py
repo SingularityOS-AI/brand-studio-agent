@@ -23,13 +23,13 @@ import os
 import time
 import hashlib
 import logging
-from typing import Literal, Optional, Dict, List, Any
+from typing import Literal, Optional, Dict, List, Any, Tuple
 from datetime import datetime, timedelta
 from collections import Counter
 from dataclasses import dataclass, field
 
 import httpx
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field
 
 from app.config import settings
 
@@ -54,6 +54,20 @@ class Signal(BaseModel):
     value: str
     evidence_url: Optional[str] = None
     source: Literal["youtube_api", "pytrends"]
+
+
+class NicheResearch(BaseModel):
+    """Research data from multiple sources for a niche.
+
+    Used to inform catalog idea generation with citable demand signals.
+    """
+
+    niche: str
+    youtube_titles: List[str] = Field(default_factory=list)
+    youtube_pain_signals: List[str] = Field(default_factory=list)
+    trends_series: List[dict] = Field(default_factory=list)
+    trends_related: List[dict] = Field(default_factory=list)
+    web_grounding_notes: List[str] = Field(default_factory=list)
 
 
 class NicheReport(BaseModel):
@@ -275,6 +289,77 @@ class YouTubeAPIClient:
                 continue
 
         return results
+
+    async def get_video_comments(
+        self, video_id: str, max_results: int = 50, force_fresh: bool = False
+    ) -> list[dict]:
+        """
+        Fetch comments from a video with pagination support.
+
+        If cached (and not force_fresh), returns memoized comments.
+        Caches on the server per video_id to avoid re-fetching.
+
+        Args:
+            video_id: 11‑character video ID
+            max_results: Maximum number of comments to return (default: 50)
+            force_fresh: If True, bypass cache and fetch fresh data
+
+        Returns:
+            List of dicts with comment details:
+            [
+                {"author": "user123", "text": "Great video!", "like_count": 10},
+                ...
+            ]
+            Empty list if error occurs or token invalid
+        """
+        comments: list[dict] = []
+        results_fetched = 0
+
+        try:
+            # Initial request
+            params = {
+                "part": "snippet,replies",
+                "videoId": video_id,
+                "maxResults": min(100, max_results),
+                "textFormat": "plainText",
+                "order": "relevance",
+                "key": self.api_key,
+            }
+
+            response = await self._client.get(f"{self.base_url}/commentThreads", params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            while data and results_fetched < max_results:
+                for item in data.get("items", []):
+                    comment = item.get("snippet", {}).get("topLevelComment", {}).get("snippet", {})
+                    comments.append({
+                        "author": comment.get("authorDisplayName", ""),
+                        "text": comment.get("textDisplay", ""),
+                        "like_count": comment.get("likeCount", 0),
+                        "published_at": comment.get("publishedAt", ""),
+                    })
+                    results_fetched += 1
+                    if results_fetched >= max_results:
+                        break
+
+                # Check for next page
+                next_page_token = data.get("nextPageToken")
+                if not next_page_token:
+                    break
+
+                # Fetch next page
+                params["pageToken"] = next_page_token
+                response = await self._client.get(f"{self.base_url}/commentThreads", params=params)
+                response.raise_for_status()
+                data = response.json()
+
+            logger.info(f"[youtube] Fetched {len(comments)} comments for {video_id}")
+            return comments
+
+        except Exception as e:
+            logger.error(f"[youtube] Error fetching comments for {video_id}: {e}")
+            return []
 
 
 # =============================================================================
@@ -650,9 +735,365 @@ class TrendsClient:
             logger.error(f"[trends] Error fetching trend for '{keyword}': {e}")
             return "estable"
 
+    def get_interest_over_time(self, keyword: str, timeframe: str = "today 3-m") -> List[dict]:
+        """Get interest over time series for a keyword.
+
+        Args:
+            keyword: Search term to analyze
+            timeframe: Timeframe string (default "today 3-m" for last 3 months)
+
+        Returns:
+            List of dicts with date and value: [{"date": "2026-09-07", "value": 28}, ...]
+            Empty list if pytrends not available or error occurs
+        """
+        if not self._available:
+            logger.warning("[trends] pytrends not available - cannot fetch interest over time")
+            return []
+
+        try:
+            # Build payload
+            self.pytrends.build_payload([keyword], cat=0, timeframe=timeframe, gprop='')
+
+            # Fetch interest over time
+            interest_over_time = self.pytrends.interest_over_time()
+
+            if interest_over_time is None or interest_over_time.empty:
+                logger.warning(f"[trends] No data for keyword '{keyword}'")
+                return []
+
+            # Drop isPartial column if present
+            if 'isPartial' in interest_over_time.columns:
+                interest_over_time = interest_over_time[interest_over_time['isPartial'] == False]
+                interest_over_time = interest_over_time.drop(columns=['isPartial'])
+
+            # Extract keyword column
+            if keyword not in interest_over_time.columns:
+                logger.warning(f"[trends] Keyword '{keyword}' not in response")
+                return []
+
+            # Convert to list of dicts
+            result = []
+            for date_index, value in interest_over_time[keyword].items():
+                if pd.notna(value):
+                    result.append({
+                        "date": date_index.strftime("%Y-%m-%d"),
+                        "value": int(value)
+                    })
+
+            logger.info(f"[trends] Fetched {len(result)} data points for '{keyword}'")
+            return result
+
+        except Exception as e:
+            logger.error(f"[trends] Error fetching interest over time for '{keyword}': {e}")
+            return []
+
+    def get_related_queries(self, keyword: str) -> List[dict]:
+        """Get related queries for a keyword.
+
+        Args:
+            keyword: Search term to analyze
+
+        Returns:
+            List of dicts with query and value: [{"query": "medical interpreter jobs", "value": 100}, ...]
+            Empty list if pytrends not available or error occurs
+        """
+        if not self._available:
+            logger.warning("[trends] pytrends not available - cannot fetch related queries")
+            return []
+
+        try:
+            # Build payload with default timeframe for related queries
+            self.pytrends.build_payload([keyword], cat=0, timeframe="today 3-m", gprop='')
+
+            # Fetch related queries
+            related = self.pytrends.related_queries()
+
+            if related is None or keyword not in related:
+                logger.warning(f"[trends] No related queries for keyword '{keyword}'")
+                return []
+
+            # Extract top queries (DataFrame with columns: query, value)
+            top_df = related[keyword].get('top')
+
+            if top_df is None or top_df.empty:
+                logger.info(f"[trends] No top queries for '{keyword}'")
+                return []
+
+            # Convert to list of dicts
+            result = []
+            for _, row in top_df.iterrows():
+                query = row.get('query', '')
+                value = row.get('value', 0)
+                if pd.notna(query) and pd.notna(value):
+                    result.append({
+                        "query": query,
+                        "value": int(value)
+                    })
+
+            logger.info(f"[trends] Fetched {len(result)} related queries for '{keyword}'")
+            return result
+
+        except Exception as e:
+            logger.error(f"[trends] Error fetching related queries for '{keyword}': {e}")
+            return []
+
 
 # Singleton trends client
 _trends_client = TrendsClient()
+
+
+# =============================================================================
+# LLM-BASED FUNCTIONS
+# =============================================================================
+
+
+async def classify_pain_from_comments(video_title: str, comments: List[dict]) -> List[str]:
+    """
+    Classify pain signals from video comments using a single LLM call.
+
+    This is expensive: 1 LLM call per video. Use sparingly.
+    Reuses the Vertex AI client from brand_soul.generator.
+
+    Args:
+        video_title: Title of the video for context
+        comments: List of comment dicts with "text" field
+
+    Returns:
+        List of pain signal strings (e.g., ["cost", "complexity", "trust"])
+        Empty list on error or if no pain signals identified
+
+    # PLACEHOLDER: afinar en ronda posterior
+    """
+    if not comments:
+        logger.warning(f"[llm] No comments provided for pain classification")
+        return []
+
+    try:
+        # Reuse Vertex AI client from brand_soul.generator
+        # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
+        from app.tools.brand_soul.generator import _get_vertex_ai_client
+        model = _get_vertex_ai_client()
+
+    except Exception as e:
+        logger.error(f"[llm] Error obtaining Vertex AI client: {e}")
+        return []
+
+    try:
+        # Prepare comment texts (limit to 20 comments for cost)
+        comment_texts = "\n".join([c["text"] for c in comments[:20]])
+
+        # Construct prompt
+        prompt = f"""# PLACEHOLDER: afinar en ronda posterior
+
+Video title: {video_title}
+
+Comments:
+{comment_texts}
+
+Task: Analyze these comments and identify the main pain points or problems people express.
+Return a JSON array of pain signals. Keep it concise (2-5 signals).
+
+Example format: ["cost", "complexity", "lack of trust", "time required"]
+"""
+
+        # Generate response
+        response = model.generate_content(prompt)
+
+        # Parse response
+        result_text = response.text.strip()
+        if result_text.startswith("```json"):
+            result_text = result_text[7:]
+        if result_text.endswith("```"):
+            result_text = result_text[:-3]
+
+        import json
+        pain_signals = json.loads(result_text)
+
+        if isinstance(pain_signals, list):
+            logger.info(f"[llm] Classified {len(pain_signals)} pain signals for '{video_title}'")
+            return pain_signals
+        else:
+            logger.warning(f"[llm] Expected list, got {type(pain_signals)}")
+            return []
+
+    except Exception as e:
+        logger.error(f"[llm] Error classifying pain signals for '{video_title}': {e}")
+        return []
+
+
+async def ground_web_search(niche: str) -> List[str]:
+    """
+    Perform grounded web search for niche using Gemini's google_search tool.
+
+    Reuses the Vertex AI client from brand_soul.generator.
+    Uses the native google_search tool for web grounding.
+
+    Args:
+        niche: Niche to search for
+
+    Returns:
+        List of key insights/facts about the niche
+        Empty list on error
+
+    # PLACEHOLDER: afinar en ronda posterior
+    """
+    try:
+        # Reuse Vertex AI client from brand_soul.generator
+        # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
+        from app.tools.brand_soul.generator import _get_vertex_ai_client
+        from vertexai.generative_models import Tool, grounding
+        model = _get_vertex_ai_client()
+
+    except Exception as e:
+        logger.error(f"[llm] Error obtaining Vertex AI client: {e}")
+        return []
+
+    try:
+        # Configure Google Search grounding tool
+        google_search_retrieval = grounding.GoogleSearchRetrieval()
+        tool = Tool.from_google_search_retrieval(google_search_retrieval)
+
+        # Construct prompt with google_search tool
+        prompt = f"""# PLACEHOLDER: afinar en ronda posterior
+
+Research the niche: {niche}
+
+Use google_search to find:
+1. What are the main problems/challenges in this niche?
+2. Who are the main players or competitors?
+3. What are people searching for related to this niche?
+
+Return a JSON array of 3-5 key insights about this niche.
+
+Example format: ["high demand for X", "low supply of Y", "main competitors are Z"]
+"""
+
+        # Generate response with Google Search grounding
+        response = model.generate_content(prompt, tools=[tool])
+
+        # Parse response
+        result_text = response.text.strip()
+        if result_text.startswith("```json"):
+            result_text = result_text[7:]
+        if result_text.endswith("```"):
+            result_text = result_text[:-3]
+
+        import json
+        insights = json.loads(result_text)
+
+        if isinstance(insights, list):
+            logger.info(f"[llm] Generated {len(insights)} web-grounded insights for '{niche}'")
+            return insights
+        else:
+            logger.warning(f"[llm] Expected list, got {type(insights)}")
+            return []
+
+    except Exception as e:
+        logger.error(f"[llm] Error performing web search for '{niche}': {e}")
+        return []
+
+
+# =============================================================================
+# NICHE RESEARCH ORCHESTRATOR
+# =============================================================================
+
+
+async def research_niche(niche: str) -> NicheResearch:
+    """
+    Research demand for a niche using 4 data sources.
+
+    Data sources:
+    1. YouTube: Get video titles + classify pain signals (1 LLM call per video)
+    2. Google Trends: Get interest over time series + related queries
+    3. Web Grounding: Use Gemini google_search for research insights
+
+    All sources degrade gracefully: return empty lists on error.
+
+    Args:
+        niche: Niche to research
+
+    Returns:
+        NicheResearch with all 4 research components
+    """
+    result = NicheResearch(niche=niche)
+
+    # Initialize YouTube client once
+    try:
+        yt_client = YouTubeAPIClient()
+    except ValueError as e:
+        logger.warning(f"[research] YouTube API client not available: {e}")
+        result.youtube_titles = []
+        result.youtube_pain_signals = []
+        result.trends_series = []
+        result.trends_related = []
+        result.web_grounding_notes = []
+        return result
+
+    # Source 1: Search YouTube videos and fetch comments for pain classification
+    try:
+        top_videos = await yt_client.get_top_videos(niche, limit=10)
+
+        # Extract video titles
+        result.youtube_titles = [
+            v.get("title", "") for v in top_videos if v.get("title")
+        ]
+
+        # Fetch comments and classify pain signals (1 LLM call per video)
+        pain_signals = []
+        for video in top_videos[:5]:  # Limit to 5 videos for cost control
+            video_id = video.get("video_id")
+            video_title = video.get("title", "")
+
+            if not video_id:
+                continue
+
+            try:
+                # Fetch comments
+                comments = await yt_client.get_video_comments(video_id, max_results=20)
+
+                if comments:
+                    # Classify pain signals (1 LLM call)
+                    signals = await classify_pain_from_comments(video_title, comments)
+                    pain_signals.extend(signals)
+
+            except Exception as e:
+                logger.error(f"[research] Error processing video {video_id}: {e}")
+                continue
+
+        # Deduplicate pain signals
+        result.youtube_pain_signals = list(set(pain_signals))
+
+    except Exception as e:
+        logger.error(f"[research] Error fetching YouTube data: {e}")
+        result.youtube_titles = []
+        result.youtube_pain_signals = []
+
+    # Source 2: Google Trends - interest over time
+    try:
+        trends_series = _trends_client.get_interest_over_time(niche, timeframe="today 3-m")
+        result.trends_series = trends_series
+    except Exception as e:
+        logger.error(f"[research] Error fetching trends series: {e}")
+        result.trends_series = []
+
+    # Source 3: Google Trends - related queries
+    try:
+        related_queries = _trends_client.get_related_queries(niche)
+        result.trends_related = related_queries
+    except Exception as e:
+        logger.error(f"[research] Error fetching related queries: {e}")
+        result.trends_related = []
+
+    # Source 4: Web grounding with Gemini
+    try:
+        web_insights = await ground_web_search(niche)
+        result.web_grounding_notes = web_insights
+    except Exception as e:
+        logger.error(f"[research] Error performing web search: {e}")
+        result.web_grounding_notes = []
+
+    logger.info(f"[research] Completed niche research for '{niche}'")
+    return result
 
 
 # =============================================================================

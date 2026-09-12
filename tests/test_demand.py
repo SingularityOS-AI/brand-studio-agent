@@ -20,6 +20,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from app.catalog.demand import (
     Signal,
     NicheReport,
+    NicheResearch,
     validate_niche_demand,
     extract_organic_demand,
     detect_faceless_channel,
@@ -103,6 +104,44 @@ def test_niche_report_hard_rule_abort():
     assert report.trend_direction == "baja"
     # Model doesn't auto-set abort - that's the validation pipeline's job
     assert report.abort_recommended is False
+
+
+def test_niche_research_model():
+    """NicheResearch model validates all research fields."""
+    research = NicheResearch(
+        niche="ciberseguridad para despachos de abogados",
+        youtube_titles=["Video 1", "Video 2"],
+        youtube_pain_signals=["cost", "complexity"],
+        trends_series=[{"date": "2026-09-07", "value": 25}],
+        trends_related=[{"query": "test", "value": 100}],
+        web_grounding_notes=["insight 1", "insight 2"]
+    )
+
+    assert research.niche == "ciberseguridad para despachos de abogados"
+    assert len(research.youtube_titles) == 2
+    assert len(research.youtube_pain_signals) == 2
+    assert len(research.trends_series) == 1
+    assert len(research.trends_related) == 1
+    assert len(research.web_grounding_notes) == 2
+
+
+def test_niche_research_empty_fields():
+    """NicheResearch model accepts empty fields for graceful degradation."""
+    research = NicheResearch(
+        niche="test niche",
+        youtube_titles=[],
+        youtube_pain_signals=[],
+        trends_series=[],
+        trends_related=[],
+        web_grounding_notes=[]
+    )
+
+    assert research.niche == "test niche"
+    assert research.youtube_titles == []
+    assert research.youtube_pain_signals == []
+    assert research.trends_series == []
+    assert research.trends_related == []
+    assert research.web_grounding_notes == []
 
 
 # =============================================================================
@@ -590,6 +629,406 @@ def test_catalog_module_exports():
     assert Signal is not None
     assert NicheReport is not None
     assert validate_niche_demand is not None
+
+
+# =============================================================================
+# NEW FEATURE TESTS - TRENDS extended methods
+# =============================================================================
+
+
+def test_trends_get_interest_over_time():
+    """TrendsClient.get_interest_over_time() returns time series data."""
+    from app.catalog.demand import _trends_client
+
+    # Create a mock Series for the keyword column that can be iterated
+    mock_series = Mock()
+    dates = ["2026-09-07", "2026-09-08", "2026-09-09"]
+    values = [10, 20, 30]
+
+    # Mock the items() iteration to return date/value pairs
+    mock_series.items.return_value = zip(
+        dates,
+        values
+    )
+
+    # Mock DataFrame with the series accessible by column name
+    mock_df = Mock()
+    mock_df.empty = False
+    mock_df.columns = ['test_keyword', 'isPartial']
+    mock_df.__getitem__ = Mock(return_value=mock_series)
+
+    with patch.object(_trends_client, 'pytrends') as mock_pytrends:
+        mock_pytrends.build_payload.return_value = None
+        mock_pytrends.interest_over_time.return_value = mock_df
+
+        series = _trends_client.get_interest_over_time("test_keyword")
+
+    # Should return list of dicts with date and value
+    assert isinstance(series, list)
+    assert all('date' in item and 'value' in item for item in series)
+
+
+def test_trends_get_interest_over_time_empty():
+    """TrendsClient.get_interest_over_time() returns empty list on no data."""
+    from app.catalog.demand import _trends_client
+
+    # Mock pytrends to return empty DataFrame
+    mock_df = Mock()
+    mock_df.empty = True
+
+    with patch.object(_trends_client, 'pytrends') as mock_pytrends:
+        mock_pytrends.build_payload.return_value = None
+        mock_pytrends.interest_over_time.return_value = mock_df
+
+        series = _trends_client.get_interest_over_time("test_keyword")
+
+    assert series == []
+
+
+def test_trends_get_interest_over_time_error():
+    """TrendsClient.get_interest_over_time() returns empty list on error."""
+    from app.catalog.demand import _trends_client
+
+    with patch.object(_trends_client, 'pytrends') as mock_pytrends:
+        mock_pytrends.build_payload.side_effect = Exception("API Error")
+
+        series = _trends_client.get_interest_over_time("test_keyword")
+
+    assert series == []
+
+
+def test_trends_get_related_queries():
+    """TrendsClient.get_related_queries() returns related query data."""
+    from app.catalog.demand import _trends_client
+
+    # Mock pytrends to return related queries DataFrame
+    mock_top_df = Mock()
+    mock_top_df.empty = False
+    mock_top_df.iterrows.return_value = [
+        (0, {'query': 'test query 1', 'value': 100}),
+        (0, {'query': 'test query 2', 'value': 50}),
+    ]
+
+    mock_related = {
+        'test_keyword': {
+            'top': mock_top_df,
+            'rising': Mock()
+        }
+    }
+
+    with patch.object(_trends_client, 'pytrends') as mock_pytrends:
+        mock_pytrends.build_payload.return_value = None
+        mock_pytrends.related_queries.return_value = mock_related
+
+        queries = _trends_client.get_related_queries("test_keyword")
+
+    # Should return list of dicts with query and value
+    assert isinstance(queries, list)
+    assert all('query' in item and 'value' in item for item in queries)
+
+
+def test_trends_get_related_queries_empty():
+    """TrendsClient.get_related_queries() returns empty list on no data."""
+    from app.catalog.demand import _trends_client
+
+    # Mock pytrends to return empty DataFrame
+    mock_top_df = Mock()
+    mock_top_df.empty = True
+    mock_related = {'test_keyword': {'top': mock_top_df, 'rising': Mock()}}
+
+    with patch.object(_trends_client, 'pytrends') as mock_pytrends:
+        mock_pytrends.build_payload.return_value = None
+        mock_pytrends.related_queries.return_value = mock_related
+
+        queries = _trends_client.get_related_queries("test_keyword")
+
+    assert queries == []
+
+
+def test_trends_get_related_queries_error():
+    """TrendsClient.get_related_queries() returns empty list on error."""
+    from app.catalog.demand import _trends_client
+
+    with patch.object(_trends_client, 'pytrends') as mock_pytrends:
+        mock_pytrends.build_payload.side_effect = Exception("API Error")
+
+        queries = _trends_client.get_related_queries("test_keyword")
+
+    assert queries == []
+
+
+# =============================================================================
+# NEW FEATURE TESTS - YouTube get_video_comments
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_youtube_get_video_comments():
+    """YouTubeAPIClient.get_video_comments() fetches comments."""
+    from app.catalog.demand import YouTubeAPIClient
+
+    mock_response = Mock()
+    mock_response.json.return_value = {
+        "items": [
+            {
+                "snippet": {
+                    "topLevelComment": {
+                        "snippet": {
+                            "authorDisplayName": "user1",
+                            "textDisplay": "Great video!",
+                            "likeCount": 10,
+                            "publishedAt": "2026-09-07T00:00:00Z"
+                        }
+                    }
+                }
+            },
+            {
+                "snippet": {
+                    "topLevelComment": {
+                        "snippet": {
+                            "authorDisplayName": "user2",
+                            "textDisplay": "Thanks for sharing",
+                            "likeCount": 5,
+                            "publishedAt": "2026-09-07T00:00:00Z"
+                        }
+                    }
+                }
+            }
+        ]
+    }
+    mock_response.raise_for_status.return_value = None
+
+    with patch('app.catalog.demand.httpx.AsyncClient') as MockClient:
+        mock_http_client = Mock()
+        # Mock async get() that returns the response when awaited
+        mock_http_client.get = AsyncMock(return_value=mock_response)
+        MockClient.return_value = mock_http_client
+
+        yt_client = YouTubeAPIClient(api_key='fake_key')
+        comments = await yt_client.get_video_comments("test_video_id", max_results=10)
+
+    # Should return list dicts with author, text, like_count, published_at
+    assert isinstance(comments, list)
+    assert len(comments) == 2
+    assert all('author' in c and 'text' in c and 'like_count' in c for c in comments)
+
+
+@pytest.mark.asyncio
+async def test_youtube_get_video_comments_empty():
+    """YouTubeAPIClient initialization raises ValueError on no API key."""
+    from app.catalog.demand import YouTubeAPIClient
+
+    with patch.dict('os.environ', {'YOUTUBE_API_KEY': ''}):
+        with patch('app.catalog.demand.settings') as mock_settings:
+            mock_settings.youtube_api_key = None
+            with pytest.raises(ValueError):
+                yt_client = YouTubeAPIClient()
+
+
+@pytest.mark.asyncio
+async def test_youtube_get_video_comments_error():
+    """YouTubeAPIClient.get_video_comments() returns empty list on error."""
+    from app.catalog.demand import YouTubeAPIClient
+
+    mock_http_client = Mock()
+    mock_http_client.get.side_effect = Exception("API Error")
+
+    with patch('app.catalog.demand.httpx.AsyncClient', return_value=mock_http_client):
+        yt_client = YouTubeAPIClient(api_key='fake_key')
+        comments = await yt_client.get_video_comments("test_video_id")
+
+    assert comments == []
+
+
+# =============================================================================
+# NEW FEATURE TESTS - LLM pain classification
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_classify_pain_from_comments():
+    """classify_pain_from_comments() extracts pain signals using LLM."""
+    from app.catalog.demand import classify_pain_from_comments
+
+    comments = [
+        {"text": "This is too expensive"},
+        {"text": "Very complex to use"},
+        {"text": "I don't trust this company"}
+    ]
+
+    # Mock Vertex AI client function imported from brand_soul.generator
+    # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
+    mock_response = Mock(text='["cost", "complexity", "trust"]')
+
+    mock_model = Mock()
+    mock_model.generate_content.return_value = mock_response
+
+    with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=mock_model):
+        pain_signals = await classify_pain_from_comments("Test Video", comments)
+
+    # Should return list of pain signals
+    assert isinstance(pain_signals, list)
+    assert "cost" in pain_signals
+    assert "complexity" in pain_signals
+    assert "trust" in pain_signals
+
+
+@pytest.mark.asyncio
+async def test_classify_pain_from_comments_empty():
+    """classify_pain_from_comments() returns empty list for no comments."""
+    from app.catalog.demand import classify_pain_from_comments
+
+    pain_signals = await classify_pain_from_comments("Test Video", [])
+
+    assert pain_signals == []
+
+
+@pytest.mark.asyncio
+async def test_classify_pain_from_comments_error():
+    """classify_pain_from_comments() returns empty list on error."""
+    from app.catalog.demand import classify_pain_from_comments
+
+    comments = [{"text": "Test"}]
+
+    # Mock Vertex AI client function to raise exception
+    with patch('app.tools.brand_soul.generator._get_vertex_ai_client', side_effect=Exception("API Error")):
+        pain_signals = await classify_pain_from_comments("Test Video", comments)
+
+    assert pain_signals == []
+
+
+# =============================================================================
+# NEW FEATURE TESTS - LLM web grounding
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_ground_web_search():
+    """ground_web_search() performs web search using Gemini."""
+    from app.catalog.demand import ground_web_search
+
+    # Mock Vertex AI client function
+    # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
+    mock_response = Mock(text='["high demand for X", "low supply of Y", "main competitors are Z"]')
+
+    mock_model = Mock()
+    mock_model.generate_content.return_value = mock_response
+
+    with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=mock_model):
+        insights = await ground_web_search("ciberseguridad para despachos de abogados")
+
+    # Should return list of insights
+    assert isinstance(insights, list)
+    assert len(insights) == 3
+
+
+@pytest.mark.asyncio
+async def test_ground_web_search_error():
+    """ground_web_search() returns empty list on error."""
+    from app.catalog.demand import ground_web_search
+
+    # Mock Vertex AI client function to raise exception
+    with patch('app.tools.brand_soul.generator._get_vertex_ai_client', side_effect=Exception("API Error")):
+        insights = await ground_web_search("test niche")
+
+    assert insights == []
+
+
+# =============================================================================
+# NEW FEATURE TESTS - research_niche orchestrator
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_research_niche():
+    """research_niche() combines all 4 data sources."""
+    from app.catalog.demand import research_niche
+
+    # Mock YouTube client
+    mock_yt_client = AsyncMock()
+    mock_yt_client.get_top_videos.return_value = [
+        {"video_id": "vid1", "title": "Video 1", "channel_id": "chan1"},
+        {"video_id": "vid2", "title": "Video 2", "channel_id": "chan2"},
+    ]
+    mock_yt_client.get_video_comments.return_value = [
+        {"text": "Too expensive", "author": "user1"},
+        {"text": "Complex", "author": "user2"},
+    ]
+
+    # Mock pain classification
+    with patch('app.catalog.demand.classify_pain_from_comments', return_value=["cost", "complexity"]):
+        # Mock trends client
+        with patch('app.catalog.demand._trends_client') as mock_trends:
+            mock_trends.get_interest_over_time.return_value = [
+                {"date": "2026-09-07", "value": 25},
+                {"date": "2026-09-06", "value": 30},
+            ]
+            mock_trends.get_related_queries.return_value = [
+                {"query": "test query", "value": 100},
+            ]
+
+            # Mock web grounding
+            with patch('app.catalog.demand.ground_web_search', return_value=["insight 1", "insight 2"]):
+                # Mock YouTubeAPIClient instantiation
+                with patch('app.catalog.demand.YouTubeAPIClient', return_value=mock_yt_client):
+                    result = await research_niche("test niche")
+
+    # Verify all 4 data sources are populated
+    assert result.niche == "test niche"
+    assert len(result.youtube_titles) >= 2
+    assert "cost" in result.youtube_pain_signals or "complexity" in result.youtube_pain_signals
+    assert len(result.trends_series) >= 2
+    assert len(result.trends_related) >= 1
+    assert len(result.web_grounding_notes) >= 2
+
+
+@pytest.mark.asyncio
+async def test_research_niche_youtube_unavailable():
+    """research_niche() returns empty data when YouTube not available."""
+    from app.catalog.demand import research_niche
+
+    # Mock YouTubeAPIClient to raise ValueError (no API key)
+    with patch('app.catalog.demand.YouTubeAPIClient', side_effect=ValueError("No API key")):
+        result = await research_niche("test niche")
+
+    # All data sources should be empty due to graceful degradation
+    assert result.niche == "test niche"
+    assert result.youtube_titles == []
+    assert result.youtube_pain_signals == []
+    assert result.trends_series == []
+    assert result.trends_related == []
+    assert result.web_grounding_notes == []
+
+
+@pytest.mark.asyncio
+async def test_research_niche_partial_failures():
+    """research_niche() returns available data even when some sources fail."""
+    from app.catalog.demand import research_niche
+
+    # Mock YouTube client
+    mock_yt_client = AsyncMock()
+    mock_yt_client.get_top_videos.side_effect = Exception("YouTube Error")
+
+    # Mock trends client
+    with patch('app.catalog.demand._trends_client') as mock_trends:
+        mock_trends.get_interest_over_time.return_value = [
+            {"date": "2026-09-07", "value": 25},
+        ]
+        mock_trends.get_related_queries.side_effect = Exception("Trends Error")
+
+        # Mock web grounding
+        with patch('app.catalog.demand.ground_web_search', return_value=["insight 1"]):
+            # Mock YouTubeAPIClient instantiation
+            with patch('app.catalog.demand.YouTubeAPIClient', return_value=mock_yt_client):
+                result = await research_niche("test niche")
+
+    # Some data sources should be populated (trends_series and web_grounding_notes)
+    assert result.niche == "test niche"
+    assert result.youtube_titles == []  # Failed
+    assert result.youtube_pain_signals == []  # Failed (no comments)
+    assert len(result.trends_series) >= 1  # Succeeded
+    assert result.trends_related == []  # Failed
+    assert len(result.web_grounding_notes) >= 1  # Succeeded
 
 
 # =============================================================================
