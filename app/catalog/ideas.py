@@ -117,12 +117,18 @@ CREDITS_COST = 15
 # MODELOS DE DATOS
 # =============================================================================
 
+import uuid
+
 class CatalogIdea(BaseModel):
     """
     Idea cruda de contenido para el catálogo.
 
     No tiene guion ni tono emocional — solo el concepto + señal de demanda.
     """
+    id: str = Field(
+        default_factory=lambda: f"idea_{uuid.uuid4().hex[:8]}",
+        description="ID único de la idea"
+    )
     master_category: str = Field(
         ...,
         description="ID de categoría maestra (una de las 5 fijas)"
@@ -796,4 +802,97 @@ async def get_or_generate_catalog(session_id: str) -> Catalog:
     # Guardar en cache
     _save_catalog_cache(catalog)
 
+    return catalog
+
+
+async def update_idea_status(
+    session_id: str,
+    idea_id: str,
+    new_status: Literal["pending", "approved", "rejected"]
+) -> Catalog:
+    """
+    Actualiza el estado de aprobación/descarte de una idea individual.
+    """
+    catalog = await get_or_generate_catalog(session_id)
+    if catalog.catalog_locked:
+        raise ValueError("El catálogo está bloqueado. No se pueden modificar ideas.")
+
+    found = False
+    for idea in catalog.ideas:
+        if idea.id == idea_id:
+            idea.status = new_status
+            found = True
+            break
+
+    if not found:
+        raise ValueError(f"Idea con ID '{idea_id}' no encontrada en el catálogo.")
+
+    _save_catalog_cache(catalog)
+    return catalog
+
+
+async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
+    """
+    Regenera únicamente una idea individual reemplazándola en la misma categoría.
+    """
+    catalog = await get_or_generate_catalog(session_id)
+    if catalog.catalog_locked:
+        raise ValueError("El catálogo está bloqueado. No se pueden regenerar ideas.")
+
+    target_idea = next((i for i in catalog.ideas if i.id == idea_id), None)
+    if not target_idea:
+        raise ValueError(f"Idea con ID '{idea_id}' no encontrada en el catálogo.")
+
+    # Re-obtener brain y research
+    brain = get_brand_brain(session_id)
+    diagnostico = brain.get_section("diagnostico").content if brain else {}
+    icp = brain.get_section("icp").content if brain else {}
+    charco = brain.get_section("charco").content if brain else {}
+    approach = _determine_approach(diagnostico)
+    niche = _extract_niche(icp, charco)
+
+    niche_research = await research_niche(niche)
+
+    cat_info = next((c for c in MASTER_CATEGORIES if c["id"] == target_idea.master_category), None)
+    subcategories = cat_info["subcategories"] if cat_info else ["General"]
+
+    new_ideas = await _generate_ideas_for_category(
+        niche=niche,
+        master_category=target_idea.master_category,
+        subcategories=subcategories,
+        niche_research=niche_research,
+        approach=approach,
+        count=1
+    )
+
+    if not new_ideas:
+        raise Exception("No se pudo generar un reemplazo para la idea.")
+
+    new_idea = new_ideas[0]
+    # Reemplazar en la lista preservando posición
+    for i, idea in enumerate(catalog.ideas):
+        if idea.id == idea_id:
+            catalog.ideas[i] = new_idea
+            break
+
+    _save_catalog_cache(catalog)
+    return new_idea
+
+
+def lock_catalog_session(session_id: str) -> Catalog:
+    """
+    Bloquea el catálogo si todas las ideas han sido revisadas (approved o rejected).
+    """
+    catalog = _check_catalog_cache(session_id)
+    if not catalog:
+        raise ValueError("No existe un catálogo generado para esta sesión.")
+
+    pending_count = sum(1 for idea in catalog.ideas if idea.status == "pending")
+    if pending_count > 0:
+        raise ValueError(
+            f"No se puede bloquear el catálogo. Hay {pending_count} ideas aún en estado 'pending'."
+        )
+
+    catalog.catalog_locked = True
+    _save_catalog_cache(catalog)
     return catalog

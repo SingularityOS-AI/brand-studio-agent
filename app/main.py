@@ -682,6 +682,170 @@ async def generate_catalog_endpoint(request: Request):
     })
 
 
+@app.post("/api/catalog/investigate", response_class=JSONResponse)
+async def investigate_catalog_endpoint(request: Request):
+    """
+    Pieza 27 — Dispara la investigación de demanda (25 créditos).
+    
+    1. Ejecuta research_niche() (Google Trends + YouTube API + Gemini Web Grounding)
+    2. Genera 30 ideas distribuidas en 5 categorías maestras fijas.
+    3. Retorna catalog + niche_research para la UI visual.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    if not guard.check_rate_limit(request.client.host):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later."
+        )
+
+    INVESTIGATE_COST = 25
+    try:
+        remaining = guard.deduct_credits(session_token, amount=INVESTIGATE_COST)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": session["credits"],
+                    "payment_url": settings.payment_url,
+                }
+            )
+        raise
+
+    try:
+        from app.catalog import ideas, demand
+        from app.tools.brand_brain.store import get_brand_brain
+
+        brain = get_brand_brain(session_token)
+        if not brain:
+            raise ValueError("No se encontró BrandBrain para esta sesión")
+
+        icp = brain.get_section("icp").content if brain.get_section("icp") else {}
+        charco = brain.get_section("charco").content if brain.get_section("charco") else {}
+        niche = ideas._extract_niche(icp, charco)
+
+        niche_research = await demand.research_niche(niche)
+        catalog = await ideas.get_or_generate_catalog(session_token)
+
+        return JSONResponse(content={
+            "catalog": catalog.model_dump(),
+            "niche_research": niche_research.model_dump(),
+            "credits_remaining": remaining,
+            "gate_passed": catalog.gate_passed
+        })
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"[ERROR] Investigate catalog error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/catalog/idea/{idea_id}/accept", response_class=JSONResponse)
+async def accept_idea_endpoint(request: Request, idea_id: str):
+    """Marca una idea como aceptada (status='approved')."""
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    try:
+        from app.catalog import ideas
+        catalog = await ideas.update_idea_status(session_token, idea_id, "approved")
+        return JSONResponse(content={"catalog": catalog.model_dump(), "status": "success"})
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.post("/api/catalog/idea/{idea_id}/discard", response_class=JSONResponse)
+async def discard_idea_endpoint(request: Request, idea_id: str):
+    """Marca una idea como descartada (status='rejected')."""
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    try:
+        from app.catalog import ideas
+        catalog = await ideas.update_idea_status(session_token, idea_id, "rejected")
+        return JSONResponse(content={"catalog": catalog.model_dump(), "status": "success"})
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.post("/api/catalog/idea/{idea_id}/regenerate", response_class=JSONResponse)
+async def regenerate_idea_endpoint(request: Request, idea_id: str):
+    """Regenera una sola idea reemplazándola por 3 créditos."""
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+
+    REGEN_COST = 3
+    try:
+        remaining = guard.deduct_credits(session_token, amount=REGEN_COST)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return JSONResponse(
+                status_code=402,
+                content={"error": "Session budget exhausted", "credits_remaining": session["credits"]}
+            )
+        raise
+
+    try:
+        from app.catalog import ideas
+        new_idea = await ideas.regenerate_single_idea(session_token, idea_id)
+        catalog = ideas._check_catalog_cache(session_token)
+        return JSONResponse(content={
+            "idea": new_idea.model_dump(),
+            "catalog": catalog.model_dump() if catalog else None,
+            "credits_remaining": remaining
+        })
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.post("/api/catalog/lock", response_class=JSONResponse)
+async def lock_catalog_endpoint(request: Request):
+    """Bloquea el catálogo si las 30 ideas han sido revisadas."""
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    try:
+        from app.catalog import ideas
+        catalog = ideas.lock_catalog_session(session_token)
+        return JSONResponse(content={
+            "catalog_locked": catalog.catalog_locked,
+            "catalog": catalog.model_dump(),
+            "status": "success"
+        })
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
 @app.post("/api/brain/extract", response_class=JSONResponse)
 async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainRequest):
     """
