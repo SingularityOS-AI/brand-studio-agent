@@ -1560,7 +1560,14 @@ Always respond in English. Keep your responses conversational and engaging.`;
   function updateBrandSoulButton(sections) {
     if (!brandSoulBtn || !brandSoulLabel) return;
 
-    const confirmedCount = sections.filter(s => s.status === 'confirmado').length;
+    const confirmedCount = typeof getReadySectionsCount === 'function' 
+      ? getReadySectionsCount(sections) 
+      : (sections || []).filter(s => {
+          const st = (s.status || '').toLowerCase();
+          const hasContent = s.content && Object.keys(s.content).length > 0;
+          return (st === 'confirmado' || st === 'completado' || st === 'confirmed') && hasContent;
+        }).length;
+
     brandSoulLabel.textContent = `Brand Soul — ${confirmedCount} of 9 sections ready`;
 
     // Update progress bar width
@@ -1574,6 +1581,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
       brandSoulBtn.disabled = false;
     } else {
       brandSoulBtn.disabled = true;
+    }
+
+    if (typeof updateCatalogButton === 'function') {
+      updateCatalogButton(sections);
     }
   }
 
@@ -1844,11 +1855,21 @@ ${htmlContent}
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
 
+  // Helper to count ready confirmed sections
+  function getReadySectionsCount(sections) {
+    if (!sections || !Array.isArray(sections)) return 0;
+    return sections.filter(s => {
+      const st = (s.status || '').toLowerCase();
+      const hasContent = s.content && Object.keys(s.content).length > 0;
+      return (st === 'confirmado' || st === 'completado' || st === 'confirmed') && hasContent;
+    }).length;
+  }
+
   // Update Catalog button state based on confirmed sections count
   function updateCatalogButton(sections) {
     if (!catalogBtn || !catalogLabel) return;
 
-    const confirmedCount = sections.filter(s => s.status === 'confirmado').length;
+    const confirmedCount = getReadySectionsCount(sections);
     catalogLabel.textContent = `Catalog — ${confirmedCount} of 9 sections ready`;
 
     if (confirmedCount >= 9) {
@@ -1860,32 +1881,55 @@ ${htmlContent}
 
   // Render Catalog in panel (BlockB view)
   function renderCatalogInPanel(catalog) {
-    const angleColors = {
-      'Útil': '#1B7F4C', 'Inmersivo': '#2B4CD8', 'Reflexivo': '#B5720B', 'Vulnerable': '#C2262E'
+    const categoryNames = {
+      'autoridad_tecnica': 'Autoridad Técnica e Instrucción',
+      'validacion_resultados': 'Validación de Resultados e Impacto',
+      'posicionamiento_narrativa': 'Posicionamiento y Tesis de Mercado',
+      'narrativa_fundadora': 'Narrativa Fundadora y Origen',
+      'discusion_industria': 'Discusión y Co-creación de Industria'
+    };
+
+    const categoryColors = {
+      'autoridad_tecnica': '#2B4CD8',
+      'validacion_resultados': '#1B7F4C',
+      'posicionamiento_narrativa': '#B5720B',
+      'narrativa_fundadora': '#8A2BE2',
+      'discusion_industria': '#C2262E'
     };
 
     let totalIdeas = 0;
-
     catalogCategories.innerHTML = '';
 
-    catalog.categories.forEach(cat => {
-      totalIdeas += cat.ideas.length;
+    const ideas = catalog.ideas || [];
+    totalIdeas = ideas.length;
+
+    // Group ideas by master_category
+    const grouped = {};
+    ideas.forEach(idea => {
+      const catKey = idea.master_category || 'autoridad_tecnica';
+      if (!grouped[catKey]) grouped[catKey] = [];
+      grouped[catKey].push(idea);
+    });
+
+    Object.keys(grouped).forEach(catKey => {
+      const catIdeas = grouped[catKey];
+      const catName = categoryNames[catKey] || catKey;
+      const color = categoryColors[catKey] || '#2B4CD8';
 
       const catDiv = document.createElement('div');
       catDiv.className = 'cat';
 
       const catHead = document.createElement('div');
       catHead.className = 'cathead';
-      catHead.innerHTML = `<span class="catname">${cat.name}</span><span class="catcount">${cat.ideas.length}</span>`;
+      catHead.innerHTML = `<span class="catname">${catName}</span><span class="catcount">${catIdeas.length}</span>`;
       catDiv.appendChild(catHead);
 
-      cat.ideas.forEach(idea => {
-        const color = angleColors[idea.angle] || '#5C6675';
+      catIdeas.forEach(idea => {
         const ideaDiv = document.createElement('div');
         ideaDiv.className = 'idea';
         ideaDiv.innerHTML = `
           <span class="ideatitle">${idea.title}</span>
-          <span class="angle" style="border-color:${color};color:${color}">${idea.angle}</span>
+          <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
           <span class="signal">${idea.demand_signal}</span>
         `;
         catDiv.appendChild(ideaDiv);

@@ -581,7 +581,7 @@ async def get_catalog(request: Request):
     from app.catalog import ideas
 
     # 5. Check for cached catalog
-    catalog = ideas._check_catalog_cache(brain, session_token)
+    catalog = ideas._check_catalog_cache(session_token)
     if not catalog:
         return JSONResponse(
             status_code=404,
@@ -606,17 +606,15 @@ async def generate_catalog_endpoint(request: Request):
     This endpoint:
     1. Validates JWT authentication
     2. Rate limits by IP
-    3. Deducts credits (TODO: 15 credits for catalog generation)
-    4. Generates 3 founder-specific content categories
-    5. Generates 10 ideas per category with 4 possible angles
-    6. Validates each idea against NicheReport demand signals
-    7. Caches result by hash to prevent duplicate work
-    8. Sets catalog_gate_passed=True only when exactly 30 valid ideas exist
+    3. Deducts credits (15 credits for catalog generation)
+    4. Generates 30 content ideas in 5 master categories
+    5. Validates each idea against NicheResearch demand signals
+    6. Caches result by hash to prevent duplicate work
+    7. Sets gate_passed=True only when valid ideas exist
 
     Protected by rate limiting and spend_guard.
     Requires JWT authentication.
     Requires BrandBrain to be complete (9 sections propuesto/confirmado).
-    Requires NicheReport to exist (from /api/demand validation).
     """
     # 1. Validate JWT
     authorization = request.headers.get("authorization")
@@ -639,7 +637,7 @@ async def generate_catalog_endpoint(request: Request):
             detail="Too many requests. Please try again later."
         )
 
-    # 3. Deduct credits (TODO: CEO said 15 credits, verify cost)
+    # 3. Deduct credits
     from app.catalog.ideas import CREDITS_COST
     try:
         remaining = guard.deduct_credits(session_token, amount=CREDITS_COST)
@@ -657,7 +655,9 @@ async def generate_catalog_endpoint(request: Request):
 
     # 4. Generate catalog (main business logic in ideas.py)
     try:
-        catalog, cache_status = generate_catalog(session_token)
+        from app.catalog import ideas
+        catalog = await ideas.get_or_generate_catalog(session_token)
+        cache_status = "hit" if ideas._check_catalog_cache(session_token) else "generated"
     except ValueError as e:
         # Validation errors (missing brain/demand, etc.)
         return JSONResponse(
