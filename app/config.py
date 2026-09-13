@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     # YouTube Data API Configuration (for Demand Validation)
     youtube_api_key: str = os.getenv("YOUTUBE_API_KEY", "")
 
+    # Stripe Configuration (for Cobro Real)
+    stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "")
+    stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
 
 settings = Settings()
 

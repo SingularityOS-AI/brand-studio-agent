@@ -23,6 +23,10 @@ from app.config import settings
 from app.guard import guard
 from app.auth.supabase_auth import supabase_auth
 
+# Stripe routers (Cobro Real)
+from app.billing import router as billing_router
+from app.webhooks import router as webhooks_router
+
 app = FastAPI(
     title="Brand Studio Agent — Voice API",
     description="AssemblyAI Voice Agent API with Rate Limiting & Session Budget",
@@ -1108,6 +1112,10 @@ async def deduct_voice_credits_loop(websocket: WebSocket, session_token: str):
 
 # Mount static folder
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Register Stripe routers (Cobro Real)
+app.include_router(billing_router)
+app.include_router(webhooks_router)
 
 
 if __name__ == "__main__":
