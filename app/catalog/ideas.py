@@ -38,6 +38,20 @@ from app.catalog.demand import (
 
 
 # =============================================================================
+# CUSTOM EXCEPTIONS
+# =============================================================================
+
+class IncompleteBrainError(Exception):
+    """Excepción levantada cuando el BrandBrain no está completo (no todas las secciones requeridas en estado confirmado)."""
+    pass
+
+
+class NicheReportNotFoundError(Exception):
+    """Excepción levantada cuando no existe un NicheResearch para la sesión actual."""
+    pass
+
+
+# =============================================================================
 # CONSTANTES
 # =============================================================================
 
@@ -544,7 +558,9 @@ async def generate_catalog(session_id: str) -> Catalog:
         Catalog con las ideas generadas
 
     Raises:
-        ValueError: Si BrandBrain no está lockeado o falta información
+        IncompleteBrainError: Si BrandBrain no está completado (secciones sin confirmar)
+        ValueError: Si falta información clave en BrandBrain
+        NicheReportNotFoundError: Si no se pudo obtener un NicheResearch para el nicho
         Exception: Si hay error en la generación o research_niche()
     """
     # 1. Obtener BrandBrain lockeado
@@ -556,8 +572,8 @@ async def generate_catalog(session_id: str) -> Catalog:
     # Verificar que esté lockeado
     for section in brain.sections:
         if section.status != "confirmado" and section.status != "completado":
-            raise ValueError(
-                f"BrandBrain no está lockeado: sección '{section.label}' "
+            raise IncompleteBrainError(
+                f"BrandBrain no está completado: sección '{section.label}' "
                 f"tiene estado '{section.status}'"
             )
 
@@ -584,6 +600,12 @@ async def generate_catalog(session_id: str) -> Catalog:
     # 3. Llamar a research_niche() para obtener señales de demanda
     try:
         niche_research = await research_niche(niche)
+        if niche_research is None:
+            raise NicheReportNotFoundError(
+                f"No se pudo obtener un NicheResearch para el nicho: {niche}"
+            )
+    except NicheReportNotFoundError:
+        raise  # Re-levantar tal cual, ya es nuestra excepción
     except Exception as e:
         raise Exception(f"Error en research_niche(): {e}") from e
 

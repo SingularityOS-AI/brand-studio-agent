@@ -311,8 +311,19 @@
             <h1 class="disp" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">The catalog</h1>
           </div>
         </div>
-        <span class="mono" id="Catalog-Progress" style="font-size:12px;color:#5C6675"></span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="mono" id="Catalog-Progress" style="font-size:12px;color:#5C6675"></span>
+          <button class="btn btn--go" id="Catalog-LockBtn" disabled style="padding:6px 14px;font-size:12px">Lock Catalog</button>
+        </div>
       </div>
+
+      <!-- Trends & Demand Research Container -->
+      <div id="Trends-Container" style="margin:0 40px 16px;padding:16px;border:1px solid #E2E8F0;border-radius:6px;background:#FAFAFA;display:none">
+        <div style="font-size:12px;font-weight:600;color:#5C6675;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Google Trends &amp; Demand Signal</div>
+        <div id="Trends-Graph" style="width:100%;height:100px"></div>
+        <div id="Trends-Related" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
+      </div>
+
       <div class="docbody" id="Catalog-Categories"></div>
       <button class="gate" id="Catalog-Gate" style="margin:0 40px 26px;border:1px solid var(--warn);border-radius:4px;padding:16px 20px;display:flex;align-items:center;gap:18px;background:#FFF6E5;cursor:pointer;border:none;width:calc(100% - 80px)">
         <span class="gateicon" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--warn);display:grid;place-items:center;flex:none;color:var(--warn)">
@@ -921,32 +932,32 @@
   <div class="modal">
     <div class="mhead">
       <span class="micon"></span>
-      <span class="meyebrow">Credit Gate</span>
+      <span class="meyebrow">Demand Research &amp; Catalog</span>
     </div>
-    <h2 class="mtitle">Generate 30 Brand Ideas</h2>
-    <p class="mlead">None of this happens without your approval. Here is the exact cost, before a single credit is spent.</p>
+    <h2 class="mtitle">Investigate Demand &amp; Generate 30 Ideas</h2>
+    <p class="mlead">Runs real Google Trends, YouTube comments, and Gemini web grounding to build your 30 ideas.</p>
 
     <div class="rows">
       <div class="row">
-        <div class="rowname">Catalog -- 30 ideas, 3 categories</div>
+        <div class="rowname">Market Demand Research &amp; 30 Catalog Ideas</div>
         <div class="rowqty"></div>
-        <div class="rowcost">15 cr</div>
+        <div class="rowcost">25 cr</div>
       </div>
     </div>
 
     <div class="total">
       <div class="totallabel">Total spend</div>
-      <div class="totalcost" style="color:#B5791C">15 credits</div>
+      <div class="totalcost" style="color:#B5791C">25 credits</div>
     </div>
 
     <div class="after">Balance after: <strong id="Gate-BalanceAfter">Calculating<span class="dots">.</span></strong></div>
 
     <div class="acts">
       <button class="btn" id="Gate-CancelBtn" style="margin:0 4px">Cancel</button>
-      <button class="btn btn--go" id="Gate-ApproveBtn" style="margin:0 4px">Approve &amp; Generate</button>
+      <button class="btn btn--go" id="Gate-ApproveBtn" style="margin:0 4px">Approve &amp; Investigate</button>
     </div>
 
-    <div class="foot">Iterating never costs. Only generation does.</div>
+    <div class="foot">Iterating never costs. Only demand research &amp; generation does.</div>
   </div>
 </div>
 
