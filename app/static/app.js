@@ -1984,6 +1984,11 @@ ${htmlContent}
           <span class="ideatitle">${idea.title}</span>
           <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
           <span class="signal">${idea.demand_signal}</span>
+          <div class="research-actions">
+            <button class="research-btn" data-research="websearch" data-idea="${idea.title}" title="WebSearch">WebSearch</button>
+            <button class="research-btn" data-research="youtube" data-idea="${idea.title}" title="YouTube API">YouTube</button>
+            <button class="research-btn" data-research="trends" data-idea="${idea.title}" title="Google Trends">Trends</button>
+          </div>
         `;
         catDiv.appendChild(ideaDiv);
       });
@@ -2192,6 +2197,17 @@ ${htmlContent}
   if (brandSoulCloseBtn) {
     brandSoulCloseBtn.addEventListener('click', closeBrandSoulOverlay);
   }
+
+  // Wire up research buttons (event delegation for dynamic content)
+  document.addEventListener('click', (e) => {
+    const researchBtn = e.target.closest('.research-btn');
+    if (researchBtn) {
+      const researchType = researchBtn.dataset.research;
+      const ideaTitle = researchBtn.dataset.idea;
+      console.log(`Research: ${researchType} for idea: ${ideaTitle}`);
+      // TODO: Implement actual research functionality when needed
+    }
+  });
 
   // Close overlay on Escape key
   document.addEventListener('keydown', (e) => {

@@ -177,6 +177,7 @@
   .mic{width:96px;height:96px;border-radius:50%;background:var(--accent);border:none;display:grid;place-items:center;cursor:pointer;position:relative}
   .mic::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:1px solid var(--accent);opacity:.35;animation:pulseRing 1.6s ease-in-out infinite}
   .michint{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+  #logoutBtn:hover{background:var(--surface-alt);color:var(--ink)}
 
   /* Doc body (zones) */
   .docbody{flex:1;display:flex;flex-direction:column;justify-content:center;gap:11px;padding:0 90px}
@@ -254,7 +255,10 @@
     <div class="brandbar">
       <span class="brandmark"></span>
       <span class="disp" style="font-size:14px;font-weight:600;letter-spacing:-.01em">Brand Studio</span>
-      <span class="mono" style="margin-left:auto;font-size:11px;color:#5C6675">new session</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button id="logoutBtn" class="mono" style="font-size:11px;color:#5C6675;background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.2s ease" title="Log out">Log out</button>
+        <span class="mono" style="font-size:11px;color:#5C6675;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.2s ease" title="Start fresh">new session</span>
+      </div>
     </div>
 
     <div class="orbwrap">
@@ -921,6 +925,27 @@
 }
 
 /* Catalog Design CSS (approved design) */
+.research-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.research-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.research-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
 .dochead{display:flex;align-items:flex-end;justify-content:space-between;padding:26px 40px 20px;border-bottom:1px solid var(--line)}.cat{display:flex;flex-direction:column;gap:8px}.cathead{display:flex;align-items:baseline;gap:10px;padding-bottom:7px;border-bottom:1px solid var(--line)}.catname{font-size:14px;font-weight:600;letter-spacing:-.01em}.catcount{font-size:11px;color:var(--ink-soft)}.idea{display:flex;align-items:flex-start;gap:12px;padding:9px 2px}.ideatitle{font-size:14px;line-height:1.45;flex:1;min-width:0}.angle{font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border:1px solid var(--line);border-radius:3px;color:var(--ink-soft);white-space:nowrap;flex:none}.signal{font-size:11px;color:var(--ink-soft);width:210px;flex:none;line-height:1.4}.more{font-size:12px;color:var(--accent-soft);padding:4px 2px}.gate{margin:0 40px 26px;border:1px solid var(--warn);border-radius:4px;padding:16px 20px;display:flex;align-items:center;gap:18px;background:#FFF6E5}.gateicon{width:34px;height:34px;border-radius:50%;border:1px solid var(--warn);display:grid;place-items:center;flex:none;color:var(--warn)}@keyframes grow{from{width:60%}to{width:74%}}.gatebar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:9px}.gatebar span{display:block;height:100%;background:var(--warn);width:73%;animation:grow 6s ease-in-out infinite alternate}.jobs{padding:16px 24px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line)}.job{border:1px solid var(--line);border-radius:4px;padding:12px 14px;background:var(--surface)}.jobtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:9px}.joblabel{font-size:13px;font-weight:500}.cost{font-size:11px;color:var(--ink-soft);white-space:nowrap}.player{flex:1;margin:16px 24px;border:1px dashed var(--line);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px;color:var(--ink-soft)}
 
 /* Credit Gate Modal CSS */
