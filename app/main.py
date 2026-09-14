@@ -624,12 +624,7 @@ async def generate_catalog_endpoint(request: Request):
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    # 2. Check rate limit (bypass for credit-authorized catalog generation)
-    if not guard.check_rate_limit(request.client.host, skip_rate_limit=True):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please try again later."
-        )
+    # No rate limit for authorized catalog generation - credits serve as the protection mechanism
 
     # 3. Deduct credits
     from app.catalog.ideas import CREDITS_COST
@@ -698,12 +693,7 @@ async def investigate_catalog_endpoint(request: Request):
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    # Bypass rate limit for credit-authorized investigate endpoint
-    if not guard.check_rate_limit(request.client.host, skip_rate_limit=True):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please try again later."
-        )
+    # No rate limit for authorized investigate endpoint - credits serve as the protection mechanism
 
     INVESTIGATE_COST = 25
     try:
