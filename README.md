@@ -90,7 +90,7 @@ This repository is the **foundation**, not the finished product. Being explicit 
 
 ## Setup
 
-**Requirements:** Python 3.12+ and an [AssemblyAI API key](https://www.assemblyai.com/dashboard/signup).
+**Requirements:** Python 3.12+, an [AssemblyAI API key](https://www.assemblyai.com/dashboard/signup), and [Stripe secret keys](https://dashboard.stripe.com/apikeys) (payment processing).
 
 ### Running locally
 
@@ -141,6 +141,24 @@ Python 3.12 · FastAPI · WebAudio API (PCM16 mono 24 kHz, hardware AEC) · Asse
 - Do not send `input.audio` before `session.ready`.
 - On barge-in, flush the playback buffer immediately — on `input.speech.started`, not on `reply.done`. It feels roughly 300 ms snappier.
 - The API key never reaches the browser. The server mints a short-lived token and the client passes it as `?token=` on the WebSocket URL.
+
+---
+
+## Production Deployment (Render)
+
+This repo is deployed to Render Free Tier via [`render.yaml`](render.yaml) with auto-deploy on push to `main`.
+
+**Required Environment Variables in Render:**
+
+| Variable | Purpose | Where to get |
+|---|---|---|
+| `ASSEMBLYAI_API_KEY` | AssemblyAI transcription API | AssemblyAI Dashboard |
+| `STRIPE_API_KEY` | Stripe payments (secret key) | Stripe Dashboard → API Keys |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification | Stripe Dashboard → Webhooks → Endpoint secret |
+| `SUPABASE_URL` | Supabase project URL | Supabase Dashboard → Settings → API |
+| `SUPABASE_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | Supabase auth/DB access | Supabase Dashboard → Settings → API |
+
+**Note:** Stripe webhook endpoint at production: `https://brand-studio-agent.onrender.com/api/stripe/webhook` — configure this in Stripe Dashboard.
 
 ---
 
