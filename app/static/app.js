@@ -12,6 +12,9 @@
   let jwtToken = null;
   let user = null;
 
+  // Flag to prevent logout during Stripe checkout return
+  let isCheckoutInProgress = false;
+
   // AssemblyAI Voice Client
   let API_KEY = '';
   let apiKeyRequested = false;
@@ -1458,12 +1461,18 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       // Listen for auth state changes
       supabase.auth.onAuthStateChange((event, session) => {
+        // CRITICAL FIX: Prevent logout if we're in the middle of Stripe checkout return
+        // When user returns from Stripe, Supabase may temporarily emit SIGNED_OUT event
+        // Setting isCheckoutInProgress flag prevents unwanted logout
         if (event === 'SIGNED_IN' && session) {
           jwtToken = session.access_token;
           user = session.user;
           showMainApp();
-        } else if (event === 'SIGNED_OUT') {
+        } else if (event === 'SIGNED_OUT' && !isCheckoutInProgress) {
+          // Only logout if we're NOT returning from Stripe checkout
           logout();
+        } else if (event === 'SIGNED_OUT' && isCheckoutInProgress) {
+          console.log('[Billing] ⚠️ SIGNED_OUT event detected during checkout - ignoring to prevent logout');
         }
       });
 
@@ -2477,11 +2486,15 @@ ${htmlContent}
     const checkoutStatus = urlParams.get('checkout');
 
     if (checkoutStatus === 'success') {
+      // CRITICAL FIX: Set flag to prevent logout during checkout return
+      console.log('[Billing] 💳 Checkout successful - setting isCheckoutInProgress flag');
+      isCheckoutInProgress = true;
+
       console.log('[Billing] 💳 Checkout successful - refreshing credits in-place...');
       console.log('[Billing] 💳 Checking existing Supabase session...');
       
-      // CRITICAL FIX: Force Supabase to check existing session from localStorage
-      // When returning from Stripe redirect, Supabase may think we're signed out
+      // Force Supabase to check existing session from localStorage
+      // When returning from Stripe redirect, Supabase may temporarily think we're signed out
       const { data: { session }, error } = await supabase.auth.getSession();
       
       if (error) {
@@ -2490,22 +2503,43 @@ ${htmlContent}
         console.log('[Billing] ✅ Session still valid, restoring user context');
         jwtToken = session.access_token;
         user = session.user;
-        // Force UI back to main app if it was logged out by auth change callback
-        if (document.getElementById('login-container').style.display !== 'none') {
-          showMainApp();
-        }
+        // Force UI back to main app regardless of auth state
+        console.log('[Billing] ✅ Forcing showMainApp() after successful payment');
+        showMainApp();
       } else {
-        console.warn('[Billing] ⚠️ No session found - user may need to log in again');
-        alert('Payment successful! Please log in again to see your credits.');
-        window.history.replaceState({}, document.title, window.location.pathname);
-        return;
+        console.warn('[Billing] ⚠️ No session found - attempting credit refresh anyway');
+        // CRITICAL FIX: Even without session, try to refresh credits and stay on page
+        // Don't return early - continue to credit refresh
       }
       
-      alert('Payment successful! Your credits have been added.');
-      // Clear URL params to avoid re-triggering
+      // Clear URL params immediately to prevent re-triggering
       window.history.replaceState({}, document.title, window.location.pathname);
-      // Refresh credits in-place without full page reload
-      await fetchCredits();
+      
+      // CRITICAL FIX: Always attempt to refresh credits after successful payment
+      console.log('[Billing] 💳 Refreshing credits after successful checkout...');
+      try {
+        await fetchCredits();
+        console.log('[Billing] ✅ Credits refreshed successfully');
+      } catch (e) {
+        console.error('[Billing] ❌ Error refreshing credits:', e);
+        // Continue anyway - payment was successful, credits may be updated on server
+      }
+
+      // Show success message
+      alert('Payment successful! Your credits have been added.');
+      
+      // CRITICAL FIX: Ensure we're on main app screen after successful checkout
+      if (user || jwtToken) {
+        console.log('[Billing] ✅ User authenticated, showing main app');
+        showMainApp();
+      }
+      
+      // CRITICAL FIX: Clear the flag after handling is complete
+      setTimeout(() => {
+        isCheckoutInProgress = false;
+        console.log('[Billing] ✅ Checkout handling complete, isCheckoutInProgress cleared');
+      }, 2000); // Give it 2 seconds to ensure all auth events have settled
+      
     } else if (checkoutStatus === 'cancelled') {
       console.log('[Billing] Checkout cancelled by user');
       window.history.replaceState({}, document.title, window.location.pathname);
