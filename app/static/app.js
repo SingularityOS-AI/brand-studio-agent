@@ -2098,14 +2098,58 @@ ${htmlContent}
       });
     });
 
-    // Add event listeners for research buttons
+    // Add event listeners for research buttons - integrate with /api/catalog/investigate API
     document.querySelectorAll('.research-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
         const ideaTitle = btn.dataset.idea;
         const researchType = btn.dataset.research;
 
-        alert(`Research action clicked: ${researchType} for idea "${ideaTitle}"\n\nThis will integrate with /api/catalog/investigate API.\n(MVP: Display alert placeholder)`);
+        // Show loading state
+        const originalText = btn.textContent;
+        btn.textContent = '...';
+        btn.disabled = true;
+
+        try {
+          console.log(`[Catalog Research] Starting ${researchType} research for idea: "${ideaTitle}"`);
+
+          // Call /api/catalog/investigate API (costs 25 credits, returns catalog + niche_research)
+          const response = await authenticatedFetch('/api/catalog/investigate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idea_title: ideaTitle, research_type: researchType })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.detail || 'Research failed');
+          }
+
+          const data = await response.json();
+          console.log('[Catalog Research] Success:', data);
+
+          // Update credits from response
+          if (data.credits_remaining !== undefined) {
+            credits = data.credits_remaining;
+            updateCreditsUI();
+          }
+
+          // Success feedback
+          alert(`✅ ${researchType.toUpperCase()} investigation complete!\n\nResearch data collected for your niche. Updated catalog with demand signals.`);
+
+        } catch (error) {
+          console.error('[Catalog Research] Error:', error);
+          if (error.message === 'PAYWALL_402') {
+            // Paywall already shown by authenticatedFetch handler
+            alert('❌ Insufficient credits. Please add credits to continue research.');
+          } else {
+            alert(`❌ Research failed: ${error.message}\n\nPlease try again or contact support.`);
+          }
+        } finally {
+          // Restore button state
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }
       });
     });
 
