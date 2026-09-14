@@ -1716,7 +1716,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
           } else if (response.status === 402) {
             alert('Not enough credits to generate Brand Soul. Please purchase more credits to continue.');
           } else if (response.status === 429) {
-            alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+            alert("You've reached the rate limit. Please wait a minute before trying again.");
           } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {
             // No se promete que no se cobro: los creditos se descuentan ANTES de
             // llamar al LLM (main.py y generator.py), asi que en este punto ya se
@@ -1844,7 +1844,7 @@ ${htmlContent}
         if (response.status === 402) {
           alert('Not enough credits to regenerate Brand Soul. Please purchase more credits to continue.');
         } else if (response.status === 429) {
-          alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+          alert("You've reached the rate limit. Please wait a minute before trying again.");
         } else if (response.status === 500 && body.error && body.error.includes('Citation validation failed')) {
           alert('We could not verify that every quote in your Brand Soul came from your own words, so the document was not shown. This is the guarantee that makes it trustworthy. Please try generating it again.');
         } else {
@@ -2019,15 +2019,15 @@ ${htmlContent}
             <button class="research-btn" data-research="trends" data-idea="${idea.title}" title="Google Trends">Trends</button>
           </div>
           <div class="idea-actions">
-            <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">✓</button>
-            <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">✗</button>
+            <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">&#10003;</button>
+            <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">&#10007;</button>
           </div>
         `;
         catDiv.appendChild(ideaDiv);
       });
 
       catalogCategories.appendChild(catDiv);
-    }
+    });  // Fixed: was missing closing parenthesis for forEach
 
     // Add event listeners for approve/reject buttons
     document.querySelectorAll('.btn-approve').forEach(btn => {
@@ -2180,7 +2180,6 @@ ${htmlContent}
         }
       });
     }
-    });
 
     // Update gate button state
     if (totalIdeas >= 30) {
@@ -2295,7 +2294,7 @@ ${htmlContent}
         } else if (response.status === 402) {
           alert('Not enough credits to generate catalog. Please purchase more credits to continue.');
         } else if (response.status === 429) {
-          alert('You\'ve reached the rate limit. Please wait a minute before trying again.');
+          alert("You've reached the rate limit. Please wait a minute before trying again.");
         } else {
           alert(`Failed to generate catalog: ${body.error || body || response.status}`);
         }
