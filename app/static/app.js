@@ -98,6 +98,7 @@
   // Voice credits reservation
   let voiceRenewalTimer = null;
   let initialSessionCredits = 500; // Will be fetched from /api/config
+  let credits = initialSessionCredits; // Current credits balance (global)
 
   // Silence auto-suspend (AssemblyAI bills connected time, silence included)
   const SILENCE_SUSPEND_MS = 45000;
@@ -1346,6 +1347,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
   // Update credits UI (helper function)
   function updateCreditsUI(remaining, initial) {
+    // Update global credits variable for access in modals and gates
+    credits = remaining;
+
     const creditsLabel = document.getElementById('Credits-Label');
     const creditsBar = document.getElementById('Credits-Bar');
 
