@@ -2032,7 +2032,7 @@ ${htmlContent}
     }
 
     // Calculate balance after 15 credits
-    const currentCredits = remainingCredits;
+    const currentCredits = credits; // FIX: was 'remainingCredits' which is undefined
     const afterCredits = Math.max(0, currentCredits - 15);
 
     // Create or update inline modal within Catalog-Categories
