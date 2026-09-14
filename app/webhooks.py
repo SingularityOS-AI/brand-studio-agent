@@ -257,19 +257,30 @@ async def _handle_checkout_session_completed(event):
         HTTPException: If metadata is missing or invalid
     """
     session = _get_event_attr(event, "data", "object")
-    metadata = _get_event_attr(session, "metadata")
     session_id = _get_event_attr(session, "id")
 
     print(f"[WEBHOOKS] Processing checkout.session.completed: {session_id}")
-    print(f"[WEBHOOKS] Metadata: {metadata}")
 
-    # 1. Extract and validate metadata
+    # 1. Extract and validate metadata - FIX: convert StripeObject to dict first
+    metadata = _get_event_attr(session, "metadata")
+    # Stripe metadata is a StripeObject or dict - convert to dict for .get() access
+    if hasattr(metadata, "to_dict"):
+        metadata_dict = metadata.to_dict()
+    elif isinstance(metadata, dict):
+        metadata_dict = metadata
+    else:
+        print(f"[WEBHOOKS] 🔥 ERROR: metadata is unexpected type: {type(metadata)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid metadata type: {type(metadata)}"
+        )
+
     print(f"[WEBHOOKS] ✅ Examining metadata from session {session_id}")
-    print(f"[WEBHOOKS] Full metadata dict: {metadata}")
-    
-    user_id = metadata.get("user_id")
-    package = metadata.get("package")
-    credits_str = metadata.get("credits")
+    print(f"[WEBHOOKS] Full metadata dict: {metadata_dict}")
+
+    user_id = metadata_dict.get("user_id")
+    package = metadata_dict.get("package")
+    credits_str = metadata_dict.get("credits")
 
     if not user_id or not package or not credits_str:
         print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO: Missing required metadata in session {session_id}")
@@ -419,9 +430,15 @@ async def _handle_payment_intent_succeeded(event):
     print(f"[WEBHOOKS] Processing payment_intent.succeeded: {payment_intent_id}")
     print(f"[WEBHOOKS] Metadata: {metadata}")
 
+    # Convert Stripe metadata to dict if needed (StripeObject vs dict incompatibility)
+    if hasattr(metadata, "to_dict"):
+        metadata_dict = metadata.to_dict()
+    else:
+        metadata_dict = metadata if isinstance(metadata, dict) else {}
+
     # 1. Check if this is an auto-reload payment
     # Accept both "auto_reload": "true" in metadata, or off_session=True in payment intent
-    is_auto_reload = metadata.get("auto_reload") == "true"
+    is_auto_reload = metadata_dict.get("auto_reload") == "true"
     off_session = _get_event_attr(payment_intent, "off_session")
 
     if not is_auto_reload and not off_session:
@@ -430,9 +447,9 @@ async def _handle_payment_intent_succeeded(event):
         return
 
     # 2. Extract and validate metadata
-    user_id = metadata.get("user_id")
-    package = metadata.get("package")
-    credits_str = metadata.get("credits")
+    user_id = metadata_dict.get("user_id")
+    package = metadata_dict.get("package")
+    credits_str = metadata_dict.get("credits")
 
     if not user_id or not package or not credits_str:
         print(f"[WEBHOOKS] ERROR: Missing required metadata in payment_intent {payment_intent_id}")
@@ -500,7 +517,13 @@ async def _handle_payment_intent_failed(event):
     payment_intent_id = _get_event_attr(payment_intent, "id")
     metadata = _get_event_attr(payment_intent, "metadata")
 
-    user_id = metadata.get("user_id")
+    # Convert Stripe metadata to dict if needed (StripeObject vs dict incompatibility)
+    if hasattr(metadata, "to_dict"):
+        metadata_dict = metadata.to_dict()
+    else:
+        metadata_dict = metadata if isinstance(metadata, dict) else {}
+
+    user_id = metadata_dict.get("user_id")
 
     if not user_id:
         print(f"[WEBHOOKS] ERROR: Missing user_id in payment_intent {payment_intent_id}")
