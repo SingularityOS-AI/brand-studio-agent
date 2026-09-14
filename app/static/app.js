@@ -2014,20 +2014,51 @@ ${htmlContent}
     }
   }
 
-  // Open credit gate modal
+  // Open credit gate inline modal (CEO specifies inline, not overlay)
   function openCreditGateModal() {
     // Prevent re-charging if catalog already generated
     if (catalogAlreadyGenerated) {
-      alert('Your catalog is already generated. You have 30 brand ideas ready to use.');
+      renderCatalogInPanel(currentCatalog);
       return;
     }
 
     // Calculate balance after 15 credits
     const currentCredits = remainingCredits;
     const afterCredits = Math.max(0, currentCredits - 15);
-    gateBalanceAfter.textContent = `${afterCredits} credits`;
 
-    creditGateOverlay.style.display = 'grid';
+    // Create or update inline modal within Catalog-Categories
+    let inlineModal = document.getElementById('catalogInlineModal');
+    if (!inlineModal) {
+      inlineModal = document.createElement('div');
+      inlineModal.id = 'catalogInlineModal';
+      inlineModal.className = 'catalog-inline-modal';
+    }
+
+    inlineModal.innerHTML = `
+      <div class="catalog-inline-content">
+        <h3 class="catalog-inline-title">🔓 Unlock Your Brand Ideas</h3>
+        <p class="catalog-inline-sub">Generate <strong>30 personalized brand ideas</strong> using your Brand Soul and content tools. Each idea includes demand signals and tailored research actions.</p>
+        <div class="catalog-inline-cost">
+          <span class="cost-label">Cost:</span>
+          <span class="cost-value">15 credits</span>
+          <span class="cost-cost-after">Balance after: ${afterCredits} credits</span>
+        </div>
+        <div class="catalog-inline-actions">
+          <button id="catalogInlineApprove" class="btn-primary">Generate & Unlock</button>
+          <button id="catalogInlineCancel" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    // Insert inline modal at the top of Catalog-Categories
+    const catalogCategories = document.getElementById('Catalog-Categories');
+    catalogCategories.insertBefore(inlineModal, catalogCategories.firstChild);
+
+    // Wire up buttons
+    document.getElementById('catalogInlineApprove').onclick = handleGateApprove;
+    document.getElementById('catalogInlineCancel').onclick = () => {
+      inlineModal.remove();
+    };
   }
 
   // Close credit gate modal
@@ -2037,7 +2068,11 @@ ${htmlContent}
 
   // Handle credit gate approval - generate catalog
   async function handleGateApprove() {
-    closeCreditGateModal();
+    // Close inline modal if exists
+    const inlineModal = document.getElementById('catalogInlineModal');
+    if (inlineModal) {
+      inlineModal.remove();
+    }
 
     try {
       // Show loading state
