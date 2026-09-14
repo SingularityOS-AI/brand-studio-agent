@@ -16,7 +16,6 @@ CRITICAL RULES (from plan.md):
 import os
 from typing import Literal
 from fastapi import APIRouter, Request, HTTPException, status
-from stripe.error import SignatureVerificationError
 import stripe
 
 from app.config import settings
@@ -187,7 +186,7 @@ async def stripe_webhook(request: Request):
             sig_header=signature_header,
             secret=settings.stripe_webhook_secret
         )
-    except (ValueError, SignatureVerificationError) as e:
+    except (ValueError, stripe.error.SignatureVerificationError) as e:
         print(f"[WEBHOOKS] Signature verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

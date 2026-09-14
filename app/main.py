@@ -65,10 +65,12 @@ async def get_config():
     Returns frontend configuration including Supabase settings and initial credits.
     This endpoint is public - it only contains the publishable key, not the service key.
     """
+    test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
     return JSONResponse(content={
         "supabase_url": settings.supabase_url,
         "supabase_publishable_key": settings.supabase_publishable_key,
         "initial_session_credits": settings.initial_session_credits,
+        "test_mode": test_mode,
     })
 
 

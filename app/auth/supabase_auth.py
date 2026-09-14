@@ -59,12 +59,23 @@ class SupabaseAuth:
         # Check TEST_MODE dynamically - this allows tests to set TEST_MODE
         # after the singleton is created
         in_test_mode = os.environ.get("TEST_MODE", "false").lower() == "true"
-        use_legacy_hmac = self._force_legacy_hmac or in_test_mode
-        legacy_secret = self._legacy_secret or os.environ.get("SUPABASE_JWT_SECRET", "") or "test_jwt_secret_for_testing_only_32bytes"
 
         # Remove "Bearer " prefix if present
         if token.startswith("Bearer "):
             token = token[7:]
+
+        # In TEST_MODE, accept a special bypass token for local development
+        if in_test_mode and token == "test-mode-bypass":
+            # Return a mock payload with a fake user_id for local testing
+            return {
+                "sub": "test-user-local-development",
+                "aud": "authenticated",
+                "iss": f"{self.supabase_url}/auth/v1",
+                "exp": 9999999999,  # Never expires in test mode
+            }
+
+        use_legacy_hmac = self._force_legacy_hmac or in_test_mode
+        legacy_secret = self._legacy_secret or os.environ.get("SUPABASE_JWT_SECRET", "") or "test_jwt_secret_for_testing_only_32bytes"
 
         try:
             if use_legacy_hmac:
