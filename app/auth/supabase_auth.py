@@ -164,6 +164,37 @@ class SupabaseAuth:
         audience = self.get_audience(token)
         return audience == "authenticated"
 
+    def get_user_email(self, token: str) -> str:
+        """
+        Extract email from a valid JWT token.
+        In TEST_MODE, returns a mock email for testing.
+
+        Args:
+            token: The JWT token string
+
+        Returns:
+            User email address
+
+        Raises:
+            HTTPException: If token is invalid or doesn't contain email
+        """
+        payload = self.verify_token(token)
+
+        # In TEST_MODE with bypass token, return mock email
+        in_test_mode = os.environ.get("TEST_MODE", "false").lower() == "true"
+        if in_test_mode and payload.get("sub") == "test-user-local-development":
+            return "test@local.dev"
+
+        # Extract email from payload
+        email = payload.get("email")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token does not contain email"
+            )
+
+        return email
+
 
 # Singleton instance (production mode: uses ES256 via JWKS)
 supabase_auth = SupabaseAuth()

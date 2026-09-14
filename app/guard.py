@@ -297,6 +297,60 @@ class Guard:
             if token in self._sessions:
                 del self._sessions[token]
 
+    def add_credits(self, user_id: str, credits: int, source: str = "webhook") -> bool:
+        """
+        Add credits to the most recent session for a user (for Stripe webhooks).
+
+        Args:
+            user_id: User UUID from Supabase Auth
+            credits: Amount of credits to add
+            source: Source identifier (e.g., "checkout:starter", "auto_reload:pro") for logging
+
+        Returns:
+            True if credits were added, False if session not found
+        """
+        if self._use_supabase:
+            # Get user's most recent session
+            result = self._supabase.table("sessions") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+
+            if not result.data:
+                return False
+
+            token = result.data[0]["token"]
+            current_credits = result.data[0].get("credits", 0)
+
+            # Update credits in Supabase
+            self._supabase.table("sessions") \
+                .update({"credits": current_credits + credits}) \
+                .eq("token", token) \
+                .execute()
+
+            print(f"[GUARD] Added {credits} credits to user {user_id} (source: {source}), new total: {current_credits + credits}")
+            return True
+        else:
+            # In-memory: find most recent session for user
+            token = None
+            current_credits = 0
+            latest_created = 0
+
+            for t, session in self._sessions.items():
+                if session.get("user_id") == user_id and session.get("created_at", 0) > latest_created:
+                    token = t
+                    current_credits = session.get("credits", 0)
+                    latest_created = session.get("created_at", 0)
+
+            if not token:
+                return False
+
+            self._sessions[token]["credits"] = current_credits + credits
+            print(f"[GUARD] [MEM] Added {credits} credits to user {user_id} (source: {source}), new total: {current_credits + credits}")
+            return True
+
     # Voice session tracking methods
 
     def start_voice_session(self, session_token: str) -> None:

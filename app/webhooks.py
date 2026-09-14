@@ -22,6 +22,9 @@ from app.config import settings
 from app.billing import CREDIT_PACKAGES
 from app.guard import guard
 
+# Detect TEST_MODE for webhook signature bypass
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+
 
 def _get_event_attr(event, *path):
     """
@@ -165,33 +168,58 @@ async def stripe_webhook(request: Request):
     # The signature is in the 'stripe-signature' header
     signature_header = request.headers.get("stripe-signature")
 
-    if not signature_header:
-        print("[WEBHOOKS] ERROR: Missing stripe-signature header")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing stripe-signature header"
-        )
+    # In TEST_MODE, bypass signature verification for local testing
+    if TEST_MODE:
+        print("[WEBHOOKS] TEST_MODE: Skipping signature verification")
+        if not signature_header:
+            print("[WEBHOOKS] WARNING: No stripe-signature header provided (bypassed for testing)")
+    else:
+        if not signature_header:
+            print("[WEBHOOKS] ERROR: Missing stripe-signature header")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing stripe-signature header"
+            )
 
-    if not settings.stripe_webhook_secret:
-        print("[WEBHOOKS] ERROR: STRIPE_WEBHOOK_SECRET not configured")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Stripe webhook secret not configured"
-        )
+    # In TEST_MODE, bypass full signature verification
+    if TEST_MODE:
+        print("[WEBHOOKS] TEST_MODE: Bypassing signature verification")
+        try:
+            # Parse JSON directly without signature verification
+            event_data = await request.json()
+            event = stripe.util.convert_to_stripe_object(
+                event_data,
+                stripe.api_key,
+                None
+            )
+        except Exception as e:
+            print(f"[WEBHOOKS] TEST_MODE: Failed to parse event: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to parse webhook event: {e}"
+            )
+    else:
+        # Production: verify signature
+        if not settings.stripe_webhook_secret:
+            print("[WEBHOOKS] ERROR: STRIPE_WEBHOOK_SECRET not configured")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Stripe webhook secret not configured"
+            )
 
-    try:
-        # Verify signature using raw body (not parsed JSON)
-        event = stripe.Webhook.construct_event(
-            payload=raw_body,
-            sig_header=signature_header,
-            secret=settings.stripe_webhook_secret
-        )
-    except (ValueError, stripe.error.SignatureVerificationError) as e:
-        print(f"[WEBHOOKS] Signature verification failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook signature"
-        )
+        try:
+            # Verify signature using raw body (not parsed JSON)
+            event = stripe.Webhook.construct_event(
+                payload=raw_body,
+                sig_header=signature_header,
+                secret=settings.stripe_webhook_secret
+            )
+        except (ValueError, stripe.error.SignatureVerificationError) as e:
+            print(f"[WEBHOOKS] Signature verification failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook signature"
+            )
 
     # 3. Extract event metadata for logging
     event_id = _get_event_attr(event, "id")
@@ -292,24 +320,10 @@ async def _handle_checkout_session_completed(event):
 
     try:
         # Use the accrue_credits SQL function created in migration 004
-        # This handles comparing 0 checks and ensures safety
-        if guard._use_supabase and guard._supabase is not None:
-            print(f"[WEBHOOKS] Accruing {actual_credits} credits to user {user_id}")
-
-            # Call the accrue_credits function
-            result = guard._supabase.rpc("accrue_credits", {
-                "p_user_id": user_id,
-                "p_credits": actual_credits,
-                "p_source": f"checkout:{package}"
-            }).execute()
-
-            print(f"[WEBHOOKS] Accrue result: {result}")
-        else:
-            # In-memory for testing
-            session_token = guard.get_or_create_user_session(user_id)
-            user_session = guard.get_session(session_token)
-            user_session["credits"] = user_session.get("credits", 0) + actual_credits
-            print(f"[WEBHOOKS] [MEM] Accrued {actual_credits} credits to user {user_id}, new total: {user_session['credits']}")
+        # Use centralized credit accrual method (works with both Supabase and in-memory)
+        print(f"[WEBHOOKS] Accruing {actual_credits} credits to user {user_id}")
+        guard.add_credits(user_id, actual_credits, source=f"checkout:{package}")
+        print(f"[WEBHOOKS] Credit accrual completed for user {user_id}")
 
     except Exception as e:
         print(f"[WEBHOOKS] ERROR: Failed to accrue credits: {e}")
@@ -433,22 +447,10 @@ async def _handle_payment_intent_succeeded(event):
     from app.guard import guard
 
     try:
-        if guard._use_supabase and guard._supabase is not None:
-            print(f"[WEBHOOKS] Accruing {actual_credits} credits to user {user_id} (auto-reload)")
-
-            result = guard._supabase.rpc("accrue_credits", {
-                "p_user_id": user_id,
-                "p_credits": actual_credits,
-                "p_source": f"auto_reload:{package}"
-            }).execute()
-
-            print(f"[WEBHOOKS] Accrue result: {result}")
-        else:
-            # In-memory for testing
-            session_token = guard.get_or_create_user_session(user_id)
-            user_session = guard.get_session(session_token)
-            user_session["credits"] = user_session.get("credits", 0) + actual_credits
-            print(f"[WEBHOOKS] [MEM] Accrued {actual_credits} credits to user {user_id} (auto-reload), new total: {user_session['credits']}")
+        # Use centralized credit accrual method (works with both Supabase and in-memory)
+        print(f"[WEBHOOKS] Accruing {actual_credits} credits to user {user_id} (auto-reload)")
+        guard.add_credits(user_id, actual_credits, source=f"auto_reload:{package}")
+        print(f"[WEBHOOKS] Credit accrual completed for user {user_id}")
 
     except Exception as e:
         print(f"[WEBHOOKS] ERROR: Failed to accrue credits: {e}")

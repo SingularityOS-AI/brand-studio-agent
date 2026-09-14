@@ -1296,12 +1296,45 @@ Always respond in English. Keep your responses conversational and engaging.`;
     paywallCloseBtn.addEventListener('click', hidePaywall);
   }
 
-  // Handle plan selection buttons (placeholder - not enabled yet)
+  // Handle plan selection buttons - connect to Stripe checkout
   document.querySelectorAll('.plan-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.preventDefault();
       const plan = btn.dataset.plan;
-      alert(`Payments are not enabled yet. The ${plan} plan (${btn.textContent.trim()}) will be available when Stripe integration is added.`);
+
+      try {
+        // Disable button and show loading state
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = 'Processing...';
+
+        // Call billing checkout endpoint
+        const response = await authenticatedFetch('/api/billing/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ package: plan })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Failed to create checkout session');
+        }
+
+        // Redirect to Stripe checkout
+        console.log(`[Billing] Redirecting to Stripe checkout for plan: ${plan}`);
+        window.location.href = data.url;
+
+      } catch (error) {
+        console.error('[Billing] Checkout error:', error);
+        alert(`Unable to process payment: ${error.message}`);
+      } finally {
+        // Re-enable button
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
     });
   });
 
@@ -2376,10 +2409,27 @@ ${htmlContent}
 
   console.log('[Columns] Resizable columns initialized');
 
+  // Handle Stripe checkout callback
+  async function handleCheckoutCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const checkoutStatus = urlParams.get('checkout');
+
+    if (checkoutStatus === 'success') {
+      console.log('[Billing] Checkout successful - refreshing session...');
+      alert('Payment successful! Your credits have been added.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      window.location.reload();
+    } else if (checkoutStatus === 'cancelled') {
+      console.log('[Billing] Checkout cancelled by user');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
   // Initialize on page load
   document.addEventListener('DOMContentLoaded', async () => {
     await initSupabase();
     await handleAuthCallback();
+    await handleCheckoutCallback();
   });
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');
