@@ -2406,10 +2406,35 @@ ${htmlContent}
     const checkoutStatus = urlParams.get('checkout');
 
     if (checkoutStatus === 'success') {
-      console.log('[Billing] Checkout successful - refreshing session...');
+      console.log('[Billing] 💳 Checkout successful - refreshing credits in-place...');
+      console.log('[Billing] 💳 Checking existing Supabase session...');
+      
+      // CRITICAL FIX: Force Supabase to check existing session from localStorage
+      // When returning from Stripe redirect, Supabase may think we're signed out
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('[Billing] ❌ Error checking session:', error);
+      } else if (session) {
+        console.log('[Billing] ✅ Session still valid, restoring user context');
+        jwtToken = session.access_token;
+        user = session.user;
+        // Force UI back to main app if it was logged out by auth change callback
+        if (document.getElementById('login-container').style.display !== 'none') {
+          showMainApp();
+        }
+      } else {
+        console.warn('[Billing] ⚠️ No session found - user may need to log in again');
+        alert('Payment successful! Please log in again to see your credits.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      }
+      
       alert('Payment successful! Your credits have been added.');
+      // Clear URL params to avoid re-triggering
       window.history.replaceState({}, document.title, window.location.pathname);
-      window.location.reload();
+      // Refresh credits in-place without full page reload
+      await fetchCredits();
     } else if (checkoutStatus === 'cancelled') {
       console.log('[Billing] Checkout cancelled by user');
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -2421,6 +2446,12 @@ ${htmlContent}
     await initSupabase();
     await handleAuthCallback();
     await handleCheckoutCallback();
+
+    // Wire up logout button
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', logout);
+    }
   });
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');

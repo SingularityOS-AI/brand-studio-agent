@@ -16,6 +16,7 @@ CRITICAL RULES (from plan.md):
 from typing import Literal
 from fastapi import APIRouter, Request, HTTPException, status
 import stripe
+import traceback
 
 from app.config import settings
 from app.billing import CREDIT_PACKAGES
@@ -169,11 +170,19 @@ async def stripe_webhook(request: Request):
             sig_header=signature_header,
             secret=settings.stripe_webhook_secret
         )
-    except (ValueError, stripe.error.SignatureVerificationError) as e:
-        print(f"[WEBHOOKS] Signature verification failed: {e}")
+    except Exception as e:
+        # DEBUG: Log full traceback for signature failures
+        print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO - Signature verification FAILED")
+        print(f"[WEBHOOKS] Error type: {type(e).__name__}")
+        print(f"[WEBHOOKS] Error message: {str(e)}")
+        print(f"[WEBHOOKS] Full traceback:\n{traceback.format_exc()}")
+        print(f"[WEBHOOKS] Signature header (first 50 chars): {signature_header[:50] if signature_header else 'None'}...")
+        print(f"[WEBHOOKS] Raw body length: {len(raw_body)} bytes")
+        print(f"[WEBHOOKS] Secret (first 20 chars): {settings.stripe_webhook_secret[:20]}...")
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook signature"
+            detail=f"Invalid webhook signature: {str(e)}"
         )
 
     # 3. Extract event metadata for logging
@@ -194,6 +203,7 @@ async def stripe_webhook(request: Request):
     # 5. Route to appropriate handler based on event type
     try:
         if event_type == "checkout.session.completed":
+            print(f"[WEBHOOKS] 🎯 Routing to checkout.session.completed handler")
             await _handle_checkout_session_completed(event)
         elif event_type == "payment_intent.succeeded":
             await _handle_payment_intent_succeeded(event)
@@ -208,7 +218,11 @@ async def stripe_webhook(request: Request):
             # Still return 200 OK because event type might be for future features
             return {"status": "success", "message": f"Event type {event_type} not handled"}
     except Exception as e:
-        print(f"[WEBHOOKS] ERROR processing event {event_id}: {e}")
+        # DEBUG: Full traceback for handler errors
+        print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO processing event {event_id}")
+        print(f"[WEBHOOKS] Error type: {type(e).__name__}")
+        print(f"[WEBHOOKS] Error message: {str(e)}")
+        print(f"[WEBHOOKS] Full traceback:\n{traceback.format_exc()}")
         # Return 500 to trigger Stripe retry (up to 3 days)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -250,38 +264,65 @@ async def _handle_checkout_session_completed(event):
     print(f"[WEBHOOKS] Metadata: {metadata}")
 
     # 1. Extract and validate metadata
+    print(f"[WEBHOOKS] ✅ Examining metadata from session {session_id}")
+    print(f"[WEBHOOKS] Full metadata dict: {metadata}")
+    
     user_id = metadata.get("user_id")
     package = metadata.get("package")
     credits_str = metadata.get("credits")
 
     if not user_id or not package or not credits_str:
-        print(f"[WEBHOOKS] ERROR: Missing required metadata in session {session_id}")
-        return
+        print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO: Missing required metadata in session {session_id}")
+        print(f"[WEBHOOKS] user_id: {user_id}")
+        print(f"[WEBHOOKS] package: {package}")
+        print(f"[WEBHOOKS] credits: {credits_str}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Missing required metadata: user_id={user_id}, package={package}, credits={credits_str}"
+        )
 
     # 2. Validate package and credits
+    print(f"[WEBHOOKS] Validating package: {package}, credits: {credits_str}")
+    
     if package not in CREDIT_PACKAGES:
-        print(f"[WEBHOOKS] ERROR: Invalid package '{package}' in session {session_id}")
-        return
+        print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO: Invalid package '{package}' in session {session_id}")
+        print(f"[WEBHOOKS] Available packages: {list(CREDIT_PACKAGES.keys())}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid package '{package}'. Available: {list(CREDIT_PACKAGES.keys())}"
+        )
 
     expected_credits = CREDIT_PACKAGES[package]["credits"]
     actual_credits = int(credits_str)
 
     if actual_credits != expected_credits:
-        print(f"[WEBHOOKS] ERROR: Credits mismatch for package '{package}': expected {expected_credits}, got {actual_credits}")
-        return
+        print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO: Credits mismatch for package '{package}': expected {expected_credits}, got {actual_credits}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Credits mismatch: expected {expected_credits}, got {actual_credits}"
+        )
+    
+    print(f"[WEBHOOKS] ✅ Package validation passed: {package} = {actual_credits} credits")
 
     # 3. Get or create user session and accrue credits
     from app.guard import guard
 
+    print(f"[WEBHOOKS] 🎯 Attempting to credit user_id='{user_id}' with {actual_credits} credits")
+    
     try:
         # Use the accrue_credits SQL function created in migration 004
         # Use centralized credit accrual method (works with both Supabase and in-memory)
-        print(f"[WEBHOOKS] Accruing {actual_credits} credits to user {user_id}")
+        print(f"[WEBHOOKS] Calling guard.add_credits(user_id='{user_id}', amount={actual_credits}, source='checkout:{package}')")
+        credits_before = guard.get_credits(user_id)
         guard.add_credits(user_id, actual_credits, source=f"checkout:{package}")
-        print(f"[WEBHOOKS] Credit accrual completed for user {user_id}")
+        credits_after = guard.get_credits(user_id)
+        print(f"[WEBHOOKS] ✅ Credit accrual SUCCESS: {credits_before} → {credits_after} for user {user_id}")
 
     except Exception as e:
-        print(f"[WEBHOOKS] ERROR: Failed to accrue credits: {e}")
+        print(f"[WEBHOOKS] 🔥 ERROR CRÍTICO: Failed to accrue credits")
+        print(f"[WEBHOOKS] Error type: {type(e).__name__}")
+        print(f"[WEBHOOKS] Error message: {str(e)}")
+        print(f"[WEBHOOKS] Full traceback:\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to accrue credits: {str(e)}"
@@ -289,20 +330,31 @@ async def _handle_checkout_session_completed(event):
 
     # 4. Save payment method ID for future auto-reload
     # The SetupIntent attached to the session creates a payment method
-    payment_intent_id = session.get("payment_intent")
+    payment_intent_id = _get_event_attr(session, "payment_intent")
+    print(f"[WEBHOOKS] Payment意图ID: {payment_intent_id} (type: {type(payment_intent_id).__name__})")
+    
+    # payment_intent can be a string (ID) or a Stripe object
     if payment_intent_id:
         try:
-            payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-            payment_method_id = payment_intent.get("payment_method")
+            # Convert to ID if it's a Stripe object
+            if isinstance(payment_intent_id, str):
+                pi_id = payment_intent_id
+            else:
+                pi_id = _get_event_attr(payment_intent_id, "id")
+                
+            print(f"[WEBHOOKS] Retrieving PaymentIntent: {pi_id}")
+            payment_intent = stripe.PaymentIntent.retrieve(pi_id)
+            payment_method_id = _get_event_attr(payment_intent, "payment_method")
 
             if payment_method_id:
-                print(f"[WEBHOOKS] Saving default_payment_method_id {payment_method_id} for user {user_id}")
+                print(f"[WEBHOOKS] 🎯 Saving default_payment_method_id {payment_method_id} for user {user_id}")
 
                 # Update sessions table with payment method ID
                 if guard._use_supabase and guard._supabase is not None:
-                    guard._supabase.table("sessions").update({
+                    result = guard._supabase.table("sessions").update({
                         "default_payment_method_id": payment_method_id
                     }).eq("user_id", user_id).execute()
+                    print(f"[WEBHOOKS] ✅ Supabase update result: {result}")
                 else:
                     # In-memory for testing
                     session_token = guard.get_or_create_user_session(user_id)
