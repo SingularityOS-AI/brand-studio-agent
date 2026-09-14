@@ -2271,7 +2271,7 @@ ${htmlContent}
       });
 
       const data = await response.json();
-      const body = 'detail' in data ? data.detail : data;
+      const body = data; // Mantener el objeto JSON completo
 
       if (!response.ok) {
         // Handle errors
