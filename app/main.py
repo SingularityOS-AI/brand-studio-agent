@@ -599,16 +599,17 @@ async def generate_catalog_endpoint(request: Request):
 
     This endpoint:
     1. Validates JWT authentication
-    2. Rate limits by IP
-    3. Deducts credits (15 credits for catalog generation)
-    4. Generates 30 content ideas in 5 master categories
-    5. Validates each idea against NicheResearch demand signals
-    6. Caches result by hash to prevent duplicate work
-    7. Sets gate_passed=True only when valid ideas exist
+    2. Deducts credits (15 credits for catalog generation)
+    3. Generates 30 content ideas in 5 master categories
+    4. Validates each idea against NicheResearch demand signals
+    5. Caches result by hash to prevent duplicate work
+    6. Sets gate_passed=True only when valid ideas exist
 
-    Protected by rate limiting and spend_guard.
+    Protected by credits (no rate limit).
     Requires JWT authentication.
-    Requires BrandBrain to be complete (9 sections propuesto/confirmado).
+    REQUIRES:
+    - BrandBrain to be complete (9 sections confirmado/completado)
+    - Brand Soul to be generated (prerequisite for catalog)
     """
     # 1. Validate JWT
     authorization = request.headers.get("authorization")

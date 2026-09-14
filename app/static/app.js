@@ -1921,6 +1921,21 @@ ${htmlContent}
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
 
+  // Helper to check if all ideas are reviewed and enable/disable Lock button
+  function checkAndEnableLockButton() {
+    const lockBtn = document.getElementById('Catalog-LockBtn');
+    if (!lockBtn) return;
+
+    const pendingIdeas = document.querySelectorAll('.idea--pending');
+    if (pendingIdeas.length === 0) {
+      lockBtn.disabled = false;
+      lockBtn.textContent = 'Lock Catalog (All Reviewed)';
+    } else {
+      lockBtn.disabled = true;
+      lockBtn.textContent = `Lock Catalog (${pendingIdeas.length} pending)`;
+    }
+  }
+
   // Helper to count ready confirmed sections
   function getReadySectionsCount(sections) {
     if (!sections || !Array.isArray(sections)) return 0;
@@ -1992,7 +2007,8 @@ ${htmlContent}
 
       catIdeas.forEach(idea => {
         const ideaDiv = document.createElement('div');
-        ideaDiv.className = 'idea';
+        ideaDiv.id = `idea-${idea.id}`;
+        ideaDiv.className = `idea idea--${idea.status || 'pending'}`;
         ideaDiv.innerHTML = `
           <span class="ideatitle">${idea.title}</span>
           <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
@@ -2002,11 +2018,124 @@ ${htmlContent}
             <button class="research-btn" data-research="youtube" data-idea="${idea.title}" title="YouTube API">YouTube</button>
             <button class="research-btn" data-research="trends" data-idea="${idea.title}" title="Google Trends">Trends</button>
           </div>
+          <div class="idea-actions">
+            <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">✓</button>
+            <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">✗</button>
+          </div>
         `;
         catDiv.appendChild(ideaDiv);
       });
 
       catalogCategories.appendChild(catDiv);
+    }
+
+    // Add event listeners for approve/reject buttons
+    document.querySelectorAll('.btn-approve').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaId = btn.dataset.ideaId;
+
+        try {
+          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/accept`, {
+            method: 'POST'
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            alert(`Failed to approve idea: ${data.error || data.detail || response.status}`);
+            return;
+          }
+
+          // Update UI to show approved state
+          const ideaDiv = document.getElementById(`idea-${ideaId}`);
+          if (ideaDiv) {
+            ideaDiv.classList.remove('idea--pending', 'idea--rejected');
+            ideaDiv.classList.add('idea--approved');
+          }
+
+          // Update Lock Catalog button state if all ideas reviewed
+          checkAndEnableLockButton();
+
+        } catch (error) {
+          console.error('Approve idea error:', error);
+          alert(`Failed to approve idea: ${error.message}`);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-reject').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaId = btn.dataset.ideaId;
+
+        try {
+          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/discard`, {
+            method: 'POST'
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            alert(`Failed to discard idea: ${data.error || data.detail || response.status}`);
+            return;
+          }
+
+          // Update UI to show rejected state
+          const ideaDiv = document.getElementById(`idea-${ideaId}`);
+          if (ideaDiv) {
+            ideaDiv.classList.remove('idea--pending', 'idea--approved');
+            ideaDiv.classList.add('idea--rejected');
+          }
+
+          // Update Lock Catalog button state if all ideas reviewed
+          checkAndEnableLockButton();
+
+        } catch (error) {
+          console.error('Discard idea error:', error);
+          alert(`Failed to discard idea: ${error.message}`);
+        }
+      });
+    });
+
+    // Add event listeners for research buttons
+    document.querySelectorAll('.research-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaTitle = btn.dataset.idea;
+        const researchType = btn.dataset.research;
+
+        alert(`Research action clicked: ${researchType} for idea "${ideaTitle}"\n\nThis will integrate with /api/catalog/investigate API.\n(MVP: Display alert placeholder)`);
+      });
+    });
+
+    // Add event listener for Lock Catalog button
+    const lockCatalogBtn = document.getElementById('Catalog-LockBtn');
+    if (lockCatalogBtn) {
+      lockCatalogBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+
+        try {
+          const response = await authenticatedFetch('/api/catalog/lock', {
+            method: 'POST'
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            alert(`Failed to lock catalog: ${data.error || data.detail || response.status}`);
+            return;
+          }
+
+          alert('Catalog locked successfully! Moving to script generation phase...');
+          // TODO: Navigate to script generation phase
+
+        } catch (error) {
+          console.error('Lock catalog error:', error);
+          alert(`Failed to lock catalog: ${error.message}`);
+        }
+      });
+    }
     });
 
     // Update gate button state
@@ -2104,6 +2233,13 @@ ${htmlContent}
       if (!response.ok) {
         // Handle errors
         if (response.status === 400 && body.error) {
+          // Check if Brand Soul is missing
+          if (body.error.includes('Brand Soul')) {
+            alert('Brand Soul is a prerequisite for generating your catalog. Please generate your Brand Soul first by clicking the "Brand Soul" button above the catalog section.');
+            return;
+          }
+
+          // Check for incomplete brand brain
           const match = body.error.match(/(\d+)\s*of\s*9/);
           if (match) {
             const confirmed = parseInt(match[1]);

@@ -319,35 +319,67 @@ def _determine_approach(diagnostico: Dict[str, Any]) -> Literal["experto", "cura
         return "experto" if exp_score >= cur_score else "curador"
 
 
-def _extract_niche(icp: Dict[str, Any], charco: Dict[str, Any]) -> str:
+def _extract_niche(icp: Dict[str, Any], charco: Dict[str, Any], diagnostico: Dict[str, Any]) -> str:
     """
-    Extrae y limpia el nicho de ICP y charco.
+    Extrae y limpia el nicho de ICP, charco y diagnostico.
 
     Args:
-        icp: Contenido de la sección 'icp'
-        charco: Contenido de la sección 'charco'
+        icp: Contenido de la sección 'icp' (campos: quien_decide, tamano_empresa, etc.)
+        charco: Contenido de la sección 'charco' (campo: problema)
+        diagnostico: Contenido de la sección 'diagnostico' (campo: etapa)
 
     Returns:
         String con el nicho limpio para búsqueda
     """
-    # Intentar extraer de ICP primero
-    niche = icp.get("nicho", "")
+    niche = ""
 
+    # Estrategia 1: Intentar extraer de ICP usando campos disponibles
+    # El Cliente Ideal (quien_decide) suele contener suficiente contexto
+    if icp.get("quien_decide"):
+        niche = icp["quien_decide"]
+        print(f"[NICHE] Extracted from ICP.quien_decide: {niche[:50]}...")
+
+    # Estrategia 2: Si el ICP no dio suficiente contexto, usar el charco.problema
+    if not niche or len(niche.split()) < 4:
+        charco_problema = charco.get("problema", "")
+        if charco_problema:
+            # Extraer las primeras 3-4 palabras significativas del problema
+            # Ejemplo: "Profesionales médicos que luchan con liderazgo" -> "Profesionales médicos liderazgo"
+            words = charco_problema.split()
+            STOPWORDS = ["el", "la", "los", "las", "un", "una", "de", "en", "a", "por", "para", "con", "que", "son", "sus", "tienen", "están"]
+            meaningful_words = [w for w in words[:10] if w.lower() not in STOPWORDS and len(w) > 2]
+            if len(meaningful_words) >= 3:
+                niche = " ".join(meaningful_words[:5])  # Tomar hasta 5 palabras
+                print(f"[NICHE] Extracted from charco.problema: {niche[:50]}...")
+
+    # Estrategia 3: Fallback a diagnostico.etapa si todo lo demás falla
+    if not niche or len(niche.split()) < 3:
+        etapa = diagnostico.get("etapa", "")
+        if etapa:
+            # La etapa suele contener el nicho
+            words = etapa.split()
+            STOPWORDS = ["el", "la", "los", "las", "un", "una", "de", "en", "a", "por", "para", "con", "que", "y", "o", "pero"]
+            meaningful_words = [w for w in words[:15] if w.lower() not in STOPWORDS and len(w) > 2]
+            if len(meaningful_words) >= 3:
+                niche = " ".join(meaningful_words[:6])
+                print(f"[NICHE] Extracted from diagnostico.etapa: {niche[:50]}...")
+
+    # LIMPIEZA FINAL
     if not niche:
-        # Si no, de charco
-        charco_str = charco.get("problema", "")
-        # Buscar "Niche:" o "Nich:" en el texto
-        for keyword in ["Niche:", "Nich:", "nicho:", "Nich o"]:
-            if keyword in charco_str:
-                niche = charco_str.split(keyword)[1].strip().split(".")[0]
-                break
+        print("[NICHE] ERROR: Could not extract niche from any source")
+        print(f"[NICHE] ICP keys: {list(icp.keys())}")
+        print(f"[NICHE] Charco keys: {list(charco.keys())}")
+        print(f"[NICHE] Diagnostico keys: {list(diagnostico.keys())}")
+        return ""
 
-    # Limpiar stopwords y redundancias
-    stopwords = ["para", "de", "el", "la", "los", "las", "en", "a"]
-    words = [w for w in niche.split() if w.lower() not in stopwords]
-    cleaned = " ".join(words)
+    # Limpiar caracteres especiales y puntuación al final
+    cleaned = niche.rstrip(".,;!?:").strip()
 
-    return cleaned[:100]  # Limitar a 100 caracteres
+    # Limitar a 80 caracteres para búsqueda eficiente
+    cleaned = cleaned[:80]
+
+    print(f"[NICHE] Final cleaned niche: '{cleaned}' (length: {len(cleaned)})")
+    return cleaned
 
 
 # =============================================================================
@@ -540,16 +572,38 @@ def _extract_ideas_from_text(
     return ideas
 
 
+def _check_brand_soul_generated(session_id: str) -> bool:
+    """
+    Verifica si Brand Soul ha sido generado y cacheado para la sesión.
+
+    Args:
+        session_id: ID de sesión único
+
+    Returns:
+        True si Brand Soul existe en cache, False en otro caso
+    """
+    from app.tools.brand_brain.store import get_brand_brain
+    from app.tools.brand_soul.generator import _check_cache
+
+    brain = get_brand_brain(session_id)
+    if not brain:
+        return False
+
+    cached_html = _check_cache(brain, session_id)
+    return cached_html is not None
+
+
 async def generate_catalog(session_id: str) -> Catalog:
     """
     Genera el catálogo de 30 ideas para la sesión.
 
     Flujo:
     1. Obtiene BrandBrain lockeado
-    2. Extrae nicho y enfoque
-    3. Llama a research_niche() para obtener señales de demanda
-    4. Genera ideas distribuidas en 5 categorías maestras
-    5. Valida gate (30 ideas válidas con señales reales)
+    2. Verifica que Brand Soul exista (prerequisito para catálogo)
+    3. Extrae nicho y enfoque
+    4. Llama a research_niche() para obtener señales de demanda
+    5. Genera ideas distribuidas en 5 categorías maestras
+    6. Valida gate (30 ideas válidas con señales reales)
 
     Args:
         session_id: ID de sesión único
@@ -559,7 +613,7 @@ async def generate_catalog(session_id: str) -> Catalog:
 
     Raises:
         IncompleteBrainError: Si BrandBrain no está completado (secciones sin confirmar)
-        ValueError: Si falta información clave en BrandBrain
+        ValueError: Si falta información clave en BrandBrain o Brand Soul no existe
         NicheReportNotFoundError: Si no se pudo obtener un NicheResearch para el nicho
         Exception: Si hay error en la generación o research_niche()
     """
@@ -577,6 +631,13 @@ async def generate_catalog(session_id: str) -> Catalog:
                 f"tiene estado '{section.status}'"
             )
 
+    # 2. Verificar que Brand Soul exista (REQUISITO OBLIGATORIO)
+    if not _check_brand_soul_generated(session_id):
+        raise ValueError(
+            "Brand Soul es un prerequisito para generar el catálogo. "
+            "Primero genera tu Brand Soul para continuar."
+        )
+
     # 2. Extraer información clave
     diagnostico = brain.get_section("diagnostico").content if brain.get_section("diagnostico") else {}
     icp = brain.get_section("icp").content if brain.get_section("icp") else {}
@@ -592,7 +653,7 @@ async def generate_catalog(session_id: str) -> Catalog:
     approach = _determine_approach(diagnostico)
 
     # Extraer nicho
-    niche = _extract_niche(icp, charco)
+    niche = _extract_niche(icp, charco, diagnostico)
 
     if not niche or len(niche) < 3:
         raise ValueError("No se pudo extraer un nicho válido de BrandBrain")
@@ -871,7 +932,7 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     icp = brain.get_section("icp").content if brain else {}
     charco = brain.get_section("charco").content if brain else {}
     approach = _determine_approach(diagnostico)
-    niche = _extract_niche(icp, charco)
+    niche = _extract_niche(icp, charco, diagnostico)
 
     niche_research = await research_niche(niche)
 
