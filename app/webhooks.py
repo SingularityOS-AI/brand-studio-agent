@@ -439,7 +439,15 @@ async def _handle_payment_intent_succeeded(event):
     # 1. Check if this is an auto-reload payment
     # Accept both "auto_reload": "true" in metadata, or off_session=True in payment intent
     is_auto_reload = metadata_dict.get("auto_reload") == "true"
-    off_session = _get_event_attr(payment_intent, "off_session")
+    
+    # FIX: Convert payment_intent StripeObject to dict before reading off_session attribute
+    # StripeObject doesn't support getattr with fallback like Python dict
+    if hasattr(payment_intent, "to_dict"):
+        payment_intent_dict = payment_intent.to_dict()
+    else:
+        payment_intent_dict = payment_intent if isinstance(payment_intent, dict) else {}
+    
+    off_session = payment_intent_dict.get("off_session", False)
 
     if not is_auto_reload and not off_session:
         # This is a manual payment (checkout.session will handle it)

@@ -287,6 +287,41 @@ class Guard:
             if token in self._sessions:
                 del self._sessions[token]
 
+    def get_credits(self, user_id: str) -> int:
+        """
+        Get current credits for a user's most recent session.
+
+        Args:
+            user_id: User UUID from Supabase Auth
+
+        Returns:
+            Current credit balance (0 if session not found)
+        """
+        if self._use_supabase:
+            # Get user's most recent session from Supabase
+            result = self._supabase.table("sessions") \
+                .select("credits") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+
+            if not result.data:
+                return 0
+
+            return result.data[0].get("credits", 0)
+        else:
+            # In-memory: find most recent session for user
+            latest_created = 0
+            current_credits = 0
+
+            for session in self._sessions.values():
+                if session.get("user_id") == user_id and session.get("created_at", 0) > latest_created:
+                    current_credits = session.get("credits", 0)
+                    latest_created = session.get("created_at", 0)
+
+            return current_credits
+
     def add_credits(self, user_id: str, credits: int, source: str = "webhook") -> bool:
         """
         Add credits to the most recent session for a user (for Stripe webhooks).
