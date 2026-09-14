@@ -63,11 +63,20 @@ class Guard:
             # In-memory session storage
             self._sessions: Dict[str, dict] ={}
 
-    def check_rate_limit(self, ip: str, max_requests_per_minute: int = 30) -> None:
+    def check_rate_limit(self, ip: str, max_requests_per_minute: int = 30, skip_rate_limit: bool = False) -> None:
         """
         Raises HTTPException(429) if IP exceeds rate limit.
         Uses sliding window of 60 seconds (always in-memory).
+
+        Args:
+            ip: Client IP address
+            max_requests_per_minute: Maximum requests allowed in 60-second window
+            skip_rate_limit: If True, bypass rate limiting (used for paid/credit-authorized requests)
         """
+        # Bypass rate limiting for credit-authorized requests
+        if skip_rate_limit:
+            return
+
         now = time.time()
 
         # Check if IP is blocked
