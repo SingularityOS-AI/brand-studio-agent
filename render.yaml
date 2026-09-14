@@ -8,12 +8,20 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      # La key real se pega en el panel de Render. NUNCA generateValue:
-      # Render inventaria un secreto aleatorio, config.py lo daria por
-      # valido (no esta vacio) y el servicio arrancaria en verde para
-      # fallar en cada llamada a AssemblyAI. Fallo silencioso en runtime
-      # en vez de fallo ruidoso al arrancar, que es justo lo contrario
-      # del principio de esta pieza.
+      # Stripe Production Keys - obtenlos del Dashboard de Stripe en Live mode
+      # Webhook endpoint: https://brand-studio-agent.onrender.com/api/stripe/webhook
+      # Ver PRODUCTION_STRIPE_SETUP.md para instrucciones detalladas
+      - key: STRIPE_SECRET_KEY
+        sync: false  # sk_live_... del Dashboard de Stripe
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false  # pk_live_... del Dashboard de Stripe
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false  # whsec_live_... de la configuración de Webhooks de Stripe
+
+      # AssemblyAI - pega la key real en el panel de Render, nunca uses generateValue
+      # Render generaría un secreto aleatorio, config.py lo daría por válido
+      # (no está vacío) y el servicio arrancaría en verde para fallar silenciosamente
+      # en cada llamada a AssemblyAI. Fallo ruidoso al arrancar es mejor que silencioso.
       - key: ASSEMBLYAI_API_KEY
         sync: false
       # Sin esto, los print() del arranque se quedan en el buffer y el

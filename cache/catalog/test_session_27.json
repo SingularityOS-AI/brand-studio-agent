@@ -1,0 +1,250 @@
+{
+  "session_id": "test_session_27",
+  "niche": "salud digital",
+  "ideas": [
+    {
+      "id": "idea_0",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 0",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_1",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 1",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_2",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 2",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_3",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 3",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_4",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 4",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_5",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 5",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_6",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 6",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_7",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 7",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_8",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 8",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_9",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 9",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_10",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 10",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_11",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 11",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_12",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 12",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_13",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 13",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_14",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 14",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_15",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 15",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_16",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 16",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_17",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 17",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_18",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 18",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_19",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 19",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_20",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 20",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_21",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 21",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_22",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 22",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_23",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 23",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_24",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 24",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_25",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 25",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_26",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 26",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_27",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 27",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_28",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 28",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    },
+    {
+      "id": "idea_29",
+      "master_category": "autoridad_tecnica",
+      "subcategory": "Top N",
+      "title": "Título de prueba 29",
+      "demand_signal": "Demanda detectada en salud",
+      "status": "approved"
+    }
+  ],
+  "gate_passed": true,
+  "created_at": "2026-09-12T02:35:58.126869+00:00",
+  "catalog_locked": true,
+  "brand_hash": "c54e006c0587f33298bf6c147bedb9ba21c85b05c9282423ebbc057a787f0468"
+}
