@@ -341,11 +341,8 @@ async def charge_saved_card(user_id: str, package: str) -> bool:
         print(f"[BILLING] Auto-reload CardError for user {user_id}: [{error_code}] {error_message}")
 
         # Mark as payment pending (user must manually resolve)
-        # In TEST_MODE, update in-memory session
-        import os
-        if os.getenv("TEST_MODE", "false").lower() == "true":
-            session["payment_pending"] = True
-        elif guard._use_supabase and guard._supabase is not None:
+        # Update session in Supabase
+        if guard._use_supabase and guard._supabase is not None:
             try:
                 guard._supabase.table("sessions").update({"payment_pending": True}).eq("user_id", user_id).execute()
                 print(f"[BILLING] Marked user {user_id} as payment pending")

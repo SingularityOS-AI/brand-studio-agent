@@ -108,10 +108,6 @@ def _get_vertex_ai_client():
     Raises:
         RuntimeError: If Vertex AI is not configured in production mode
     """
-    # In test mode, return None to allow mocking
-    if os.getenv("TEST_MODE") == "true":
-        return None
-
     if not settings.vertex_ai_project_id:
         raise RuntimeError(
             "VERTEX_AI_PROJECT_ID is not configured. "
@@ -512,10 +508,6 @@ def _check_cache(brain: BrandBrain, session_token: str) -> Optional[str]:
     Returns:
         Cached HTML string if valid cache hit, None otherwise
     """
-    # In test mode, return None to force regeneration
-    if os.getenv("TEST_MODE") == "true":
-        return None
-
     try:
         from app.tools.brand_brain.store import _get_client
 
@@ -567,10 +559,6 @@ def _save_cache(brain: BrandBrain, html: str, session_token: str) -> bool:
     Returns:
         True if saved successfully, False otherwise
     """
-    # In test mode, return True (cache not used in tests)
-    if os.getenv("TEST_MODE") == "true":
-        return True
-
     try:
         from app.tools.brand_brain.store import _get_client
 

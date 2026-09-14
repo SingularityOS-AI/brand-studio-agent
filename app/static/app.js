@@ -1436,15 +1436,6 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       supabase = window.supabase.createClient(config.supabase_url, config.supabase_publishable_key);
 
-      // TEST_MODE bypass: Use mock token for local development
-      if (config.test_mode === true) {
-        console.log('[Auth] TEST_MODE detected - using bypass token');
-        jwtToken = 'test-mode-bypass';
-        user = { id: 'test-user-local-development', email: 'test@local.dev' };
-        showMainApp();
-        return;
-      }
-
       // Listen for auth state changes
       supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'SIGNED_IN' && session) {

@@ -30,7 +30,6 @@ class SupabaseAuth:
         self.jwks_url = jwks_url or f"{self.supabase_url}/auth/v1/.well-known/jwks.json"
 
         # For testing only: if jwt_secret is provided, force legacy HMAC mode
-        # Otherwise, we'll check TEST_MODE dynamically in verify_token
         self._force_legacy_hmac = jwt_secret is not None
         self._legacy_secret = jwt_secret
 
@@ -56,25 +55,11 @@ class SupabaseAuth:
                 detail="Missing authorization token"
             )
 
-        # Check TEST_MODE dynamically - this allows tests to set TEST_MODE
-        # after the singleton is created
-        in_test_mode = os.environ.get("TEST_MODE", "false").lower() == "true"
-
         # Remove "Bearer " prefix if present
         if token.startswith("Bearer "):
             token = token[7:]
 
-        # In TEST_MODE, accept a special bypass token for local development
-        if in_test_mode and token == "test-mode-bypass":
-            # Return a mock payload with a fake user_id for local testing
-            return {
-                "sub": "test-user-local-development",
-                "aud": "authenticated",
-                "iss": f"{self.supabase_url}/auth/v1",
-                "exp": 9999999999,  # Never expires in test mode
-            }
-
-        use_legacy_hmac = self._force_legacy_hmac or in_test_mode
+        use_legacy_hmac = self._force_legacy_hmac
         legacy_secret = self._legacy_secret or os.environ.get("SUPABASE_JWT_SECRET", "") or "test_jwt_secret_for_testing_only_32bytes"
 
         try:
@@ -167,7 +152,6 @@ class SupabaseAuth:
     def get_user_email(self, token: str) -> str:
         """
         Extract email from a valid JWT token.
-        In TEST_MODE, returns a mock email for testing.
 
         Args:
             token: The JWT token string
@@ -179,11 +163,6 @@ class SupabaseAuth:
             HTTPException: If token is invalid or doesn't contain email
         """
         payload = self.verify_token(token)
-
-        # In TEST_MODE with bypass token, return mock email
-        in_test_mode = os.environ.get("TEST_MODE", "false").lower() == "true"
-        if in_test_mode and payload.get("sub") == "test-user-local-development":
-            return "test@local.dev"
 
         # Extract email from payload
         email = payload.get("email")

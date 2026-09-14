@@ -65,12 +65,10 @@ async def get_config():
     Returns frontend configuration including Supabase settings and initial credits.
     This endpoint is public - it only contains the publishable key, not the service key.
     """
-    test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
     return JSONResponse(content={
         "supabase_url": settings.supabase_url,
         "supabase_publishable_key": settings.supabase_publishable_key,
         "initial_session_credits": settings.initial_session_credits,
-        "test_mode": test_mode,
     })
 
 
@@ -120,17 +118,7 @@ async def mint_temporary_token(request: Request):
             )
         raise
 
-    # 5. Mint token from AssemblyAI (skip in test mode)
-    test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
-    if test_mode:
-        # Return mock token for tests
-        return JSONResponse(
-            content={
-                "token": "test_mock_token_assemblyai",
-                "credits_remaining": remaining
-            }
-        )
-
+    # 5. Mint token from AssemblyAI
     api_key = settings.assemblyai_api_key
     token_url = (
         f"https://agents.assemblyai.com/v1/token?"

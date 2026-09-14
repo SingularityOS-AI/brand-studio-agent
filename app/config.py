@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 # pydantic-settings carga el .env en SU objeto, pero NO lo mete en os.environ.
-# guard.py lee SUPABASE_URL/SUPABASE_KEY con os.getenv, y main.py lee TEST_MODE
+# guard.py lee SUPABASE_URL/SUPABASE_KEY con os.getenv
 # igual: sin esto los veian vacios y el guard caia a memoria EN SILENCIO aunque
 # Supabase estuviera bien configurado en el .env. Un fallback silencioso de la
 # persistencia es como se pierden los creditos de todos sin que nadie se entere.
@@ -113,9 +113,8 @@ if not settings.youtube_api_key:
     logging.warning("YOUTUBE_API_KEY is not configured - demand validation endpoints will be disabled")
 
 
-# Fail loud if API Key is not configured (skip in test mode)
-_test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
-if not _test_mode and (not settings.assemblyai_api_key or settings.assemblyai_api_key == "your_assemblyai_api_key_here"):
+# Fail loud if API Key is not configured
+if not settings.assemblyai_api_key or settings.assemblyai_api_key == "your_assemblyai_api_key_here":
     raise RuntimeError(
         "ASSEMBLYAI_API_KEY is not configured. "
         "Set it in .env file or environment variable before starting the server."

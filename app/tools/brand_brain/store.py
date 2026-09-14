@@ -15,12 +15,8 @@ from app.tools.brand_brain.models import BrandBrain, CitationInvariantError
 def _get_supabase_client():
     """
     Lazy initialization of Supabase client.
-    Only initialized when actually needed (allows mocking in tests).
+    Only initialized when actually needed.
     """
-    # Allow test mode to skip initialization
-    if os.getenv("TEST_MODE") == "true":
-        return None
-    
     # SUPABASE_KEY es el nombre que ya usan guard.py, render.yaml y .env.example.
     # Se acepta SUPABASE_SERVICE_ROLE_KEY como alias por si alguien lo declaro asi,
     # pero el canonico es SUPABASE_KEY: dos nombres para la misma credencial hacen
@@ -48,7 +44,7 @@ def _get_client():
     In test mode, returns None to allow mocking.
     """
     global _client
-    if _client is None and os.getenv("TEST_MODE") != "true":
+    if _client is None:
         _client = _get_supabase_client()
     return _client
 
