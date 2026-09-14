@@ -2179,6 +2179,8 @@ ${htmlContent}
         catalogGateSub.textContent = 'You need to build your catalog first. This is the research phase.';
         catalogGateCount.textContent = '0/30';
         catalogAlreadyGenerated = false;
+        // FIX: Auto-open credit gate modal when catalog not generated
+        openCreditGateModal();
       }
     } catch (error) {
       console.error('[Catalog] Cache load error:', error);
