@@ -1417,6 +1417,26 @@ Always respond in English. Keep your responses conversational and engaging.`;
     }
   }
 
+  // Fetch fresh credits from server
+  async function fetchCredits() {
+    try {
+      console.log('[Billing] Fetching fresh credits from /api/session...');
+      const response = await authenticatedFetch('/api/session');
+      if (!response.ok) {
+        console.error('[Billing] Failed to fetch credits:', response.status);
+        return;
+      }
+      const data = await response.json();
+      const freshCredits = data.credits_remaining;
+      console.log('[Billing] Fresh credits loaded:', freshCredits);
+      updateCreditsUI(freshCredits, initialSessionCredits);
+    } catch (e) {
+      console.error('[Billing] Error fetching credits:', e);
+      if (e.message !== 'PAYWALL_402') {
+        alert('Could not refresh credits. Please refresh the page.');
+      }
+    }
+  }
 
 
   // ==============================================================================
