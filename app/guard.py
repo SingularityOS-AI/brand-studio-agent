@@ -313,14 +313,22 @@ class Guard:
 
             token = result.data[0]["token"]
             current_credits = result.data[0].get("credits", 0)
+            new_credits = current_credits + credits
 
             # Update credits in Supabase
             self._supabase.table("sessions") \
-                .update({"credits": current_credits + credits}) \
+                .update({"credits": new_credits}) \
                 .eq("token", token) \
                 .execute()
 
-            print(f"[GUARD] Added {credits} credits to user {user_id} (source: {source}), new total: {current_credits + credits}")
+            # FIX: Also update in-memory cache to ensure consistency
+            # This prevents race conditions where webhook updates DB but
+            # subsequent API calls read stale in-memory data
+            if token in self._sessions:
+                self._sessions[token]["credits"] = new_credits
+                print(f"[GUARD] [SYNC] Updated in-memory cache for token {token}: {new_credits} credits")
+
+            print(f"[GUARD] Added {credits} credits to user {user_id} (source: {source}), new total: {new_credits}")
             return True
         else:
             # In-memory: find most recent session for user
