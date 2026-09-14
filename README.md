@@ -1,6 +1,6 @@
 # Brand Studio Agent
 
-**A voice agent that judges your content idea before you waste an evening recording it.**
+**A voice agent that judges your content idea before you waste an evening recording it.** 🚀
 
 Built for the [AssemblyAI Voice Agent Hackathon](https://lablab.ai/ai-hackathons/assemblyai-voice-agent-hackathon) (September 2026) by **VibeMarketing Studio**.
 
