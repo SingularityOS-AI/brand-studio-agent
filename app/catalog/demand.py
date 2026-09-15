@@ -20,6 +20,8 @@ Algorithm based on 4-stage validation:
 """
 
 import os
+import re
+import json
 import time
 import hashlib
 import logging
@@ -30,6 +32,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import httpx
+# pytrends devuelve DataFrames; get_interest_over_time() los recorre con
+# pd.notna() -- faltaba este import (bug R2 real, causaba NameError siempre).
+import pandas as pd
 from pydantic import BaseModel, HttpUrl, Field
 
 from app.config import settings
@@ -666,7 +671,12 @@ class TrendsClient:
 
         try:
             from pytrends.request import TrendReq
-            self.pytrends = TrendReq(hl='en-US', tz=360, timeout=(10, 25), retries=2, backoff_factor=0.1)
+            # Bug R2: pytrends._get_data() solo construye su propio Retry()
+            # (con el kwarg viejo `method_whitelist`, renombrado a
+            # `allowed_methods` en urllib3 2.x) cuando retries>0 o
+            # backoff_factor>0. No pasamos esos kwargs -- sin downgrade de
+            # urllib3 -- para que pytrends nunca entre a esa rama rota.
+            self.pytrends = TrendReq(hl='en-US', tz=360, timeout=(10, 25))
             self._available = True
             logger.info("[trends] pytrends initialized successfully")
         except ImportError:
@@ -961,19 +971,24 @@ async def ground_web_search(niche: str) -> List[str]:
         # de abajo devolvía []); con from_dict responde con grounding real.
         tool = Tool.from_dict({"google_search": {}})
 
-        # Construct prompt with google_search tool
+        # Construct prompt with google_search tool.
+        # Bug R3: pedirle a Gemini un array JSON estricto MIENTRAS usa la tool
+        # google_search hace que devuelva texto vacío (verificado en vivo:
+        # finish_reason=STOP pero content.parts[0].text=="" siempre que se pide
+        # "Return a JSON array..."). Pedir una lista de bullets en texto plano
+        # sí produce contenido real -- se parsea con _parse_llm_list_response().
         prompt = f"""# PLACEHOLDER: afinar en ronda posterior
 
 Research the niche: {niche}
 
-Use google_search to find:
+Use google_search to find real information about:
 1. What are the main problems/challenges in this niche?
 2. Who are the main players or competitors?
 3. What are people searching for related to this niche?
 
-Return a JSON array of 3-5 key insights about this niche.
-
-Example format: ["high demand for X", "low supply of Y", "main competitors are Z"]
+Respond with a short bulleted list (3 to 5 bullets) of key insights about
+this niche, one per line, each starting with "- ". Do not add any other
+text before or after the list.
 """
 
         # Generate response with Google Search grounding.
@@ -981,26 +996,62 @@ Example format: ["high demand for X", "low supply of Y", "main competitors are Z
         # event loop, ver mismo fix en classify_pain_from_comments arriba).
         response = await model.generate_content_async(prompt, tools=[tool])
 
-        # Parse response
-        result_text = response.text.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-
-        import json
-        insights = json.loads(result_text)
-
-        if isinstance(insights, list):
-            logger.info(f"[llm] Generated {len(insights)} web-grounded insights for '{niche}'")
-            return insights
-        else:
-            logger.warning(f"[llm] Expected list, got {type(insights)}")
-            return []
+        # Bug R3: con la tool google_search real, Gemini casi siempre responde
+        # en prosa/markdown ("*   **Título:** texto...") en vez de JSON, aunque
+        # el prompt lo pida -- verificado con una llamada real. json.loads()
+        # tiraba "Expecting value: line 1 column 1" siempre y ground_web_search
+        # devolvía [] en cada corrida real. _parse_llm_list_response() intenta
+        # JSON primero y cae a extraer líneas/bullets si no es JSON válido.
+        insights = _parse_llm_list_response(response.text, limit=5)
+        logger.info(f"[llm] Generated {len(insights)} web-grounded insights for '{niche}'")
+        return insights
 
     except Exception as e:
         logger.error(f"[llm] Error performing web search for '{niche}': {e}")
         return []
+
+
+def _parse_llm_list_response(text: str, limit: int = 5) -> List[str]:
+    """
+    Bug R3: parsea la respuesta de un LLM que se le pidió una lista JSON pero
+    puede responder en prosa/markdown (común cuando se usa la tool
+    google_search real). Intenta JSON primero; si falla, extrae líneas de tipo
+    bullet/numeradas como insights de texto plano.
+
+    Nunca inventa contenido -- solo reformatea lo que el LLM ya devolvió.
+    """
+    if not text:
+        return []
+
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Quita la primera línea de fence (``` o ```json) y el cierre final.
+        cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+        cleaned = re.sub(r"```\s*$", "", cleaned).strip()
+
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, list):
+            return [str(item).strip() for item in data if str(item).strip()][:limit]
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: extraer líneas de bullet ("*", "-", "•") o numeradas ("1.").
+    insights = []
+    bullet_re = re.compile(r"^\s*(?:[\*\-•]|\d+[\.\)])\s+(.*)$")
+    for line in cleaned.splitlines():
+        match = bullet_re.match(line)
+        if not match:
+            continue
+        item = match.group(1).strip()
+        # Limpia énfasis markdown residual (**negrita**, encabezados sueltos).
+        item = re.sub(r"\*\*(.+?)\*\*", r"\1", item).strip()
+        if len(item) >= 10:
+            insights.append(item)
+        if len(insights) >= limit:
+            break
+
+    return insights
 
 
 # =============================================================================
@@ -1042,22 +1093,29 @@ async def research_niche(niche: str) -> NicheResearch:
     # Source 1: Search YouTube videos and fetch comments for pain classification
     if yt_client is not None:
         try:
-            # Add timeout wrapper for YouTube API call (30 seconds)
+            # Bug R1: YouTubeAPIClient no tiene get_top_videos() -- ese método
+            # nunca existió (solo lo inventaban los mocks de los tests viejos,
+            # por eso pasaban en verde mientras research_niche() moría en
+            # producción con AttributeError). El método real es search_videos(),
+            # que devuelve items crudos de la Search API de YouTube:
+            # {"id": {"videoId": ...}, "snippet": {"title": ..., "channelId": ...}}.
             top_videos = await asyncio.wait_for(
-                yt_client.get_top_videos(niche, limit=10),
+                yt_client.search_videos(niche, max_results=10),
                 timeout=30.0
             )
 
-            # Extract video titles
+            # Extract video titles (forma real de search_videos, no "title" plano)
             result.youtube_titles = [
-                v.get("title", "") for v in top_videos if v.get("title")
+                v["snippet"]["title"]
+                for v in top_videos
+                if v.get("snippet", {}).get("title")
             ]
 
             # Fetch comments and classify pain signals (1 LLM call per video)
             pain_signals = []
             for video in top_videos[:5]:  # Limit to 5 videos for cost control
-                video_id = video.get("video_id")
-                video_title = video.get("title", "")
+                video_id = video.get("id", {}).get("videoId")
+                video_title = video.get("snippet", {}).get("title", "")
 
                 if not video_id:
                     continue
@@ -1092,6 +1150,8 @@ async def research_niche(niche: str) -> NicheResearch:
             logger.error(f"[research] Error fetching YouTube data: {e}")
             result.youtube_titles = []
             result.youtube_pain_signals = []
+        finally:
+            await yt_client.close()
 
     # Source 2: Google Trends - interest over time (with timeout wrapper)
     try:

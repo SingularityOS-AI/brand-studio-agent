@@ -697,6 +697,53 @@ def test_trends_get_interest_over_time_error():
     assert series == []
 
 
+def test_trends_client_init_does_not_pass_retry_kwargs():
+    """
+    Bug R2 regression: pytrends._get_data() solo construye su propio
+    Retry(method_whitelist=...) (kwarg viejo, renombrado a `allowed_methods`
+    en urllib3 2.x) cuando TrendReq recibe retries>0 o backoff_factor>0. Sin
+    downgradear urllib3, TrendsClient no debe pasar esos kwargs -- de lo
+    contrario cada llamada real revienta con
+    "Retry.__init__() got an unexpected keyword argument 'method_whitelist'".
+    """
+    from app.catalog.demand import TrendsClient
+
+    with patch('pytrends.request.TrendReq') as mock_trendreq:
+        TrendsClient()
+
+    assert mock_trendreq.call_count == 1
+    _, kwargs = mock_trendreq.call_args
+    assert 'retries' not in kwargs
+    assert 'backoff_factor' not in kwargs
+
+
+def test_get_interest_over_time_with_real_pandas_dataframe():
+    """
+    Bug R2 regression: get_interest_over_time() usa `pd.notna()` sobre un
+    DataFrame real de pytrends -- si a este módulo le falta `import pandas as
+    pd`, esto tira NameError en producción SIEMPRE (nunca detectado por los
+    tests que mockean el DataFrame entero con Mock(), porque nunca llegan a
+    ejecutar pd.notna de verdad). Se usa un DataFrame real de pandas, no un Mock.
+    """
+    import pandas as pd
+    from app.catalog.demand import TrendsClient
+
+    tc = TrendsClient.__new__(TrendsClient)  # evita pegarle a la red en __init__
+    tc._available = True
+    tc.pytrends = Mock()
+    tc.pytrends.build_payload.return_value = None
+    tc.pytrends.interest_over_time.return_value = pd.DataFrame(
+        {"test_keyword": [10, 20, 30], "isPartial": [False, False, False]},
+        index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+    )
+
+    series = tc.get_interest_over_time("test_keyword")
+
+    assert len(series) == 3
+    assert series[0]["value"] == 10
+    assert series[0]["date"] == "2026-01-01"
+
+
 def test_trends_get_related_queries():
     """TrendsClient.get_related_queries() returns related query data."""
     from app.catalog.demand import _trends_client
@@ -969,48 +1016,131 @@ async def test_ground_web_search_error():
     assert insights == []
 
 
+def test_parse_llm_list_response_extracts_bullets_from_prose():
+    """
+    Bug R3 regression: con la tool google_search real, Gemini responde en
+    prosa/markdown con bullets, no JSON -- json.loads() tiraba literalmente
+    "Expecting value: line 1 column 1" en cada corrida real (verificado en
+    vivo). _parse_llm_list_response() debe extraer las líneas de bullet como
+    insights en vez de devolver [].
+    """
+    from app.catalog.demand import _parse_llm_list_response
+
+    prose = (
+        "### Key Insights\n\n"
+        "1.  **Dual Focus:** Both roles balance clinical care and efficiency.\n"
+        "*   Financial constraints are a major challenge for hospital admins.\n"
+        "-   People search for salary and certification requirements.\n"
+        "Just a stray sentence with no bullet marker, should be ignored.\n"
+    )
+
+    insights = _parse_llm_list_response(prose, limit=5)
+
+    assert len(insights) == 3
+    assert "Dual Focus" in insights[0]
+    assert "**" not in insights[0]  # énfasis markdown limpiado
+    assert all("stray sentence" not in i for i in insights)
+
+
+def test_parse_llm_list_response_prefers_valid_json():
+    """Si el LLM sí devuelve JSON válido (con o sin fences), se usa tal cual."""
+    from app.catalog.demand import _parse_llm_list_response
+
+    assert _parse_llm_list_response('["insight A", "insight B"]') == ["insight A", "insight B"]
+    assert _parse_llm_list_response('```json\n["insight A"]\n```') == ["insight A"]
+
+
+def test_parse_llm_list_response_empty_text_returns_empty_list():
+    """
+    Bug R3 regression: a veces Gemini devuelve texto vacío (finish_reason=STOP
+    pero content.parts[0].text=="") cuando se combina la tool google_search
+    con una instrucción demasiado estricta -- no debe reventar, debe dar [].
+    """
+    from app.catalog.demand import _parse_llm_list_response
+
+    assert _parse_llm_list_response("") == []
+    assert _parse_llm_list_response(None) == []
+
+
 # =============================================================================
 # NEW FEATURE TESTS - research_niche orchestrator
 # =============================================================================
 
 
+def _fake_youtube_search_response():
+    """
+    Bug R1 regression helper: forma REAL de la YouTube Search API v3
+    (`GET /search`), no un dict inventado como {"video_id", "title"} plano.
+    """
+    resp = Mock()
+    resp.raise_for_status = Mock()
+    resp.json.return_value = {
+        "items": [
+            {"id": {"videoId": "vid1"}, "snippet": {"title": "Video 1", "channelId": "chan1"}},
+            {"id": {"videoId": "vid2"}, "snippet": {"title": "Video 2", "channelId": "chan2"}},
+        ]
+    }
+    return resp
+
+
+def _fake_youtube_comments_response():
+    """Forma REAL de `GET /commentThreads` (sin nextPageToken -> una sola página)."""
+    resp = Mock()
+    resp.raise_for_status = Mock()
+    resp.json.return_value = {
+        "items": [
+            {"snippet": {"topLevelComment": {"snippet": {
+                "authorDisplayName": "user1", "textDisplay": "Too expensive",
+                "likeCount": 1, "publishedAt": "2026-01-01T00:00:00Z"
+            }}}},
+            {"snippet": {"topLevelComment": {"snippet": {
+                "authorDisplayName": "user2", "textDisplay": "Complex",
+                "likeCount": 0, "publishedAt": "2026-01-01T00:00:00Z"
+            }}}},
+        ]
+    }
+    return resp
+
+
 @pytest.mark.asyncio
 async def test_research_niche():
-    """research_niche() combines all 4 data sources."""
-    from app.catalog.demand import research_niche
+    """
+    research_niche() combines all 4 data sources.
 
-    # Mock YouTube client
-    mock_yt_client = AsyncMock()
-    mock_yt_client.get_top_videos.return_value = [
-        {"video_id": "vid1", "title": "Video 1", "channel_id": "chan1"},
-        {"video_id": "vid2", "title": "Video 2", "channel_id": "chan2"},
-    ]
-    mock_yt_client.get_video_comments.return_value = [
-        {"text": "Too expensive", "author": "user1"},
-        {"text": "Complex", "author": "user2"},
-    ]
+    Bug R1 regression: usa el YouTubeAPIClient REAL (no un MagicMock con un
+    método `get_top_videos` inventado que nunca existió en la clase -- ese
+    mock fue justamente lo que dejó pasar el AttributeError a producción).
+    Solo se mockea la capa HTTP (`httpx.AsyncClient.get`).
+    """
+    from app.catalog.demand import research_niche, YouTubeAPIClient
 
-    # Mock pain classification
-    with patch('app.catalog.demand.classify_pain_from_comments', return_value=["cost", "complexity"]):
-        # Mock trends client
-        with patch('app.catalog.demand._trends_client') as mock_trends:
-            mock_trends.get_interest_over_time.return_value = [
-                {"date": "2026-09-07", "value": 25},
-                {"date": "2026-09-06", "value": 30},
-            ]
-            mock_trends.get_related_queries.return_value = [
-                {"query": "test query", "value": 100},
-            ]
+    real_yt_client = YouTubeAPIClient(api_key="fake-test-key")
+    http_responses = [_fake_youtube_search_response(), _fake_youtube_comments_response(),
+                      _fake_youtube_comments_response()]
 
-            # Mock web grounding
-            with patch('app.catalog.demand.ground_web_search', return_value=["insight 1", "insight 2"]):
-                # Mock YouTubeAPIClient instantiation
-                with patch('app.catalog.demand.YouTubeAPIClient', return_value=mock_yt_client):
-                    result = await research_niche("test niche")
+    with patch.object(real_yt_client._client, 'get', new=AsyncMock(side_effect=http_responses)):
+        # Mock pain classification
+        with patch('app.catalog.demand.classify_pain_from_comments', return_value=["cost", "complexity"]):
+            # Mock trends client
+            with patch('app.catalog.demand._trends_client') as mock_trends:
+                mock_trends.get_interest_over_time.return_value = [
+                    {"date": "2026-09-07", "value": 25},
+                    {"date": "2026-09-06", "value": 30},
+                ]
+                mock_trends.get_related_queries.return_value = [
+                    {"query": "test query", "value": 100},
+                ]
+
+                # Mock web grounding
+                with patch('app.catalog.demand.ground_web_search', return_value=["insight 1", "insight 2"]):
+                    # Mock YouTubeAPIClient instantiation -> devuelve el cliente REAL de arriba
+                    with patch('app.catalog.demand.YouTubeAPIClient', return_value=real_yt_client):
+                        result = await research_niche("test niche")
 
     # Verify all 4 data sources are populated
     assert result.niche == "test niche"
-    assert len(result.youtube_titles) >= 2
+    assert len(result.youtube_titles) == 2
+    assert result.youtube_titles == ["Video 1", "Video 2"]
     assert "cost" in result.youtube_pain_signals or "complexity" in result.youtube_pain_signals
     assert len(result.trends_series) >= 2
     assert len(result.trends_related) >= 1
@@ -1047,12 +1177,15 @@ async def test_research_niche_youtube_unavailable():
 
 @pytest.mark.asyncio
 async def test_research_niche_partial_failures():
-    """research_niche() returns available data even when some sources fail."""
-    from app.catalog.demand import research_niche
+    """
+    research_niche() returns available data even when some sources fail.
 
-    # Mock YouTube client
-    mock_yt_client = AsyncMock()
-    mock_yt_client.get_top_videos.side_effect = Exception("YouTube Error")
+    Bug R1 regression: YouTubeAPIClient real, con `_client.get` mockeado para
+    fallar (simula un error HTTP real, no un método inventado).
+    """
+    from app.catalog.demand import research_niche, YouTubeAPIClient
+
+    real_yt_client = YouTubeAPIClient(api_key="fake-test-key")
 
     # Mock trends client
     with patch('app.catalog.demand._trends_client') as mock_trends:
@@ -1063,9 +1196,10 @@ async def test_research_niche_partial_failures():
 
         # Mock web grounding
         with patch('app.catalog.demand.ground_web_search', return_value=["insight 1"]):
-            # Mock YouTubeAPIClient instantiation
-            with patch('app.catalog.demand.YouTubeAPIClient', return_value=mock_yt_client):
-                result = await research_niche("test niche")
+            with patch.object(real_yt_client._client, 'get', new=AsyncMock(side_effect=Exception("YouTube Error"))):
+                # Mock YouTubeAPIClient instantiation -> devuelve el cliente REAL de arriba
+                with patch('app.catalog.demand.YouTubeAPIClient', return_value=real_yt_client):
+                    result = await research_niche("test niche")
 
     # Some data sources should be populated (trends_series and web_grounding_notes)
     assert result.niche == "test niche"

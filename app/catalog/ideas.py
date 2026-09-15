@@ -448,6 +448,13 @@ INSTRUCCIONES:
 2. Usa UNA de las subcategorías para cada idea.
 3. NO inventes señales de demanda — cita solo lo que aparece en el contexto.
 4. Respeta {cat_name} (no mezcles categorías).
+5. NO inventes cifras, porcentajes, clientes ni casos de éxito (nada de "$500K
+   anuales", "Reducción del 25%", "cliente X") salvo que esa cifra/cliente
+   aparezca literalmente en el CONTEXTO DE DEMANDA REAL de arriba. Si el
+   fundador no tiene un dato concreto, plantea el título como pregunta o
+   marco conceptual, sin número ni cliente inventado (ej. "Cómo reducir el
+   tiempo de espera en tu hospital" en vez de "Cómo reduje el tiempo de
+   espera 25% para el Hospital X").
 
 RESPONDE EN JSON con este formato exacto:
 {{
@@ -536,6 +543,16 @@ async def _generate_ideas_for_category(
         return []
 
 
+# Bug R4: valores placeholder/fallback que NUNCA deben quedar como
+# demand_signal final de una idea -- si el gate los deja pasar, el CEO ve un
+# catálogo "aprobado" cuya demanda es en realidad inexistente.
+PLACEHOLDER_DEMAND_SIGNALS = frozenset({
+    "no hay señales específicas.",
+    "no hay señales específicas",
+    "demanda detectada en investigación de nicho",
+})
+
+
 def _get_fallback_signal(niche_research: NicheResearch) -> str:
     """
     Retorna una señal de demanda fallback si el LLM no cita ninguna.
@@ -547,6 +564,22 @@ def _get_fallback_signal(niche_research: NicheResearch) -> str:
     if niche_research.web_grounding_notes:
         return niche_research.web_grounding_notes[0][:200]
     return "Demanda detectada en investigación de nicho"
+
+
+def _niche_research_has_any_signal(niche_research: NicheResearch) -> bool:
+    """
+    Bug R4: True solo si al menos UNA de las 4 fuentes de NicheResearch trajo
+    algo real. Si las 4 vienen vacías, no tiene sentido llamar al LLM -- no
+    hay nada citable y el prompt le inyectaría el placeholder "No hay señales
+    específicas." que el LLM después copia tal cual como demand_signal.
+    """
+    return bool(
+        niche_research.youtube_titles
+        or niche_research.youtube_pain_signals
+        or niche_research.trends_series
+        or niche_research.trends_related
+        or niche_research.web_grounding_notes
+    )
 
 
 def _check_brand_soul_generated(session_id: str) -> bool:
@@ -653,6 +686,18 @@ async def generate_catalog(session_id: str, niche_research: Optional[NicheResear
         except Exception as e:
             raise Exception(f"Error en research_niche(): {e}") from e
 
+    # Bug R4 (gate mentiroso): si las 4 fuentes de NicheResearch vinieron
+    # vacías, no se llama al LLM con un contexto vacío -- eso es lo que
+    # producía las 30 ideas con demand_signal literal "No hay señales
+    # específicas." (el LLM copiaba el placeholder del prompt). Se corta
+    # ANTES de gastar la llamada al LLM; el endpoint /investigate ya
+    # devuelve 400 sin cobrar créditos ante un ValueError.
+    if not _niche_research_has_any_signal(niche_research):
+        raise ValueError(
+            "No se pudo obtener señales de demanda reales para tu nicho. "
+            "Intenta de nuevo en unos minutos."
+        )
+
     # 4. Generar ideas distribuidas en 5 categorías
     all_ideas = []
 
@@ -708,10 +753,18 @@ async def generate_catalog(session_id: str, niche_research: Optional[NicheResear
     # Limitar a 30 ideas
     all_ideas = all_ideas[:TOTAL_IDEAS]
 
-    # 5. Validar gate
+    # 5. Validar gate.
+    # Bug R4: además de exigir longitud mínima, el gate ahora rechaza el
+    # placeholder/fallback textual -- antes 30 ideas con demand_signal
+    # literal "No hay señales específicas." o "Demanda detectada en
+    # investigación de nicho" pasaban el gate como si fueran señales reales.
     gate_passed = (
         len(all_ideas) == TOTAL_IDEAS and
-        all(len(idea.demand_signal) >= 10 for idea in all_ideas)
+        all(
+            len(idea.demand_signal) >= 10
+            and idea.demand_signal.strip().lower() not in PLACEHOLDER_DEMAND_SIGNALS
+            for idea in all_ideas
+        )
     )
 
     # Crear catálogo

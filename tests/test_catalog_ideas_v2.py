@@ -505,6 +505,109 @@ async def test_generate_ideas_for_category_returns_empty_on_invalid_json(niche_r
 
 
 # =============================================================================
+# Bug regression tests: R4 (lying gate), R5 (no invented figures in prompt).
+# =============================================================================
+
+
+@patch('app.catalog.ideas.get_brand_brain')
+@patch('app.catalog.ideas._check_brand_soul_generated', return_value=True)
+@pytest.mark.asyncio
+async def test_generate_catalog_raises_when_all_research_sources_empty(
+    mock_soul, mock_get_brain, brand_brain
+):
+    """
+    Bug R4 regression: si NicheResearch viene con las 4 fuentes vacías,
+    generate_catalog() debe fallar con ValueError ANTES de llamar al LLM --
+    en producción esto generaba 30 ideas con demand_signal literal
+    "No hay señales específicas." (el LLM copiaba el placeholder del prompt).
+    """
+    from app.catalog.demand import NicheResearch
+
+    mock_get_brain.return_value = brand_brain
+    empty_research = NicheResearch(niche="nicho sin señales")
+
+    with patch('app.catalog.ideas._generate_ideas_for_category') as mock_gen:
+        with pytest.raises(ValueError, match="No se pudo obtener señales de demanda reales"):
+            await generate_catalog("test_session", niche_research=empty_research)
+
+    # Nunca se debe haber llamado al LLM -- se corta ANTES.
+    mock_gen.assert_not_called()
+
+
+@pytest.mark.parametrize("placeholder", [
+    "No hay señales específicas.",
+    "Demanda detectada en investigación de nicho",
+])
+def test_catalog_idea_placeholder_signal_is_recognized(placeholder):
+    """
+    Bug R4 regression: el gate debe reconocer los placeholders/fallbacks
+    conocidos (sin importar mayúsculas/minúsculas ni el punto final) para
+    poder rechazarlos -- antes una idea con este demand_signal pasaba el gate
+    como si fuera una señal real.
+    """
+    from app.catalog.ideas import PLACEHOLDER_DEMAND_SIGNALS
+
+    assert placeholder.strip().lower() in PLACEHOLDER_DEMAND_SIGNALS
+
+
+@patch('app.catalog.ideas.get_brand_brain')
+@patch('app.catalog.ideas._check_brand_soul_generated', return_value=True)
+@pytest.mark.asyncio
+async def test_generate_catalog_gate_fails_if_llm_copies_placeholder(
+    mock_soul, mock_get_brain, brand_brain, niche_research_sample
+):
+    """
+    Bug R4 regression end-to-end: aunque haya 30 ideas "completas", si el LLM
+    copió el placeholder como demand_signal el gate_passed debe quedar en
+    False (nunca True con una demanda que en realidad es un texto de relleno).
+    """
+    mock_get_brain.return_value = brand_brain
+
+    fake_ideas = [
+        CatalogIdea(
+            master_category="autoridad_tecnica",
+            subcategory="Top N",
+            title=f"Idea {i}",
+            demand_signal="No hay señales específicas."
+        )
+        for i in range(30)
+    ]
+
+    async def fake_generate(*args, **kwargs):
+        count = kwargs.get("count", 1)
+        return fake_ideas[:count]
+
+    with patch('app.catalog.ideas._generate_ideas_for_category', side_effect=fake_generate):
+        catalog = await generate_catalog("test_session", niche_research=niche_research_sample)
+
+    assert catalog.gate_passed is False
+
+
+def test_prompt_forbids_invented_figures_and_clients():
+    """
+    Bug R5 regression: el prompt de generación de ideas debe prohibir
+    explícitamente inventar cifras/porcentajes/clientes -- el LLM había
+    inventado "$500K anuales", "Reducción del 25%" y "cliente X" sin que
+    ninguna de esas cifras viniera de NicheResearch.
+    """
+    from app.catalog.ideas import _build_idea_generation_prompt
+
+    prompt = _build_idea_generation_prompt(
+        niche="interpretación médica",
+        master_category="validacion_resultados",
+        subcategories=["Antes/Después con métricas"],
+        niche_research=NicheResearch(niche="interpretación médica"),
+        approach="experto",
+        count=9
+    )
+
+    lower = prompt.lower()
+    assert "no inventes cifras" in lower
+    assert "porcentajes" in lower
+    assert "clientes" in lower
+
+
+# =============================================================================
 # Run Tests Entry Point
 # =============================================================================
 
