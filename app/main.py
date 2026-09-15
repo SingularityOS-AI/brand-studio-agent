@@ -627,29 +627,14 @@ async def generate_catalog_endpoint(request: Request):
 
     # No rate limit for authorized catalog generation - credits serve as the protection mechanism
 
-    # 3. Deduct credits
-    from app.catalog.ideas import CREDITS_COST
-    try:
-        remaining = guard.deduct_credits(session_token, amount=CREDITS_COST)
-    except HTTPException as e:
-        if e.status_code == 402:
-            return JSONResponse(
-                status_code=402,
-                content={
-                    "error": "Session budget exhausted",
-                    "credits_remaining": session["credits"],
-                    "payment_url": settings.payment_url,
-                }
-            )
-        raise
-
-    # 4. Generate catalog (main business logic in ideas.py)
+    # 4. Generate catalog (main business logic in ideas.py) - VALIDATE BEFORE DEDUCTING CREDITS
     try:
         from app.catalog import ideas
+        from app.catalog.ideas import CREDITS_COST
         catalog = await ideas.get_or_generate_catalog(session_token)
         cache_status = "hit" if ideas._check_catalog_cache(session_token) else "generated"
     except ValueError as e:
-        # Validation errors (missing brain/demand, etc.)
+        # Validation errors (missing brain/demand, etc.) - NO CREDIT DEDUCTION
         return JSONResponse(
             status_code=400,
             content={"error": str(e)}
@@ -662,6 +647,9 @@ async def generate_catalog_endpoint(request: Request):
             status_code=500,
             content={"error": f"Catalog generation failed: {str(e)}"}
         )
+
+    # 3. Deduct credits ONLY AFTER successful catalog generation
+    remaining = guard.deduct_credits(session_token, amount=CREDITS_COST)
 
     # 5. Return success
     return JSONResponse(content={
