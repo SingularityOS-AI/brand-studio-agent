@@ -1168,6 +1168,12 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     if not target_idea:
         raise ValueError(f"Idea con ID '{idea_id}' no encontrada en el catálogo.")
 
+    # Decisión del CEO: una idea propia del fundador (origin="founder") no se
+    # regenera -- regenerar la reemplazaría por una idea del LLM, borrando lo
+    # que el fundador escribió a mano.
+    if target_idea.origin == "founder":
+        raise ValueError("Las ideas propias del founder no se regeneran.")
+
     # Re-obtener brain y research
     brain = get_brand_brain(session_id)
     diagnostico = brain.get_section("diagnostico").content if brain else {}
@@ -1229,13 +1235,17 @@ def add_founder_idea(
         subcategory: opcional, default a la primera subcategoría de la categoría elegida
 
     Raises:
-        ValueError: catálogo inexistente, bloqueado, lleno, o input inválido
+        ValueError: catálogo inexistente, lleno, o input inválido
+
+    NOTA (decisión del CEO, corrección post-Pieza 29): agregar ideas propias
+    del fundador es SIEMPRE posible y gratis, incluso con catalog_locked=true
+    -- nacen "approved" y nunca entran como "pending", así que no rompen el
+    flujo serial de aprobación que el candado protege. El catálogo se queda
+    catalog_locked=true después de agregar (no se destraba solo).
     """
     catalog = _check_catalog_cache(session_id)
     if not catalog:
         raise ValueError("No hay catálogo generado para esta sesión. Genera o investiga primero.")
-    if catalog.catalog_locked:
-        raise ValueError("El catálogo está bloqueado. No se pueden agregar ideas.")
 
     if len(catalog.ideas) >= MAX_IDEAS:
         raise ValueError(f"El catálogo ya tiene el máximo de {MAX_IDEAS} ideas.")

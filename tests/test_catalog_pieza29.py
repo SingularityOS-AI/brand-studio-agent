@@ -342,16 +342,26 @@ def test_add_founder_idea_400_when_no_catalog():
             )
 
 
-def test_add_founder_idea_400_when_locked(sample_catalog):
+def test_add_founder_idea_allowed_with_locked_catalog(sample_catalog):
+    """
+    Decisión del CEO (corrección post-Pieza 29): agregar ideas propias sigue
+    SIEMPRE disponible y gratis, incluso con catalog_locked=true -- nacen
+    "approved", nunca entran como "pending", así que no rompen el candado.
+    El catálogo se queda catalog_locked=true después de agregar.
+    """
     locked = sample_catalog.model_copy(update={"catalog_locked": True})
     with patch('app.catalog.ideas._check_catalog_cache', return_value=locked):
-        with pytest.raises(ValueError, match="bloqueado"):
-            add_founder_idea(
+        with patch('app.catalog.ideas._save_catalog_cache'):
+            catalog = add_founder_idea(
                 session_id="test_session_29",
                 title="Idea válida con suficiente longitud",
                 master_category="autoridad_tecnica",
                 source="Fuente valida de mas de diez caracteres"
             )
+
+    assert catalog.catalog_locked is True
+    assert catalog.ideas[-1].origin == "founder"
+    assert catalog.ideas[-1].status == "approved"
 
 
 def test_add_founder_idea_400_when_invalid_category(sample_catalog):
@@ -410,6 +420,51 @@ def test_add_founder_idea_title_too_short_raises(sample_catalog):
             )
 
 
+@pytest.mark.asyncio
+async def test_regenerate_founder_idea_raises_value_error(sample_catalog):
+    """
+    Decisión del CEO: una idea propia del founder (origin="founder") no se
+    regenera -- regenerarla la reemplazaría por una idea del LLM, borrando lo
+    que el fundador escribió a mano.
+    """
+    from app.catalog.ideas import regenerate_single_idea
+
+    catalog_with_founder_idea = sample_catalog.model_copy(update={
+        "ideas": sample_catalog.ideas + [
+            CatalogIdea(
+                id="idea_founder_1", master_category="autoridad_tecnica", subcategory="Top N",
+                title="Mi propia idea escrita a mano", demand_signal="Fuente del founder: mi experiencia",
+                status="approved", origin="founder"
+            )
+        ]
+    })
+
+    with patch('app.catalog.ideas._check_catalog_cache', return_value=catalog_with_founder_idea):
+        with pytest.raises(ValueError, match="no se regeneran"):
+            await regenerate_single_idea("test_session_29", "idea_founder_1")
+
+
+def test_regenerate_founder_idea_endpoint_400(api_client, sample_catalog):
+    catalog_with_founder_idea = sample_catalog.model_copy(update={
+        "ideas": sample_catalog.ideas + [
+            CatalogIdea(
+                id="idea_founder_1", master_category="autoridad_tecnica", subcategory="Top N",
+                title="Mi propia idea escrita a mano", demand_signal="Fuente del founder: mi experiencia",
+                status="approved", origin="founder"
+            )
+        ]
+    })
+
+    with patch.object(guard, 'get_or_create_user_session', return_value='test_session_29'):
+        with patch.object(guard, 'get_session', return_value={'credits': 100}):
+            with patch.object(guard, 'get_remaining_credits', return_value=100):
+                with patch('app.catalog.ideas._check_catalog_cache', return_value=catalog_with_founder_idea):
+                    response = api_client.post('/api/catalog/idea/idea_founder_1/regenerate')
+
+    assert response.status_code == 400
+    assert "no se regeneran" in response.json()["error"]
+
+
 # --- Endpoint POST /api/catalog/idea ---
 
 def test_add_founder_idea_endpoint_201(api_client, sample_catalog):
@@ -441,16 +496,21 @@ def test_add_founder_idea_endpoint_400_without_catalog(api_client):
     assert "error" in response.json()
 
 
-def test_add_founder_idea_endpoint_400_when_locked(api_client, sample_catalog):
+def test_add_founder_idea_endpoint_201_when_locked(api_client, sample_catalog):
+    """Decisión del CEO: agregar idea propia sigue funcionando (201) con el catálogo bloqueado."""
     locked = sample_catalog.model_copy(update={"catalog_locked": True})
     with patch('app.catalog.ideas._check_catalog_cache', return_value=locked):
-        response = api_client.post('/api/catalog/idea', json={
-            "title": "Idea propia del fundador sobre procesos",
-            "master_category": "autoridad_tecnica",
-            "source": "Mi experiencia personal de 10 años en el rubro"
-        })
+        with patch('app.catalog.ideas._save_catalog_cache'):
+            response = api_client.post('/api/catalog/idea', json={
+                "title": "Idea propia del fundador sobre procesos",
+                "master_category": "autoridad_tecnica",
+                "source": "Mi experiencia personal de 10 años en el rubro"
+            })
 
-    assert response.status_code == 400
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["catalog"]["catalog_locked"] is True
+    assert data["catalog"]["ideas"][-1]["origin"] == "founder"
 
 
 @pytest.mark.parametrize("body,missing", [

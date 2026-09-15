@@ -64,15 +64,19 @@ router = APIRouter()
 # ============================================================================
 async def _check_webhook_idempotency(event_id: str) -> bool:
     """
-    Check if this webhook event has already been processed.
+    Check if this webhook event has already been processed. READ-ONLY.
 
     Query the webhook_events table for the event_id.
     If found, return True — we've already processed this event.
     If not found, return False — safe to proceed.
 
-    After processing the webhook:
-    1. Insert event_id into webhook_events table
-    2. This ensures future retries are idempotent
+    Bug H2 (hotfix facturación): esta función ANTES insertaba el registro
+    aquí mismo, es decir, ANTES de correr el handler. Si el handler fallaba
+    (por ejemplo por el AttributeError de H1), el evento ya había quedado
+    marcado como procesado -- el reintento de Stripe lo veía como duplicado y
+    los créditos nunca llegaban. Ahora esta función SOLO lee; el registro se
+    escribe en `_mark_webhook_processed()`, llamado únicamente después de que
+    el handler termina con éxito (ver stripe_webhook()).
 
     Args:
         event_id: Stripe event ID (e.g., "evt_1234567890")
@@ -84,21 +88,12 @@ async def _check_webhook_idempotency(event_id: str) -> bool:
 
     if guard._use_supabase and guard._supabase is not None:
         try:
-            # Check if event already exists
             result = guard._supabase.table("webhook_events").select("event_id").eq("event_id", event_id).execute()
 
             if result.data:
                 print(f"[WEBHOOKS] Event {event_id} already processed (database)")
                 return True
 
-            # Insert new event record
-            guard._supabase.table("webhook_events").insert({
-                "event_id": event_id,
-                "processed": True,
-                "created_at": "now()"
-            }).execute()
-
-            print(f"[WEBHOOKS] Event {event_id} marked as processed")
             return False
 
         except Exception as e:
@@ -110,6 +105,36 @@ async def _check_webhook_idempotency(event_id: str) -> bool:
         # This is NOT safe for production, but acceptable for local testing
         print(f"[WEBHOOKS] WARNING: No database configured, skipping idempotency check")
         return False
+
+
+async def _mark_webhook_processed(event_id: str, event_type: str) -> None:
+    """
+    Record that this webhook event finished processing successfully.
+
+    Bug H2 (hotfix facturación): la tabla real `webhook_events` (ver
+    supabase/migrations/003_add_webhook_events.sql) tiene las columnas
+    `event_id text PK, event_type text NOT NULL, processed_at timestamptz
+    DEFAULT now()`. El insert viejo mandaba `{"processed": True,
+    "created_at": "now()"}` -- columnas que NO existen -- así que el insert
+    fallaba SIEMPRE, quedaba tragado por el `except` de arriba, y no había
+    idempotencia real en producción pese a que el código "parecía" tenerla.
+    `processed_at` tiene default en la base, no hace falta mandarlo.
+
+    Solo se llama tras un handler exitoso -- ver stripe_webhook().
+    """
+    from app.guard import guard
+
+    if guard._use_supabase and guard._supabase is not None:
+        try:
+            guard._supabase.table("webhook_events").insert({
+                "event_id": event_id,
+                "event_type": event_type,
+            }).execute()
+            print(f"[WEBHOOKS] Event {event_id} marked as processed")
+        except Exception as e:
+            print(f"[WEBHOOKS] WARNING: Failed to mark event as processed: {e}")
+    else:
+        print(f"[WEBHOOKS] WARNING: No database configured, skipping idempotency mark")
 
 
 # ============================================================================
@@ -215,6 +240,7 @@ async def stripe_webhook(request: Request):
             print(f"[WEBHOOKS] Unhandled event type: {event_type}")
             # Still record the event to avoid retries
             guard._webhook_events.add(event_id)
+            await _mark_webhook_processed(event_id, event_type)
             # Still return 200 OK because event type might be for future features
             return {"status": "success", "message": f"Event type {event_type} not handled"}
     except Exception as e:
@@ -223,14 +249,19 @@ async def stripe_webhook(request: Request):
         print(f"[WEBHOOKS] Error type: {type(e).__name__}")
         print(f"[WEBHOOKS] Error message: {str(e)}")
         print(f"[WEBHOOKS] Full traceback:\n{traceback.format_exc()}")
+        # Bug H2: el evento NO se marca como procesado aquí -- si el handler
+        # falló, Stripe debe poder reintentar y que SÍ se procese de verdad
+        # (antes se marcaba en _check_webhook_idempotency ANTES del handler,
+        # así que un fallo real dejaba el evento "fantasma" como completado).
         # Return 500 to trigger Stripe retry (up to 3 days)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing webhook: {str(e)}"
         )
 
-    # 6. Record event and return success response
+    # 6. Record event (SOLO tras éxito real) and return success response
     guard._webhook_events.add(event_id)
+    await _mark_webhook_processed(event_id, event_type)
     print(f"[WEBHOOKS] Successfully processed event {event_id}")
     return {"status": "success"}
 

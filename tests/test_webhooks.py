@@ -45,12 +45,19 @@ def _clean_guard_state():
     session_token) ends up crediting a stale session from a previous test instead
     of the one this test just created.
     """
+    # `guard._sessions` solo existe en modo in-memory (Guard.__init__ nunca
+    # lo crea en modo Supabase -- ver hotfix H1); este entorno de desarrollo
+    # tiene credenciales reales de Supabase, así que `.clear()` sin guardia
+    # reventaba con AttributeError ANTES de que cualquier test de este
+    # archivo llegara a ejecutarse.
     from app.guard import guard
-    guard._sessions.clear()
+    if hasattr(guard, "_sessions"):
+        guard._sessions.clear()
     if hasattr(guard, "_webhook_events"):
         guard._webhook_events.clear()
     yield
-    guard._sessions.clear()
+    if hasattr(guard, "_sessions"):
+        guard._sessions.clear()
     if hasattr(guard, "_webhook_events"):
         guard._webhook_events.clear()
 
@@ -568,3 +575,125 @@ def test_webhook_unknown_event_type(client, mocker):
     from app.guard import guard
     assert hasattr(guard, "_webhook_events")
     assert "evt_test_unknown" in guard._webhook_events
+
+
+# ============================================================================
+# HOTFIX FACTURACIÓN — H1 (guard.add_credits AttributeError en modo Supabase)
+# y H2 (webhook_events con columnas inventadas + marca-antes-de-procesar)
+# ============================================================================
+from unittest.mock import MagicMock, patch
+
+
+def test_add_credits_supabase_mode_without_sessions_attr_does_not_raise():
+    """
+    Bug H1 regression: en modo Supabase, `Guard` NUNCA crea `self._sessions`
+    (ver guard.py __init__) -- este es el estado REAL de este entorno de
+    desarrollo (credenciales reales presentes). add_credits() debe sumar los
+    créditos exactamente una vez y no reventar con AttributeError.
+
+    Cliente Supabase mockeado con la forma REAL que usa guard.py:
+    table("sessions").select("*").eq("user_id", ...).order(...).limit(1).execute()
+    """
+    from app.guard import guard
+
+    assert not hasattr(guard, "_sessions")  # documenta la condición real de producción
+
+    mock_client = MagicMock()
+    select_chain = mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value
+    select_chain.execute.return_value = MagicMock(data=[{"token": "tok_1", "credits": 100, "user_id": "user_1"}])
+    update_chain = mock_client.table.return_value.update.return_value.eq.return_value
+    update_chain.execute.return_value = MagicMock(data=[{"token": "tok_1"}])
+
+    with patch.object(guard, "_use_supabase", True):
+        with patch.object(guard, "_supabase", mock_client):
+            result = guard.add_credits("user_1", 550, source="checkout:starter")
+
+    assert result is True
+    # Se sumó UNA sola vez: 100 + 550 = 650, nunca 1100/1200 por reintento.
+    mock_client.table.return_value.update.assert_called_once_with({"credits": 650})
+
+
+@pytest.mark.asyncio
+async def test_check_webhook_idempotency_is_read_only_no_insert():
+    """
+    Bug H2 regression: _check_webhook_idempotency() ya NO inserta -- antes
+    marcaba el evento como procesado ANTES de correr el handler, así que un
+    handler que fallaba dejaba el evento "fantasma" como completado y Stripe
+    nunca podía reintentarlo con éxito.
+    """
+    from app.webhooks import _check_webhook_idempotency
+    from app.guard import guard
+
+    mock_client = MagicMock()
+    mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+
+    with patch.object(guard, "_use_supabase", True):
+        with patch.object(guard, "_supabase", mock_client):
+            result = await _check_webhook_idempotency("evt_123")
+
+    assert result is False
+    mock_client.table.return_value.insert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_mark_webhook_processed_uses_real_table_columns():
+    """
+    Bug H2 regression: la tabla real (migración 003) tiene columnas
+    `event_id, event_type, processed_at` -- el insert viejo mandaba
+    `{"processed": True, "created_at": "now()"}`, columnas inexistentes que
+    garantizaban que el insert fallara siempre.
+    """
+    from app.webhooks import _mark_webhook_processed
+    from app.guard import guard
+
+    mock_client = MagicMock()
+    mock_client.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"event_id": "evt_123", "event_type": "checkout.session.completed"}]
+    )
+
+    with patch.object(guard, "_use_supabase", True):
+        with patch.object(guard, "_supabase", mock_client):
+            await _mark_webhook_processed("evt_123", "checkout.session.completed")
+
+    mock_client.table.return_value.insert.assert_called_once_with({
+        "event_id": "evt_123",
+        "event_type": "checkout.session.completed",
+    })
+
+
+@pytest.mark.asyncio
+async def test_webhook_idempotency_duplicate_event_id_only_recorded_once():
+    """
+    Bug H2 regression end-to-end (sin red real): el mismo event_id llega dos
+    veces -- la 2da vez _check_webhook_idempotency() debe verlo como ya
+    procesado, y el insert real (simulado con una tabla en memoria con PK)
+    solo debe haber ocurrido una vez.
+    """
+    from app.webhooks import _check_webhook_idempotency, _mark_webhook_processed
+    from app.guard import guard
+
+    events_table = []  # simula la tabla real con PK en event_id
+
+    mock_client = MagicMock()
+    mock_client.table.return_value.select.return_value.eq.return_value.execute.side_effect = (
+        lambda: MagicMock(data=list(events_table))
+    )
+
+    def fake_insert(payload):
+        events_table.append(payload)
+        insert_mock = MagicMock()
+        insert_mock.execute.return_value = MagicMock(data=[payload])
+        return insert_mock
+
+    mock_client.table.return_value.insert.side_effect = fake_insert
+
+    with patch.object(guard, "_use_supabase", True):
+        with patch.object(guard, "_supabase", mock_client):
+            assert await _check_webhook_idempotency("evt_dup_1") is False
+            await _mark_webhook_processed("evt_dup_1", "checkout.session.completed")
+
+            # Reintento de Stripe con el MISMO event_id
+            assert await _check_webhook_idempotency("evt_dup_1") is True
+
+    assert len(events_table) == 1
+    assert events_table[0] == {"event_id": "evt_dup_1", "event_type": "checkout.session.completed"}

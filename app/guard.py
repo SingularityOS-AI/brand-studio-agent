@@ -368,8 +368,19 @@ class Guard:
             # FIX: Also update in-memory cache to ensure consistency
             # This prevents race conditions where webhook updates DB but
             # subsequent API calls read stale in-memory data
-            if token in self._sessions:
-                self._sessions[token]["credits"] = new_credits
+            #
+            # Bug H1 (hotfix facturación): en modo Supabase, `self._sessions`
+            # NUNCA se crea (ver __init__, solo existe en `else:` sin Supabase)
+            # -- este `if token in self._sessions:` reventaba con
+            # AttributeError DESPUES de sumar los créditos en la base real.
+            # El webhook handler devolvía 500, Stripe reintentaba el mismo
+            # evento hasta 3 días, y cada reintento volvía a sumar el paquete
+            # completo (el caso real: 550 créditos -> 1100). `getattr` con
+            # default None hace que este cache opcional se salte limpio en
+            # modo Supabase, en vez de tumbar un webhook que ya tuvo éxito.
+            in_memory_sessions = getattr(self, "_sessions", None)
+            if in_memory_sessions is not None and token in in_memory_sessions:
+                in_memory_sessions[token]["credits"] = new_credits
                 print(f"[GUARD] [SYNC] Updated in-memory cache for token {token}: {new_credits} credits")
 
             print(f"[GUARD] Added {credits} credits to user {user_id} (source: {source}), new total: {new_credits}")

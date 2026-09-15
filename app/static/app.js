@@ -1971,19 +1971,21 @@ ${htmlContent}
       btn.disabled = true;
     });
 
-    const addIdeaTitle = document.getElementById('AddIdea-Title');
-    const addIdeaCategory = document.getElementById('AddIdea-Category');
-    const addIdeaSource = document.getElementById('AddIdea-Source');
-    const addIdeaSubmit = document.getElementById('AddIdea-SubmitBtn');
-    [addIdeaTitle, addIdeaCategory, addIdeaSource, addIdeaSubmit].forEach(el => {
-      if (el) el.disabled = true;
-    });
+    // Decisión del CEO: agregar ideas propias sigue SIEMPRE disponible y
+    // gratis, incluso con el catálogo bloqueado -- nacen "approved", nunca
+    // rompen el candado. El formulario NO se deshabilita aquí.
   }
 
   // Construye el HTML interno de una tarjeta de idea (compartido entre el
   // render inicial, agregar idea propia sin recargar, y reemplazo por regenerar).
   function buildIdeaCardHTML(idea, color) {
     const founderBadge = idea.origin === 'founder' ? '<span class="badge-founder">Tu idea</span>' : '';
+    // Decisión del CEO: una idea propia del fundador no se regenera --
+    // regenerar la reemplazaría por una idea del LLM, borrando lo que el
+    // fundador escribió a mano. El botón ↻ simplemente no se renderiza.
+    const regenerateBtnHTML = idea.origin === 'founder'
+      ? ''
+      : `<button class="btn-regenerate" data-idea-id="${idea.id}" title="Regenerar (3 créditos)">&#8635;</button>`;
     return `
       <span class="ideatitle">${idea.title}${founderBadge}</span>
       <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
@@ -1996,7 +1998,7 @@ ${htmlContent}
       <div class="idea-actions">
         <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">&#10003;</button>
         <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">&#10007;</button>
-        <button class="btn-regenerate" data-idea-id="${idea.id}" title="Regenerar (3 créditos)">&#8635;</button>
+        ${regenerateBtnHTML}
       </div>
     `;
   }
