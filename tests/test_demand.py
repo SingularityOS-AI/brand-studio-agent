@@ -860,8 +860,11 @@ async def test_classify_pain_from_comments():
     # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
     mock_response = Mock(text='["cost", "complexity", "trust"]')
 
+    # Bug B5 regression: la llamada real es generate_content_async (await),
+    # no generate_content síncrono -- si el código regresara a la variante
+    # síncrona, este mock (AsyncMock) haría fallar el test.
     mock_model = Mock()
-    mock_model.generate_content.return_value = mock_response
+    mock_model.generate_content_async = AsyncMock(return_value=mock_response)
 
     with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=mock_model):
         pain_signals = await classify_pain_from_comments("Test Video", comments)
@@ -911,8 +914,9 @@ async def test_ground_web_search():
     # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
     mock_response = Mock(text='["high demand for X", "low supply of Y", "main competitors are Z"]')
 
+    # Bug B5 regression: generate_content_async (await), no generate_content síncrono.
     mock_model = Mock()
-    mock_model.generate_content.return_value = mock_response
+    mock_model.generate_content_async = AsyncMock(return_value=mock_response)
 
     with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=mock_model):
         insights = await ground_web_search("ciberseguridad para despachos de abogados")
@@ -920,6 +924,37 @@ async def test_ground_web_search():
     # Should return list of insights
     assert isinstance(insights, list)
     assert len(insights) == 3
+
+
+@pytest.mark.asyncio
+async def test_ground_web_search_uses_google_search_tool_dict():
+    """
+    Bug B8 regression: Gemini 2.x (settings.vertex_ai_model = gemini-2.5-flash-lite)
+    exige la tool "google_search" vía Tool.from_dict({"google_search": {}}) --
+    Tool.from_google_search_retrieval() es la variante vieja para Gemini 1.x y
+    fallaba en silencio (devolvía [] siempre). Se verifica que la tool pasada a
+    generate_content_async() tiene la forma nueva.
+    """
+    from app.catalog.demand import ground_web_search
+    from vertexai.generative_models import Tool
+
+    mock_response = Mock(text='["insight"]')
+    mock_model = Mock()
+    mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+
+    with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=mock_model):
+        await ground_web_search("test niche")
+
+    assert mock_model.generate_content_async.call_count == 1
+    _, kwargs = mock_model.generate_content_async.call_args
+    tools_passed = kwargs["tools"]
+    assert len(tools_passed) == 1
+    # Tool.from_dict({"google_search": {}}) produce un Tool cuyo _raw_tool
+    # trae la clave "google_search" -- from_google_search_retrieval() en
+    # cambio produce "google_search_retrieval". Se compara contra la tool de
+    # referencia construida la misma forma que exige el fix.
+    expected_tool = Tool.from_dict({"google_search": {}})
+    assert tools_passed[0].to_dict() == expected_tool.to_dict()
 
 
 @pytest.mark.asyncio
@@ -984,20 +1019,30 @@ async def test_research_niche():
 
 @pytest.mark.asyncio
 async def test_research_niche_youtube_unavailable():
-    """research_niche() returns empty data when YouTube not available."""
+    """
+    research_niche() should only skip the YouTube source when the client is
+    unavailable -- Trends and web grounding must still run (regression test
+    for bug B7: an early `return` used to skip ALL 3 sources, not just
+    YouTube, whenever YOUTUBE_API_KEY was missing).
+    """
     from app.catalog.demand import research_niche
 
     # Mock YouTubeAPIClient to raise ValueError (no API key)
     with patch('app.catalog.demand.YouTubeAPIClient', side_effect=ValueError("No API key")):
-        result = await research_niche("test niche")
+        with patch('app.catalog.demand._trends_client') as mock_trends:
+            mock_trends.get_interest_over_time.return_value = [{"date": "2026-09-07", "value": 25}]
+            mock_trends.get_related_queries.return_value = [{"query": "test", "value": 100}]
+            with patch('app.catalog.demand.ground_web_search', return_value=["insight 1"]):
+                result = await research_niche("test niche")
 
-    # All data sources should be empty due to graceful degradation
+    # Only the YouTube-dependent fields degrade to empty.
     assert result.niche == "test niche"
     assert result.youtube_titles == []
     assert result.youtube_pain_signals == []
-    assert result.trends_series == []
-    assert result.trends_related == []
-    assert result.web_grounding_notes == []
+    # Trends and grounding must NOT be skipped just because YouTube failed.
+    assert len(result.trends_series) == 1
+    assert len(result.trends_related) == 1
+    assert len(result.web_grounding_notes) == 1
 
 
 @pytest.mark.asyncio

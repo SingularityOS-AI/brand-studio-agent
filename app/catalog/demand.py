@@ -898,7 +898,10 @@ Example format: ["cost", "complexity", "lack of trust", "time required"]
 """
 
         # Generate response
-        response = model.generate_content(prompt)
+        # Bug B5: generate_content_async, no la variante síncrona -- esta
+        # función es async y se llama dentro del pipeline de research_niche();
+        # la variante síncrona bloquea el event loop completo del servidor.
+        response = await model.generate_content_async(prompt)
 
         # Parse response
         result_text = response.text.strip()
@@ -942,7 +945,7 @@ async def ground_web_search(niche: str) -> List[str]:
         # Reuse Vertex AI client from brand_soul.generator
         # _get_vertex_ai_client() returns a GenerativeModel directly, not a client
         from app.tools.brand_soul.generator import _get_vertex_ai_client
-        from vertexai.generative_models import Tool, grounding
+        from vertexai.generative_models import Tool
         model = _get_vertex_ai_client()
 
     except Exception as e:
@@ -950,9 +953,13 @@ async def ground_web_search(niche: str) -> List[str]:
         return []
 
     try:
-        # Configure Google Search grounding tool
-        google_search_retrieval = grounding.GoogleSearchRetrieval()
-        tool = Tool.from_google_search_retrieval(google_search_retrieval)
+        # Bug B8: Tool.from_google_search_retrieval(GoogleSearchRetrieval()) es
+        # la tool vieja (Gemini 1.x); los modelos Gemini 2.x (settings.vertex_ai_model
+        # = gemini-2.5-flash-lite) exigen la tool "google_search" vía Tool.from_dict.
+        # Verificado en vivo contra el proyecto GCP real (2026-09-14): con
+        # from_google_search_retrieval la llamada fallaba en silencio (except
+        # de abajo devolvía []); con from_dict responde con grounding real.
+        tool = Tool.from_dict({"google_search": {}})
 
         # Construct prompt with google_search tool
         prompt = f"""# PLACEHOLDER: afinar en ronda posterior
@@ -969,8 +976,10 @@ Return a JSON array of 3-5 key insights about this niche.
 Example format: ["high demand for X", "low supply of Y", "main competitors are Z"]
 """
 
-        # Generate response with Google Search grounding
-        response = model.generate_content(prompt, tools=[tool])
+        # Generate response with Google Search grounding.
+        # Bug B5: generate_content_async, no la variante síncrona (bloquea el
+        # event loop, ver mismo fix en classify_pain_from_comments arriba).
+        response = await model.generate_content_async(prompt, tools=[tool])
 
         # Parse response
         result_text = response.text.strip()
@@ -1018,70 +1027,71 @@ async def research_niche(niche: str) -> NicheResearch:
     """
     result = NicheResearch(niche=niche)
 
-    # Initialize YouTube client once
+    # Initialize YouTube client once.
+    # Bug B7: si falta YOUTUBE_API_KEY, esto saltaba TAMBIÉN Trends y
+    # grounding con un `return result` temprano -- ahora solo se salta la
+    # fuente YouTube, Trends y grounding se intentan igual más abajo.
+    yt_client = None
     try:
         yt_client = YouTubeAPIClient()
     except ValueError as e:
         logger.warning(f"[research] YouTube API client not available: {e}")
         result.youtube_titles = []
         result.youtube_pain_signals = []
-        result.trends_series = []
-        result.trends_related = []
-        result.web_grounding_notes = []
-        return result
 
     # Source 1: Search YouTube videos and fetch comments for pain classification
-    try:
-        # Add timeout wrapper for YouTube API call (30 seconds)
-        top_videos = await asyncio.wait_for(
-            yt_client.get_top_videos(niche, limit=10),
-            timeout=30.0
-        )
+    if yt_client is not None:
+        try:
+            # Add timeout wrapper for YouTube API call (30 seconds)
+            top_videos = await asyncio.wait_for(
+                yt_client.get_top_videos(niche, limit=10),
+                timeout=30.0
+            )
 
-        # Extract video titles
-        result.youtube_titles = [
-            v.get("title", "") for v in top_videos if v.get("title")
-        ]
+            # Extract video titles
+            result.youtube_titles = [
+                v.get("title", "") for v in top_videos if v.get("title")
+            ]
 
-        # Fetch comments and classify pain signals (1 LLM call per video)
-        pain_signals = []
-        for video in top_videos[:5]:  # Limit to 5 videos for cost control
-            video_id = video.get("video_id")
-            video_title = video.get("title", "")
+            # Fetch comments and classify pain signals (1 LLM call per video)
+            pain_signals = []
+            for video in top_videos[:5]:  # Limit to 5 videos for cost control
+                video_id = video.get("video_id")
+                video_title = video.get("title", "")
 
-            if not video_id:
-                continue
+                if not video_id:
+                    continue
 
-            try:
-                # Fetch comments with timeout (20 seconds per video)
-                comments = await asyncio.wait_for(
-                    yt_client.get_video_comments(video_id, max_results=20),
-                    timeout=20.0
-                )
+                try:
+                    # Fetch comments with timeout (20 seconds per video)
+                    comments = await asyncio.wait_for(
+                        yt_client.get_video_comments(video_id, max_results=20),
+                        timeout=20.0
+                    )
 
-                if comments:
-                    # Classify pain signals (1 LLM call)
-                    signals = await classify_pain_from_comments(video_title, comments)
-                    pain_signals.extend(signals)
+                    if comments:
+                        # Classify pain signals (1 LLM call)
+                        signals = await classify_pain_from_comments(video_title, comments)
+                        pain_signals.extend(signals)
 
-            except asyncio.TimeoutError:
-                logger.warning(f"[research] Timeout fetching comments for video {video_id}")
-                continue
-            except Exception as e:
-                logger.error(f"[research] Error processing video {video_id}: {e}")
-                continue
+                except asyncio.TimeoutError:
+                    logger.warning(f"[research] Timeout fetching comments for video {video_id}")
+                    continue
+                except Exception as e:
+                    logger.error(f"[research] Error processing video {video_id}: {e}")
+                    continue
 
-        # Deduplicate pain signals
-        result.youtube_pain_signals = list(set(pain_signals))
+            # Deduplicate pain signals
+            result.youtube_pain_signals = list(set(pain_signals))
 
-    except asyncio.TimeoutError:
-        logger.error(f"[research] YouTube API timeout while fetching top videos for niche: {niche}")
-        result.youtube_titles = []
-        result.youtube_pain_signals = []
-    except Exception as e:
-        logger.error(f"[research] Error fetching YouTube data: {e}")
-        result.youtube_titles = []
-        result.youtube_pain_signals = []
+        except asyncio.TimeoutError:
+            logger.error(f"[research] YouTube API timeout while fetching top videos for niche: {niche}")
+            result.youtube_titles = []
+            result.youtube_pain_signals = []
+        except Exception as e:
+            logger.error(f"[research] Error fetching YouTube data: {e}")
+            result.youtube_titles = []
+            result.youtube_pain_signals = []
 
     # Source 2: Google Trends - interest over time (with timeout wrapper)
     try:

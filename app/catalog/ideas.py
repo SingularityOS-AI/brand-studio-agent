@@ -231,24 +231,16 @@ class Catalog(BaseModel):
 # =============================================================================
 
 def _get_vertex_ai_client():
-    """Retorna el cliente Vertex AI configurado."""
-    import vertexai
-    from google.cloud import aiplatform
-    from vertexai.generative_models import GenerativeModel
+    """
+    Retorna el cliente Vertex AI configurado.
 
-    # Inicializar Vertex AI
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-
-    if not project_id:
-        raise ValueError("GOOGLE_CLOUD_PROJECT no está configurado")
-
-    vertexai.init(project=project_id, location=location)
-
-    # Retornar el modelo directamente (NO usar .get_model() - bug conocido)
-    model = GenerativeModel("gemini-2.0-flash-exp")
-
-    return model
+    Reutiliza el helper de brand_soul/generator.py en vez de duplicar la
+    inicialización (bug B4): ese helper usa settings.vertex_ai_project_id /
+    settings.vertex_ai_model, que sí están poblados en este proyecto, y ya
+    trae el fix de ".get_model()" pagado en la Pieza 25.
+    """
+    from app.tools.brand_soul.generator import _get_vertex_ai_client as _shared_client
+    return _shared_client()
 
 
 async def _call_llm_with_prompt(prompt: str, temperature: float = 0.7) -> str:
@@ -268,12 +260,15 @@ async def _call_llm_with_prompt(prompt: str, temperature: float = 0.7) -> str:
     model = _get_vertex_ai_client()
 
     try:
-        result = model.generate_content(
+        # generate_content_async (no la variante síncrona) — llamar la síncrona
+        # dentro de una función async bloquea el event loop completo, lo que
+        # impide que asyncio.wait_for() dispare el timeout del endpoint (bug B5).
+        result = await model.generate_content_async(
             prompt,
             generation_config={
                 "temperature": temperature,
-                "max_output_tokens": 2048,
-                "response_mime_type": "text/plain"
+                "max_output_tokens": 8192,
+                "response_mime_type": "application/json"
             }
         )
         return result.text
@@ -391,7 +386,8 @@ def _build_idea_generation_prompt(
     master_category: str,
     subcategories: List[str],
     niche_research: NicheResearch,
-    approach: Literal["experto", "curador"]
+    approach: Literal["experto", "curador"],
+    count: int
 ) -> str:
     """
     Construye el prompt para generar ideas de una categoría específica.
@@ -464,7 +460,7 @@ RESPONDE EN JSON con este formato exacto:
   ]
 }}
 
-Genera 3-5 ideas.
+Genera EXACTAMENTE {count} ideas, ni más ni menos.
 """
     return prompt
 
@@ -496,19 +492,23 @@ async def _generate_ideas_for_category(
         master_category=master_category,
         subcategories=subcategories,
         niche_research=niche_research,
-        approach=approach
+        approach=approach,
+        count=count
     )
 
     try:
         response = await _call_llm_with_prompt(prompt, temperature=0.7)
 
-        # Parsear respuesta JSON
+        # Parsear respuesta JSON. Con response_mime_type="application/json" el
+        # LLM ya no envuelve en ```json ni trunca a media frase (bug B6) -- si
+        # aun asi el parseo falla, no se inventan ideas de un fallback de texto:
+        # se devuelve [] y el gate honesto se encarga de reportarlo.
         try:
             data = json.loads(response)
             ideas_data = data.get("ideas", [])
-        except json.JSONDecodeError:
-            # Si no es JSON válido, intentar extracción
-            ideas_data = _extract_ideas_from_text(response, master_category, subcategories, niche_research)
+        except json.JSONDecodeError as e:
+            print(f"[ideas] JSON inválido del LLM para {master_category}: {e}")
+            return []
 
         # Convertir a CatalogIdea
         ideas = []
@@ -549,29 +549,6 @@ def _get_fallback_signal(niche_research: NicheResearch) -> str:
     return "Demanda detectada en investigación de nicho"
 
 
-def _extract_ideas_from_text(
-    text: str,
-    master_category: str,
-    subcategories: List[str],
-    niche_research: NicheResearch
-) -> List[Dict[str, str]]:
-    """
-    Extrae ideas de texto cuando el LLM no retorna JSON válido.
-    """
-    # Intento simple: cada línea es una idea
-    lines = [l.strip() for l in text.split("\n") if l.strip() and len(l) > 10]
-    ideas = []
-
-    for line in lines[:3]:
-        ideas.append({
-            "title": line[:100],
-            "subcategory": subcategories[0],
-            "demand_signal": _get_fallback_signal(niche_research)
-        })
-
-    return ideas
-
-
 def _check_brand_soul_generated(session_id: str) -> bool:
     """
     Verifica si Brand Soul ha sido generado y cacheado para la sesión.
@@ -593,7 +570,7 @@ def _check_brand_soul_generated(session_id: str) -> bool:
     return cached_html is not None
 
 
-async def generate_catalog(session_id: str) -> Catalog:
+async def generate_catalog(session_id: str, niche_research: Optional[NicheResearch] = None) -> Catalog:
     """
     Genera el catálogo de 30 ideas para la sesión.
 
@@ -601,12 +578,16 @@ async def generate_catalog(session_id: str) -> Catalog:
     1. Obtiene BrandBrain lockeado
     2. Verifica que Brand Soul exista (prerequisito para catálogo)
     3. Extrae nicho y enfoque
-    4. Llama a research_niche() para obtener señales de demanda
+    4. Llama a research_niche() para obtener señales de demanda (salvo que ya
+       venga pre-calculado en `niche_research` -- ver bug B1: evita disparar
+       research_niche() dos veces en el mismo request de /investigate)
     5. Genera ideas distribuidas en 5 categorías maestras
     6. Valida gate (30 ideas válidas con señales reales)
 
     Args:
         session_id: ID de sesión único
+        niche_research: NicheResearch ya calculado por el llamador (opcional).
+            Si se pasa, no se vuelve a llamar research_niche() internamente.
 
     Returns:
         Catalog con las ideas generadas
@@ -659,16 +640,18 @@ async def generate_catalog(session_id: str) -> Catalog:
         raise ValueError("No se pudo extraer un nicho válido de BrandBrain")
 
     # 3. Llamar a research_niche() para obtener señales de demanda
-    try:
-        niche_research = await research_niche(niche)
-        if niche_research is None:
-            raise NicheReportNotFoundError(
-                f"No se pudo obtener un NicheResearch para el nicho: {niche}"
-            )
-    except NicheReportNotFoundError:
-        raise  # Re-levantar tal cual, ya es nuestra excepción
-    except Exception as e:
-        raise Exception(f"Error en research_niche(): {e}") from e
+    # (salvo que el llamador ya la haya calculado -- bug B1)
+    if niche_research is None:
+        try:
+            niche_research = await research_niche(niche)
+            if niche_research is None:
+                raise NicheReportNotFoundError(
+                    f"No se pudo obtener un NicheResearch para el nicho: {niche}"
+                )
+        except NicheReportNotFoundError:
+            raise  # Re-levantar tal cual, ya es nuestra excepción
+        except Exception as e:
+            raise Exception(f"Error en research_niche(): {e}") from e
 
     # 4. Generar ideas distribuidas en 5 categorías
     all_ideas = []
@@ -691,9 +674,16 @@ async def generate_catalog(session_id: str) -> Catalog:
 
         all_ideas.extend(category_ideas)
 
-    # Rellenar si faltan ideas (distribuir en categorías principales)
-    while len(all_ideas) < TOTAL_IDEAS:
+    # Rellenar si faltan ideas (distribuir en categorías principales).
+    # Acotado a MAX_FILL_ROUNDS (bug B2): si el LLM devuelve [] o pocas ideas,
+    # esto ya NO reintenta sin fin hasta el timeout de 120s del endpoint --
+    # se detiene y deja que el gate honesto reporte gate_passed=False.
+    MAX_FILL_ROUNDS = 2
+    fill_round = 0
+    while len(all_ideas) < TOTAL_IDEAS and fill_round < MAX_FILL_ROUNDS:
+        fill_round += 1
         missing = TOTAL_IDEAS - len(all_ideas)
+        made_progress = False
         for cat_id in IDEA_DISTRIBUTION:
             if missing <= 0:
                 break
@@ -707,8 +697,13 @@ async def generate_catalog(session_id: str) -> Catalog:
                     approach=approach,
                     count=1
                 )
+                if extra:
+                    made_progress = True
                 all_ideas.extend(extra)
-                missing -= 1
+                missing -= len(extra) if extra else 0
+        if not made_progress:
+            # El LLM no está devolviendo ideas nuevas -- no insistir más rondas.
+            break
 
     # Limitar a 30 ideas
     all_ideas = all_ideas[:TOTAL_IDEAS]
@@ -896,7 +891,12 @@ async def update_idea_status(
     """
     Actualiza el estado de aprobación/descarte de una idea individual.
     """
-    catalog = await get_or_generate_catalog(session_id)
+    # Bug B10: usar SOLO el cache, nunca get_or_generate_catalog -- si no hay
+    # catálogo generado todavía, esto disparaba una generación completa GRATIS
+    # (sin cobrar los 15/25 créditos de /generate o /investigate).
+    catalog = _check_catalog_cache(session_id)
+    if not catalog:
+        raise ValueError("No hay catálogo generado para esta sesión. Genera o investiga primero.")
     if catalog.catalog_locked:
         raise ValueError("El catálogo está bloqueado. No se pueden modificar ideas.")
 
@@ -918,7 +918,10 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     """
     Regenera únicamente una idea individual reemplazándola en la misma categoría.
     """
-    catalog = await get_or_generate_catalog(session_id)
+    # Bug B10: mismo fix que update_idea_status -- solo cache, nunca generación gratis.
+    catalog = _check_catalog_cache(session_id)
+    if not catalog:
+        raise ValueError("No hay catálogo generado para esta sesión. Genera o investiga primero.")
     if catalog.catalog_locked:
         raise ValueError("El catálogo está bloqueado. No se pueden regenerar ideas.")
 

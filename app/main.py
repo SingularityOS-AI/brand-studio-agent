@@ -587,7 +587,7 @@ async def get_catalog(request: Request):
 
     # 6. Return cached catalog
     return JSONResponse(content={
-        "catalog": catalog.model_dump(),
+        "catalog": catalog.model_dump(mode="json"),
         "cache_status": "hit"
     })
 
@@ -632,12 +632,16 @@ async def generate_catalog_endpoint(request: Request):
         from app.catalog import ideas
         from app.catalog.ideas import CREDITS_COST
 
+        # Bug B11: el cache_status DEBE calcularse ANTES de get_or_generate_catalog
+        # -- calcularlo después siempre da "hit" porque para entonces ya se
+        # guardó el catálogo recién generado.
+        cache_status = "hit" if ideas._check_catalog_cache(session_token) else "generated"
+
         # Add timeout wrapper - max 2 minutes for full catalog generation
         catalog = await asyncio.wait_for(
             ideas.get_or_generate_catalog(session_token),
             timeout=120.0
         )
-        cache_status = "hit" if ideas._check_catalog_cache(session_token) else "generated"
     except asyncio.TimeoutError:
         # Timeout - NO CREDIT DEDUCTION (generation didn't complete)
         print(f"[ERROR] Catalog generation timeout after 120 seconds for session {session_token}")
@@ -665,7 +669,7 @@ async def generate_catalog_endpoint(request: Request):
 
     # 5. Return success
     return JSONResponse(content={
-        "catalog": catalog.model_dump(),
+        "catalog": catalog.model_dump(mode="json"),
         "cache_status": cache_status,
         "credits_remaining": remaining,
         "gate_passed": catalog.gate_passed
@@ -697,6 +701,68 @@ async def investigate_catalog_endpoint(request: Request):
     # No rate limit for authorized investigate endpoint - credits serve as the protection mechanism
 
     INVESTIGATE_COST = 25
+
+    # Bug B1: cobrar los 25 créditos ANTES de intentar generar significaba que
+    # todo fallo (TypeError garantizado por el bug de _extract_niche, timeout,
+    # error del LLM) se llevaba los créditos del usuario sin entregar nada.
+    # Se verifica saldo con el helper de solo-lectura (get_remaining_credits)
+    # y se cobra recién después de un éxito real, mismo patrón que /generate.
+    remaining_balance = guard.get_remaining_credits(session_token)
+    if remaining_balance is None:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    if remaining_balance < INVESTIGATE_COST:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "Session budget exhausted",
+                "credits_remaining": remaining_balance,
+                "payment_url": settings.payment_url,
+            }
+        )
+
+    try:
+        from app.catalog import ideas, demand
+        from app.tools.brand_brain.store import get_brand_brain
+
+        brain = get_brand_brain(session_token)
+        if not brain:
+            raise ValueError("No se encontró BrandBrain para esta sesión")
+
+        diagnostico = brain.get_section("diagnostico").content if brain.get_section("diagnostico") else {}
+        icp = brain.get_section("icp").content if brain.get_section("icp") else {}
+        charco = brain.get_section("charco").content if brain.get_section("charco") else {}
+        # Bug B1: _extract_niche exige 3 argumentos (icp, charco, diagnostico) --
+        # llamarla con 2 disparaba un TypeError garantizado en cada request.
+        niche = ideas._extract_niche(icp, charco, diagnostico)
+        if not niche or len(niche) < 3:
+            raise ValueError("No se pudo extraer un nicho válido de BrandBrain")
+
+        # Bug B1: UNA sola llamada a research_niche() -- antes se llamaba aquí
+        # y OTRA VEZ dentro de generate_catalog() para el mismo nicho. Se pasa
+        # el resultado ya calculado a get_or_generate_catalog para que lo
+        # reutilice si necesita generar (si hay cache válida, se ignora).
+        niche_research = await asyncio.wait_for(
+            demand.research_niche(niche),
+            timeout=90.0
+        )
+        catalog = await asyncio.wait_for(
+            ideas.get_or_generate_catalog(session_token, niche_research=niche_research),
+            timeout=120.0
+        )
+    except asyncio.TimeoutError:
+        # Bug B1: timeout -> NO se cobran créditos.
+        print(f"[ERROR] Catalog investigation timeout for session {session_token}")
+        return JSONResponse(
+            status_code=504,
+            content={"error": "Catalog investigation timed out. External APIs may be slow. Please try again."}
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"[ERROR] Investigate catalog error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # Bug B1: cobrar SOLO tras éxito real.
     try:
         remaining = guard.deduct_credits(session_token, amount=INVESTIGATE_COST)
     except HTTPException as e:
@@ -711,32 +777,12 @@ async def investigate_catalog_endpoint(request: Request):
             )
         raise
 
-    try:
-        from app.catalog import ideas, demand
-        from app.tools.brand_brain.store import get_brand_brain
-
-        brain = get_brand_brain(session_token)
-        if not brain:
-            raise ValueError("No se encontró BrandBrain para esta sesión")
-
-        icp = brain.get_section("icp").content if brain.get_section("icp") else {}
-        charco = brain.get_section("charco").content if brain.get_section("charco") else {}
-        niche = ideas._extract_niche(icp, charco)
-
-        niche_research = await demand.research_niche(niche)
-        catalog = await ideas.get_or_generate_catalog(session_token)
-
-        return JSONResponse(content={
-            "catalog": catalog.model_dump(),
-            "niche_research": niche_research.model_dump(),
-            "credits_remaining": remaining,
-            "gate_passed": catalog.gate_passed
-        })
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
-    except Exception as e:
-        print(f"[ERROR] Investigate catalog error: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    return JSONResponse(content={
+        "catalog": catalog.model_dump(mode="json"),
+        "niche_research": niche_research.model_dump(),
+        "credits_remaining": remaining,
+        "gate_passed": catalog.gate_passed
+    })
 
 
 @app.post("/api/catalog/idea/{idea_id}/accept", response_class=JSONResponse)
@@ -752,7 +798,7 @@ async def accept_idea_endpoint(request: Request, idea_id: str):
     try:
         from app.catalog import ideas
         catalog = await ideas.update_idea_status(session_token, idea_id, "approved")
-        return JSONResponse(content={"catalog": catalog.model_dump(), "status": "success"})
+        return JSONResponse(content={"catalog": catalog.model_dump(mode="json"), "status": "success"})
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
 
@@ -770,7 +816,7 @@ async def discard_idea_endpoint(request: Request, idea_id: str):
     try:
         from app.catalog import ideas
         catalog = await ideas.update_idea_status(session_token, idea_id, "rejected")
-        return JSONResponse(content={"catalog": catalog.model_dump(), "status": "success"})
+        return JSONResponse(content={"catalog": catalog.model_dump(mode="json"), "status": "success"})
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
 
@@ -785,29 +831,39 @@ async def regenerate_idea_endpoint(request: Request, idea_id: str):
     user_id = supabase_auth.get_user_id(authorization)
     session_token = guard.get_or_create_user_session(user_id)
     session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
 
+    # Bug B9: cobrar ANTES de intentar regenerar significaba que cualquier
+    # error (no ValueError, ej. el "No se pudo generar un reemplazo" que es
+    # Exception genérica) se llevaba los 3 créditos sin entregar nada, y
+    # además no había handler para 500 -- FastAPI dejaba pasar la excepción
+    # cruda. Se verifica saldo primero, se cobra tras éxito, y se capturan
+    # ValueError (400) y Exception (500) por separado.
     REGEN_COST = 3
-    try:
-        remaining = guard.deduct_credits(session_token, amount=REGEN_COST)
-    except HTTPException as e:
-        if e.status_code == 402:
-            return JSONResponse(
-                status_code=402,
-                content={"error": "Session budget exhausted", "credits_remaining": session["credits"]}
-            )
-        raise
+    remaining_balance = guard.get_remaining_credits(session_token)
+    if remaining_balance is None or remaining_balance < REGEN_COST:
+        return JSONResponse(
+            status_code=402,
+            content={"error": "Session budget exhausted", "credits_remaining": remaining_balance or 0}
+        )
 
     try:
         from app.catalog import ideas
         new_idea = await ideas.regenerate_single_idea(session_token, idea_id)
-        catalog = ideas._check_catalog_cache(session_token)
-        return JSONResponse(content={
-            "idea": new_idea.model_dump(),
-            "catalog": catalog.model_dump() if catalog else None,
-            "credits_remaining": remaining
-        })
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"[ERROR] Regenerate idea error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    remaining = guard.deduct_credits(session_token, amount=REGEN_COST)
+    catalog = ideas._check_catalog_cache(session_token)
+    return JSONResponse(content={
+        "idea": new_idea.model_dump(mode="json"),
+        "catalog": catalog.model_dump(mode="json") if catalog else None,
+        "credits_remaining": remaining
+    })
 
 
 @app.post("/api/catalog/lock", response_class=JSONResponse)
@@ -825,7 +881,7 @@ async def lock_catalog_endpoint(request: Request):
         catalog = ideas.lock_catalog_session(session_token)
         return JSONResponse(content={
             "catalog_locked": catalog.catalog_locked,
-            "catalog": catalog.model_dump(),
+            "catalog": catalog.model_dump(mode="json"),
             "status": "success"
         })
     except ValueError as e:

@@ -103,7 +103,15 @@ def brand_brain(sample_brand_sections):
 
 @pytest.fixture
 def niche_research_sample():
-    """Mock NicheResearch for testing."""
+    """
+    Mock NicheResearch for testing.
+
+    NOTE (bug found while fixing B1/B2/B6): esta fixture nunca se usaba en
+    ningún test antes -- traía trends_series/trends_related con tuplas/strings
+    en vez de dicts, lo que la hace inválida contra el modelo real
+    (`List[dict]`). Se corrige para que quede utilizable por los nuevos tests
+    de regresión.
+    """
     return NicheResearch(
         niche="interpretación médica",
         youtube_titles=[
@@ -115,13 +123,13 @@ def niche_research_sample():
             "Lack of certified interpreters in emergencies"
         ],
         trends_series=[
-            ("2023-01", 100),
-            ("2023-02", 95),
-            ("2023-03", 110)
+            {"date": "2023-01", "value": 100},
+            {"date": "2023-02", "value": 95},
+            {"date": "2023-03", "value": 110}
         ],
         trends_related=[
-            "medical interpreter certification",
-            "hospital interpretation services"
+            {"query": "medical interpreter certification", "value": 100},
+            {"query": "hospital interpretation services", "value": 80}
         ],
         web_grounding_notes=[
             "Growing demand for certified medical interpreters",
@@ -338,19 +346,20 @@ def test_determine_approach_infers_from_expertise():
 
 def test_extract_niche_from_icp():
     """Should extract niche from ICP first."""
-    icp = {"nicho": "interpretación médica"}
+    icp = {"quien_decide": "interpretación médica"}
     charco = {"problema": "Cualquier cosa"}
 
-    niche = _extract_niche(icp, charco)
+    # Bug B12: _extract_niche() exige 3 args (icp, charco, diagnostico).
+    niche = _extract_niche(icp, charco, {})
     assert "interpretación" in niche.lower()
 
 
 def test_extract_niche_from_charco():
     """Should fall back to charco if ICP empty."""
-    icp = {"nicho": ""}
-    charco = {"problema": "Niche: liderazgo ejecutivo"}
+    icp = {"quien_decide": ""}
+    charco = {"problema": "Niche: liderazgo ejecutivo estrategico responsable decisiones"}
 
-    niche = _extract_niche(icp, charco)
+    niche = _extract_niche(icp, charco, {})
     assert niche.strip() != ""
 
 
@@ -389,6 +398,110 @@ def test_save_and_load_cache(mock_get_brain, brand_brain, tmp_path, monkeypatch)
     # Cleanup test cache file if needed
     if os.path.exists(cache_file):
         os.remove(cache_file)
+
+
+# =============================================================================
+# Bug regression tests: B1 (single research call), B2 (bounded fill loop),
+# B4 (shared Vertex AI client), B6 (no text-fallback parser).
+# =============================================================================
+
+
+@patch('app.catalog.ideas.get_brand_brain')
+@patch('app.catalog.ideas._check_brand_soul_generated', return_value=True)
+@pytest.mark.asyncio
+async def test_generate_catalog_reuses_passed_niche_research(
+    mock_soul, mock_get_brain, brand_brain, niche_research_sample
+):
+    """
+    Bug B1: si el llamador ya calculó un NicheResearch, generate_catalog()
+    NO debe volver a llamar research_niche() -- evita la doble llamada que
+    duplicaba el costo/latencia de /investigate.
+    """
+    mock_get_brain.return_value = brand_brain
+
+    with patch('app.catalog.ideas.research_niche') as mock_research:
+        with patch(
+            'app.catalog.ideas._generate_ideas_for_category',
+            new=AsyncMock(return_value=[
+                CatalogIdea(
+                    master_category="autoridad_tecnica",
+                    subcategory="Top N",
+                    title=f"Idea {i}",
+                    demand_signal="Valid signal from research"
+                ) for i in range(12)
+            ])
+        ):
+            catalog = await generate_catalog("test_session", niche_research=niche_research_sample)
+
+    mock_research.assert_not_called()
+    assert catalog.niche is not None
+
+
+@patch('app.catalog.ideas.get_brand_brain')
+@patch('app.catalog.ideas._check_brand_soul_generated', return_value=True)
+@pytest.mark.asyncio
+async def test_generate_catalog_fill_loop_is_bounded(
+    mock_soul, mock_get_brain, brand_brain, niche_research_sample
+):
+    """
+    Bug B2 regression: si el LLM nunca devuelve ideas (siempre []), el loop de
+    relleno debe TERMINAR (no colgarse hasta el timeout de 120s del endpoint)
+    y dejar gate_passed=False en vez de ideas inventadas.
+    """
+    mock_get_brain.return_value = brand_brain
+
+    with patch(
+        'app.catalog.ideas._generate_ideas_for_category',
+        new=AsyncMock(return_value=[])
+    ) as mock_gen:
+        catalog = await generate_catalog("test_session", niche_research=niche_research_sample)
+
+    assert catalog.gate_passed is False
+    assert len(catalog.ideas) == 0
+    # 4 categorías (llamada inicial) + como máximo 2 rondas de relleno * 4
+    # categorías = 12 llamadas totales, nunca "cuelga" llamando sin fin.
+    assert mock_gen.call_count <= 12
+
+
+def test_get_vertex_ai_client_reuses_shared_helper():
+    """
+    Bug B4: ideas._get_vertex_ai_client() debe delegar en
+    brand_soul.generator._get_vertex_ai_client() (mismo modelo/proyecto que
+    el resto de la app), no reimplementar su propia inicialización con
+    GOOGLE_CLOUD_PROJECT (que nunca está poblado en este proyecto) ni un
+    modelo hardcodeado retirado (gemini-2.0-flash-exp).
+    """
+    from app.catalog import ideas
+    sentinel = object()
+    with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=sentinel) as mock_shared:
+        result = ideas._get_vertex_ai_client()
+    mock_shared.assert_called_once()
+    assert result is sentinel
+
+
+@pytest.mark.asyncio
+async def test_generate_ideas_for_category_returns_empty_on_invalid_json(niche_research_sample):
+    """
+    Bug B6 regression: si el LLM no devuelve JSON válido (aunque se pida
+    response_mime_type="application/json"), no se inventan ideas con un
+    fallback de texto -- se devuelve [] y el gate honesto lo reporta.
+    """
+    from app.catalog.ideas import _generate_ideas_for_category
+
+    with patch(
+        'app.catalog.ideas._call_llm_with_prompt',
+        new=AsyncMock(return_value="```json\nesto no es json valido")
+    ):
+        result = await _generate_ideas_for_category(
+            niche="interpretación médica",
+            master_category="autoridad_tecnica",
+            subcategories=["Top N/Listículo técnico"],
+            niche_research=niche_research_sample,
+            approach="experto",
+            count=3
+        )
+
+    assert result == []
 
 
 # =============================================================================
