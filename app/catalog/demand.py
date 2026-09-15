@@ -23,6 +23,7 @@ import os
 import time
 import hashlib
 import logging
+import asyncio
 from typing import Literal, Optional, Dict, List, Any, Tuple
 from datetime import datetime, timedelta
 from collections import Counter
@@ -1031,7 +1032,11 @@ async def research_niche(niche: str) -> NicheResearch:
 
     # Source 1: Search YouTube videos and fetch comments for pain classification
     try:
-        top_videos = await yt_client.get_top_videos(niche, limit=10)
+        # Add timeout wrapper for YouTube API call (30 seconds)
+        top_videos = await asyncio.wait_for(
+            yt_client.get_top_videos(niche, limit=10),
+            timeout=30.0
+        )
 
         # Extract video titles
         result.youtube_titles = [
@@ -1048,14 +1053,20 @@ async def research_niche(niche: str) -> NicheResearch:
                 continue
 
             try:
-                # Fetch comments
-                comments = await yt_client.get_video_comments(video_id, max_results=20)
+                # Fetch comments with timeout (20 seconds per video)
+                comments = await asyncio.wait_for(
+                    yt_client.get_video_comments(video_id, max_results=20),
+                    timeout=20.0
+                )
 
                 if comments:
                     # Classify pain signals (1 LLM call)
                     signals = await classify_pain_from_comments(video_title, comments)
                     pain_signals.extend(signals)
 
+            except asyncio.TimeoutError:
+                logger.warning(f"[research] Timeout fetching comments for video {video_id}")
+                continue
             except Exception as e:
                 logger.error(f"[research] Error processing video {video_id}: {e}")
                 continue
@@ -1063,31 +1074,60 @@ async def research_niche(niche: str) -> NicheResearch:
         # Deduplicate pain signals
         result.youtube_pain_signals = list(set(pain_signals))
 
+    except asyncio.TimeoutError:
+        logger.error(f"[research] YouTube API timeout while fetching top videos for niche: {niche}")
+        result.youtube_titles = []
+        result.youtube_pain_signals = []
     except Exception as e:
         logger.error(f"[research] Error fetching YouTube data: {e}")
         result.youtube_titles = []
         result.youtube_pain_signals = []
 
-    # Source 2: Google Trends - interest over time
+    # Source 2: Google Trends - interest over time (with timeout wrapper)
     try:
-        trends_series = _trends_client.get_interest_over_time(niche, timeframe="today 3-m")
+        trends_series = await asyncio.wait_for(
+            asyncio.to_thread(
+                _trends_client.get_interest_over_time,
+                niche,
+                timeframe="today 3-m"
+            ),
+            timeout=15.0
+        )
         result.trends_series = trends_series
+    except asyncio.TimeoutError:
+        logger.warning(f"[research] Google Trends timeout for interest_over_time on niche: {niche}")
+        result.trends_series = []
     except Exception as e:
         logger.error(f"[research] Error fetching trends series: {e}")
         result.trends_series = []
 
-    # Source 3: Google Trends - related queries
+    # Source 3: Google Trends - related queries (with timeout wrapper)
     try:
-        related_queries = _trends_client.get_related_queries(niche)
+        related_queries = await asyncio.wait_for(
+            asyncio.to_thread(
+                _trends_client.get_related_queries,
+                niche
+            ),
+            timeout=15.0
+        )
         result.trends_related = related_queries
+    except asyncio.TimeoutError:
+        logger.warning(f"[research] Google Trends timeout for related_queries on niche: {niche}")
+        result.trends_related = []
     except Exception as e:
         logger.error(f"[research] Error fetching related queries: {e}")
         result.trends_related = []
 
-    # Source 4: Web grounding with Gemini
+    # Source 4: Web grounding with Gemini (with timeout)
     try:
-        web_insights = await ground_web_search(niche)
+        web_insights = await asyncio.wait_for(
+            ground_web_search(niche),
+            timeout=45.0  # Longer timeout for LLM web search
+        )
         result.web_grounding_notes = web_insights
+    except asyncio.TimeoutError:
+        logger.warning(f"[research] Web grounding timeout for niche: {niche}")
+        result.web_grounding_notes = []
     except Exception as e:
         logger.error(f"[research] Error performing web search: {e}")
         result.web_grounding_notes = []

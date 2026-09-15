@@ -631,8 +631,20 @@ async def generate_catalog_endpoint(request: Request):
     try:
         from app.catalog import ideas
         from app.catalog.ideas import CREDITS_COST
-        catalog = await ideas.get_or_generate_catalog(session_token)
+
+        # Add timeout wrapper - max 2 minutes for full catalog generation
+        catalog = await asyncio.wait_for(
+            ideas.get_or_generate_catalog(session_token),
+            timeout=120.0
+        )
         cache_status = "hit" if ideas._check_catalog_cache(session_token) else "generated"
+    except asyncio.TimeoutError:
+        # Timeout - NO CREDIT DEDUCTION (generation didn't complete)
+        print(f"[ERROR] Catalog generation timeout after 120 seconds for session {session_token}")
+        return JSONResponse(
+            status_code=504,
+            content={"error": "Catalog generation timed out. External APIs may be slow. Please try again."}
+        )
     except ValueError as e:
         # Validation errors (missing brain/demand, etc.) - NO CREDIT DEDUCTION
         return JSONResponse(

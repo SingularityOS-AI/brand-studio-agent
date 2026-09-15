@@ -2266,9 +2266,29 @@ ${htmlContent}
       catalogGate.style.cursor = 'wait';
       catalogGate.style.opacity = '0.7';
 
+      // Add timeout with AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 135000); // 135 seconds = 2 min 15 sec (slightly longer than backend 120s)
+
+      // Create a fake progress counter to show activity
+      let progressStep = 0;
+      const progressInterval = setInterval(() => {
+        progressStep = Math.min(progressStep + 1, 30);
+        catalogGateCount.textContent = `${progressStep}/30`;
+        if (progressStep >= 30) {
+          clearInterval(progressInterval);
+        }
+      }, 3000); // Update every 3 seconds to simulate progress
+
       const response = await authenticatedFetch('/api/catalog/generate', {
-        method: 'POST'
+        method: 'POST',
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+      clearInterval(progressInterval);
 
       const data = await response.json();
       const body = data; // Mantener el objeto JSON completo
@@ -2318,7 +2338,13 @@ ${htmlContent}
 
     } catch (error) {
       console.error('[Catalog] Loading error:', error);
-      alert('Failed to load catalog: ' + error.message);
+
+      // Handle timeout specifically
+      if (error.name === 'AbortError') {
+        alert('Catalog generation timed out. The external APIs may be slow or unavailable. Please try again.');
+      } else {
+        alert('Failed to load catalog: ' + error.message);
+      }
 
       // Reset gate state
       catalogGateTitle.textContent = 'No ideas yet';
