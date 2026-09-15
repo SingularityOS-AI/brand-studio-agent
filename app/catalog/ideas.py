@@ -22,7 +22,7 @@ import time
 import json
 import hashlib
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal, Optional, List, Dict, Any
 from collections import Counter
 from functools import lru_cache
@@ -109,8 +109,14 @@ MASTER_CATEGORIES: List[Dict[str, Any]] = [
     }
 ]
 
-# Total ideas a generar
+# Total ideas a generar por el motor de investigación (LLM + NicheResearch)
 TOTAL_IDEAS = 30
+
+# Pieza 29: límite duro del catálogo INCLUYENDO ideas manuales del fundador.
+# La generación por LLM sigue siendo siempre 30 (TOTAL_IDEAS); MAX_IDEAS es
+# solo el techo del validador para permitir hasta 15 ideas propias agregadas
+# a mano (gratis) encima de las 30 generadas.
+MAX_IDEAS = 45
 
 # Distribución ideales (40%, 30%, 20%, 10% + narrativa_fundadora incluida en posicionamiento)
 IDEA_DISTRIBUTION = {
@@ -119,9 +125,6 @@ IDEA_DISTRIBUTION = {
     "posicionamiento_narrativa": 6, # 20% de 30 (incluye narrativa_fundadora)
     "discusion_industria": 3    # 10% de 30
 }
-
-# Cache TTL para evitar regenerar el catálogo cada vez
-CACHE_TTL_SECONDS = 24 * 60 * 60  # 24 horas
 
 # COSTO EN CRÉDITOS (entro en la pieza, de momento sin touched)
 CREDITS_COST = 15
@@ -166,6 +169,15 @@ class CatalogIdea(BaseModel):
         default="pending",
         description="Estado de aprobación del fundador"
     )
+    origin: Literal["research", "founder"] = Field(
+        default="research",
+        description=(
+            "Pieza 29: 'research' = generada por el motor de ideas (LLM + "
+            "NicheResearch); 'founder' = agregada a mano por el fundador (gratis). "
+            "Default 'research' mantiene compatibilidad con catálogos viejos "
+            "guardados sin este campo."
+        )
+    )
 
     @field_validator("master_category")
     @classmethod
@@ -204,9 +216,12 @@ class Catalog(BaseModel):
     @field_validator("ideas")
     @classmethod
     def validate_ideas_count(cls, v: List[CatalogIdea]) -> List[CatalogIdea]:
-        if len(v) > TOTAL_IDEAS:
+        # Pieza 29: el techo real es MAX_IDEAS (30 generadas + hasta 15
+        # manuales del fundador), no TOTAL_IDEAS -- ese sigue siendo
+        # exactamente el objetivo de la generación por LLM.
+        if len(v) > MAX_IDEAS:
             raise ValueError(
-                f"Máximo {TOTAL_IDEAS} ideas permitidas, got {len(v)}"
+                f"Máximo {MAX_IDEAS} ideas permitidas, got {len(v)}"
             )
         return v
 
@@ -377,6 +392,46 @@ def _extract_niche(icp: Dict[str, Any], charco: Dict[str, Any], diagnostico: Dic
     return cleaned
 
 
+# Longitud máxima del bloque de perfil del fundador dentro del prompt (Pieza 29 punto C).
+BRAND_CONTEXT_MAX_CHARS = 2500
+
+
+def _build_brand_context(brain: BrandBrain) -> str:
+    """
+    Pieza 29 (punto C): compacta las secciones CONFIRMADAS del BrandBrain en
+    un bloque de texto para inyectar en el prompt de generación de ideas.
+
+    Sin esto, el prompt solo recibía el nicho + experto/curador -- el LLM
+    generaba ideas genéricas de la categoría, no ancladas al perfil/tesis real
+    del fundador (ICP, charco, diagnóstico, posicionamiento, etc.).
+
+    Nunca incluye timestamps. Se trunca a BRAND_CONTEXT_MAX_CHARS en total.
+    """
+    if not brain or not brain.sections:
+        return ""
+
+    lines = []
+    for section in brain.sections:
+        if section.status not in ("confirmado", "completado"):
+            continue
+        if not section.content:
+            continue
+        content_str = ", ".join(
+            f"{k}: {v}" for k, v in section.content.items() if v
+        )
+        if content_str:
+            lines.append(f"- {section.label}: {content_str}")
+
+    if not lines:
+        return ""
+
+    context = "\n".join(lines)
+    if len(context) > BRAND_CONTEXT_MAX_CHARS:
+        context = context[:BRAND_CONTEXT_MAX_CHARS].rstrip() + "..."
+
+    return context
+
+
 # =============================================================================
 # GENERACIÓN DE IDEAS
 # =============================================================================
@@ -387,10 +442,16 @@ def _build_idea_generation_prompt(
     subcategories: List[str],
     niche_research: NicheResearch,
     approach: Literal["experto", "curador"],
-    count: int
+    count: int,
+    brand_context: str = ""
 ) -> str:
     """
     Construye el prompt para generar ideas de una categoría específica.
+
+    Args:
+        brand_context: Pieza 29 (punto C) -- bloque compacto de las secciones
+            confirmadas del BrandBrain (ver _build_brand_context). Opcional
+            y con default "" para no romper llamadores existentes/tests.
 
     # PLACEHOLDER: afinar en ronda posterior
     """
@@ -432,6 +493,13 @@ def _build_idea_generation_prompt(
         else "El fundador es CURADOR: investiga, compara, y presenta aprendizajes de terceros."
     )
 
+    # Pieza 29 (punto C): bloque del perfil del fundador -- vacío no rompe el
+    # prompt (brand_context="" por default), solo se omite la sección.
+    brand_context_block = (
+        f"\nPERFIL DEL FUNDADOR (Brand Brain):\n{brand_context}\n"
+        if brand_context else ""
+    )
+
     prompt = f"""Eres un estratega de contenido B2B. Tu tarea es generar ideas de contenido ALINEADAS CON DEMANDA REAL.
 
 NICHO: {niche}
@@ -439,7 +507,7 @@ CATEGORÍA: {cat_name}
 SUBCATEGORÍAS DISPONIBLES: {", ".join(subcategories)}
 
 ENFOQUE DEL FUNDADOR: {approach_note}
-
+{brand_context_block}
 CONTEXTO DE DEMANDA REAL:
 {demand_context}
 
@@ -455,6 +523,9 @@ INSTRUCCIONES:
    marco conceptual, sin número ni cliente inventado (ej. "Cómo reducir el
    tiempo de espera en tu hospital" en vez de "Cómo reduje el tiempo de
    espera 25% para el Hospital X").
+6. Cada título debe conectar la señal de demanda real con el PERFIL DEL
+   FUNDADOR de arriba (si existe) -- no generes una idea genérica de la
+   categoría, ánclala a su ICP/tesis/posicionamiento real.
 
 RESPONDE EN JSON con este formato exacto:
 {{
@@ -478,7 +549,8 @@ async def _generate_ideas_for_category(
     subcategories: List[str],
     niche_research: NicheResearch,
     approach: Literal["experto", "curador"],
-    count: int
+    count: int,
+    brand_context: str = ""
 ) -> List[CatalogIdea]:
     """
     Genera ideas para una categoría maestra específica.
@@ -490,6 +562,7 @@ async def _generate_ideas_for_category(
         niche_research: Resultado de research_niche()
         approach: "experto" o "curador"
         count: Cantidad de ideas a generar
+        brand_context: Pieza 29 (punto C) -- perfil compacto del BrandBrain, opcional
 
     Returns:
         Lista de CatalogIdea generadas
@@ -498,6 +571,7 @@ async def _generate_ideas_for_category(
         niche=niche,
         master_category=master_category,
         subcategories=subcategories,
+        brand_context=brand_context,
         niche_research=niche_research,
         approach=approach,
         count=count
@@ -698,6 +772,10 @@ async def generate_catalog(session_id: str, niche_research: Optional[NicheResear
             "Intenta de nuevo en unos minutos."
         )
 
+    # Pieza 29 (punto C): perfil compacto del fundador para anclar las ideas
+    # a su ICP/tesis real, no solo al nicho + experto/curador.
+    brand_context = _build_brand_context(brain)
+
     # 4. Generar ideas distribuidas en 5 categorías
     all_ideas = []
 
@@ -714,7 +792,8 @@ async def generate_catalog(session_id: str, niche_research: Optional[NicheResear
             subcategories=cat_info["subcategories"],
             niche_research=niche_research,
             approach=approach,
-            count=count
+            count=count,
+            brand_context=brand_context
         )
 
         all_ideas.extend(category_ideas)
@@ -740,7 +819,8 @@ async def generate_catalog(session_id: str, niche_research: Optional[NicheResear
                     subcategories=cat_info["subcategories"],
                     niche_research=niche_research,
                     approach=approach,
-                    count=1
+                    count=1,
+                    brand_context=brand_context
                 )
                 if extra:
                     made_progress = True
@@ -821,16 +901,118 @@ def _compute_catalog_hash(session_id: str) -> str:
     return hashlib.sha256(json_str.encode()).hexdigest()
 
 
+def _get_catalog_supabase_client():
+    """
+    Lazy init del cliente Supabase para la tabla `catalogs`.
+
+    Pieza 29 (punto A): mismo patrón que
+    app/tools/brand_brain/store.py::_get_supabase_client() -- mismas
+    variables de entorno (SUPABASE_URL / SUPABASE_KEY, con
+    SUPABASE_SERVICE_ROLE_KEY como alias), acceso con la service key.
+    """
+    from supabase import create_client
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL y SUPABASE_KEY deben estar configuradas para persistir "
+            "el catálogo en Supabase."
+        )
+
+    return create_client(supabase_url, supabase_key)
+
+
+# Cliente global (lazy), igual que brand_brain/store.py
+_catalog_client = None
+
+
+def _get_catalog_client():
+    """
+    Devuelve el cliente Supabase para `catalogs`, o None si no está
+    configurado. Los tests mockean esta función directamente (con
+    return_value=None) para forzar el fallback a archivo local, mismo
+    criterio que brand_brain/store.py::_get_client() en TEST_MODE.
+    """
+    global _catalog_client
+    if _catalog_client is None:
+        try:
+            _catalog_client = _get_catalog_supabase_client()
+        except RuntimeError:
+            return None
+    return _catalog_client
+
+
+def _catalog_to_row(catalog: Catalog) -> Dict[str, Any]:
+    """Serializa un Catalog a la forma de fila de la tabla `catalogs`."""
+    return {
+        "session_token": catalog.session_id,
+        "niche": catalog.niche,
+        "data": {
+            "ideas": [idea.model_dump(mode="json") for idea in catalog.ideas],
+            "gate_passed": catalog.gate_passed,
+            "created_at": catalog.created_at.isoformat(),
+        },
+        "catalog_locked": catalog.catalog_locked,
+    }
+
+
+def _row_to_catalog(row: Dict[str, Any], session_id: str) -> Optional[Catalog]:
+    """Reconstruye un Catalog desde una fila de Supabase (o del archivo local)."""
+    data = row.get("data") or {}
+    try:
+        ideas = [CatalogIdea(**idea_data) for idea_data in data.get("ideas", [])]
+        created_str = data.get("created_at")
+        return Catalog(
+            session_id=row.get("session_token", session_id),
+            niche=row.get("niche", ""),
+            ideas=ideas,
+            gate_passed=data.get("gate_passed", False),
+            created_at=(
+                datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                if created_str else datetime.now(timezone.utc)
+            ),
+            catalog_locked=row.get("catalog_locked", False),
+        )
+    except Exception as e:
+        print(f"Error reconstruyendo catálogo: {e}")
+        return None
+
+
 def _check_catalog_cache(session_id: str) -> Optional[Catalog]:
     """
-    Verifica si existe un catálogo cacheado válido para esta sesión.
+    Busca el catálogo persistido para esta sesión.
+
+    Pieza 29 (punto A): sin TTL ni invalidación por hash del BrandBrain -- un
+    catálogo generado (y sus aprobaciones/descartes) no desaparece ni se
+    regenera solo. Antes vivía únicamente en cache/catalog/*.json sobre disco
+    efímero de Render (se borraba en cada deploy) con expiración de 24h y se
+    invalidaba si el brain cambiaba un solo caracter -- el fundador perdía el
+    catálogo que ya había pagado y aprobado.
+
+    Primero intenta Supabase (tabla `catalogs`); si no está configurado, cae
+    al archivo local (tests/TEST_MODE), mismo criterio que
+    brand_brain/store.py.
 
     Args:
         session_id: ID de sesión
 
     Returns:
-        Catalog si existe y es válido, None en caso contrario
+        Catalog si existe, None en caso contrario
     """
+    client = _get_catalog_client()
+    if client is not None:
+        try:
+            response = client.table("catalogs").select("*").eq("session_token", session_id).execute()
+            if not response.data:
+                return None
+            return _row_to_catalog(response.data[0], session_id)
+        except Exception as e:
+            print(f"Error leyendo catálogo de Supabase: {e}")
+            return None
+
+    # Fallback: archivo local (Supabase no configurado)
     cache_dir = "cache/catalog"
     cache_file = os.path.join(cache_dir, f"{session_id}.json")
 
@@ -841,28 +1023,13 @@ def _check_catalog_cache(session_id: str) -> Optional[Catalog]:
         with open(cache_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Verificar TTL
-        created_str = data.get("created_at")
-        if created_str:
-            created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
-            age = datetime.now(timezone.utc) - created
-            if age > timedelta(seconds=CACHE_TTL_SECONDS):
-                return None  # Cache expirado
-
-        # Verificar hash
-        current_hash = _compute_catalog_hash(session_id)
-        cached_hash = data.get("brand_hash")
-
-        if cached_hash != current_hash:
-            return None  # BrandBrain cambió
-
-        # Reconstruir Catalog
         ideas_json = data.get("ideas", [])
         ideas = [
             CatalogIdea(**idea_data)
             for idea_data in ideas_json
         ]
 
+        created_str = data.get("created_at")
         catalog = Catalog(
             session_id=data.get("session_id", session_id),
             niche=data.get("niche", ""),
@@ -875,49 +1042,68 @@ def _check_catalog_cache(session_id: str) -> Optional[Catalog]:
         return catalog
 
     except Exception as e:
-        print(f"Error leyendo cache: {e}")
+        print(f"Error leyendo cache local: {e}")
         return None
 
 
 def _save_catalog_cache(catalog: Catalog) -> None:
     """
-    Guarda un catálogo en cache para futuras consultas.
+    Persiste el catálogo (upsert por session_token).
+
+    Pieza 29 (punto A): Supabase primero (tabla `catalogs`), con fallback a
+    archivo local si Supabase no está configurado -- mismo criterio que
+    _check_catalog_cache.
 
     Args:
-        catalog: Catalog a cachear
+        catalog: Catalog a persistir
     """
+    client = _get_catalog_client()
+    if client is not None:
+        try:
+            client.table("catalogs").upsert(
+                _catalog_to_row(catalog), on_conflict="session_token"
+            ).execute()
+            return
+        except Exception as e:
+            print(f"Error guardando catálogo en Supabase: {e}")
+            return
+
+    # Fallback: archivo local
     cache_dir = "cache/catalog"
     os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = os.path.join(cache_dir, f"{catalog.session_id}.json")
 
     try:
-        # Calcular hash del BrandBrain
-        brand_hash = _compute_catalog_hash(catalog.session_id)
-
         data = {
             "session_id": catalog.session_id,
             "niche": catalog.niche,
-            "ideas": [idea.model_dump() for idea in catalog.ideas],
+            "ideas": [idea.model_dump(mode="json") for idea in catalog.ideas],
             "gate_passed": catalog.gate_passed,
             "created_at": catalog.created_at.isoformat(),
             "catalog_locked": catalog.catalog_locked,
-            "brand_hash": brand_hash
         }
 
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     except Exception as e:
-        print(f"Error guardando cache: {e}")
+        print(f"Error guardando cache local: {e}")
 
 
-async def get_or_generate_catalog(session_id: str) -> Catalog:
+async def get_or_generate_catalog(
+    session_id: str, niche_research: Optional[NicheResearch] = None
+) -> Catalog:
     """
     Obtiene el catálogo cacheado o genera uno nuevo.
 
     Args:
         session_id: ID de sesión
+        niche_research: NicheResearch ya calculado por el llamador (opcional,
+            se reenvía a generate_catalog -- fix de un bug real encontrado en
+            Pieza 29: main.py::/investigate ya llamaba a esta función con
+            `niche_research=...` pero la firma no lo aceptaba, lo que
+            garantizaba un TypeError en cada request real).
 
     Returns:
         Catalog con las ideas (cacheado o generado)
@@ -928,7 +1114,7 @@ async def get_or_generate_catalog(session_id: str) -> Catalog:
         return cached
 
     # Generar nuevo catálogo
-    catalog = await generate_catalog(session_id)
+    catalog = await generate_catalog(session_id, niche_research=niche_research)
 
     # Guardar en cache
     _save_catalog_cache(catalog)
@@ -991,6 +1177,7 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     niche = _extract_niche(icp, charco, diagnostico)
 
     niche_research = await research_niche(niche)
+    brand_context = _build_brand_context(brain) if brain else ""
 
     cat_info = next((c for c in MASTER_CATEGORIES if c["id"] == target_idea.master_category), None)
     subcategories = cat_info["subcategories"] if cat_info else ["General"]
@@ -1001,7 +1188,8 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
         subcategories=subcategories,
         niche_research=niche_research,
         approach=approach,
-        count=1
+        count=1,
+        brand_context=brand_context
     )
 
     if not new_ideas:
@@ -1016,6 +1204,72 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
 
     _save_catalog_cache(catalog)
     return new_idea
+
+
+def add_founder_idea(
+    session_id: str,
+    title: str,
+    master_category: str,
+    source: str,
+    subcategory: Optional[str] = None,
+) -> Catalog:
+    """
+    Pieza 29 (punto B): agrega una idea manual del fundador al catálogo.
+
+    Gratis (no pasa por guard.deduct_credits) -- nace ya "approved" y con
+    origin="founder" porque el fundador mismo es quien la valida, no el motor
+    de investigación. demand_signal es siempre "Fuente del founder: {source}",
+    nunca inventado.
+
+    Args:
+        session_id: ID de sesión
+        title: Título de la idea (5-200 caracteres, validado por CatalogIdea)
+        master_category: uno de los IDs de MASTER_CATEGORIES
+        source: de dónde sale la idea (experiencia propia, dato, link) -- min 10 caracteres
+        subcategory: opcional, default a la primera subcategoría de la categoría elegida
+
+    Raises:
+        ValueError: catálogo inexistente, bloqueado, lleno, o input inválido
+    """
+    catalog = _check_catalog_cache(session_id)
+    if not catalog:
+        raise ValueError("No hay catálogo generado para esta sesión. Genera o investiga primero.")
+    if catalog.catalog_locked:
+        raise ValueError("El catálogo está bloqueado. No se pueden agregar ideas.")
+
+    if len(catalog.ideas) >= MAX_IDEAS:
+        raise ValueError(f"El catálogo ya tiene el máximo de {MAX_IDEAS} ideas.")
+
+    valid_ids = [cat["id"] for cat in MASTER_CATEGORIES]
+    if master_category not in valid_ids:
+        raise ValueError(f"Categoría inválida: {master_category}. Debe ser una de {valid_ids}")
+
+    # Defensa en profundidad: `source` se valida por su propia longitud, no
+    # por la del demand_signal ya concatenado (que siempre mide >=10 por el
+    # prefijo "Fuente del founder: " aunque source sea trivial).
+    if not source or len(source.strip()) < 10:
+        raise ValueError("source debe tener al menos 10 caracteres.")
+
+    cat_info = next(c for c in MASTER_CATEGORIES if c["id"] == master_category)
+    resolved_subcategory = (
+        subcategory.strip() if subcategory and subcategory.strip() else cat_info["subcategories"][0]
+    )
+
+    # CatalogIdea valida title (5-200) y demand_signal (>=10) en la
+    # construcción -- cualquier violación levanta pydantic ValidationError
+    # (subclase de ValueError), que el endpoint ya captura como 400.
+    idea = CatalogIdea(
+        master_category=master_category,
+        subcategory=resolved_subcategory,
+        title=title,
+        demand_signal=f"Fuente del founder: {source}",
+        status="approved",
+        origin="founder",
+    )
+
+    catalog.ideas.append(idea)
+    _save_catalog_cache(catalog)
+    return catalog
 
 
 def lock_catalog_session(session_id: str) -> Catalog:

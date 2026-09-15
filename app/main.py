@@ -676,6 +676,67 @@ async def generate_catalog_endpoint(request: Request):
     })
 
 
+@app.post("/api/catalog/idea", response_class=JSONResponse)
+async def add_founder_idea_endpoint(request: Request):
+    """
+    Pieza 29 (punto B) — Agrega una idea manual del fundador al catálogo. Gratis.
+
+    Body JSON:
+        title (str, 5-200 chars)
+        master_category (str, uno de los 5 IDs de MASTER_CATEGORIES)
+        source (str, min 10 chars -- de dónde sale la idea)
+        subcategory (str, opcional -- default la primera de la categoría)
+
+    Se parsea el body a mano (no con un modelo Pydantic tipado) para que
+    cualquier input inválido devuelva 400 con un mensaje claro, no el 422
+    genérico de FastAPI -- input no confiable, trust boundary real.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Body debe ser JSON válido"})
+
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "Body debe ser un objeto JSON"})
+
+    title = body.get("title")
+    master_category = body.get("master_category")
+    source = body.get("source")
+    subcategory = body.get("subcategory")
+
+    if not isinstance(title, str) or not (5 <= len(title.strip()) <= 200):
+        return JSONResponse(status_code=400, content={"error": "title debe ser texto de 5 a 200 caracteres"})
+    if not isinstance(master_category, str) or not master_category:
+        return JSONResponse(status_code=400, content={"error": "master_category es requerido"})
+    if not isinstance(source, str) or len(source.strip()) < 10:
+        return JSONResponse(status_code=400, content={"error": "source debe ser texto de al menos 10 caracteres"})
+    if subcategory is not None and not isinstance(subcategory, str):
+        return JSONResponse(status_code=400, content={"error": "subcategory debe ser texto"})
+
+    try:
+        from app.catalog import ideas
+        catalog = ideas.add_founder_idea(
+            session_id=session_token,
+            title=title.strip(),
+            master_category=master_category,
+            source=source.strip(),
+            subcategory=subcategory
+        )
+        return JSONResponse(
+            status_code=201,
+            content={"catalog": catalog.model_dump(mode="json"), "status": "success"}
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
 @app.post("/api/catalog/investigate", response_class=JSONResponse)
 async def investigate_catalog_endpoint(request: Request):
     """

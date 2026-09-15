@@ -18,6 +18,20 @@ from app.guard import guard
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def _no_real_supabase_for_catalog():
+    """
+    Pieza 29: _check_catalog_cache()/_save_catalog_cache() ahora intentan
+    Supabase (tabla `catalogs`) antes del archivo local. Este repo tiene
+    credenciales reales de Supabase en el entorno de desarrollo, así que sin
+    este mock todos los tests de este archivo pegarían contra la red de
+    verdad. Se fuerza el fallback a archivo local para todos los tests de
+    este módulo (mismo criterio que brand_brain/store.py en TEST_MODE).
+    """
+    with patch('app.catalog.ideas._get_catalog_client', return_value=None):
+        yield
+
+
 @pytest.fixture
 def sample_brand_sections():
     return [

@@ -369,15 +369,19 @@ def test_check_catalog_cache_no_cache(mock_get_client, brand_brain):
     assert catalog is None
 
 
+@patch('app.catalog.ideas._get_catalog_client', return_value=None)
 @patch('app.catalog.ideas.get_brand_brain')
 @patch('app.tools.brand_brain.store._get_client')
-def test_save_catalog_cache(mock_get_client, mock_get_brain, brand_brain):
-    """Should save catalog to cache file."""
+def test_save_catalog_cache(mock_get_client, mock_get_brain, mock_catalog_client, brand_brain):
+    """
+    Should save catalog to cache file.
+
+    Pieza 29: _save_catalog_cache()/_check_catalog_cache() ahora intentan
+    Supabase primero (tabla `catalogs`) -- se mockea _get_catalog_client() a
+    None para forzar el fallback a archivo local que este test ejercita
+    (mismo criterio que brand_brain/store.py en TEST_MODE).
+    """
     mock_get_client.return_value = None
-    # Bug B12: _save_catalog_cache() calcula brand_hash llamando a
-    # get_brand_brain(session_id) -- sin mockearlo, get_brand_brain("test_session")
-    # devuelve None, _compute_catalog_hash() levanta ValueError, y el save
-    # queda silenciosamente sin escribir (solo loguea "Error guardando cache").
     mock_get_brain.return_value = brand_brain
 
     catalog = Catalog(

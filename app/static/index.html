@@ -328,6 +328,21 @@
         <div id="Trends-Related" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
       </div>
 
+      <!-- Pieza 29 (punto D1): agregar idea propia del fundador, gratis -->
+      <div id="Catalog-AddIdeaForm" style="margin:0 40px 16px;padding:16px;border:1px solid #E2E8F0;border-radius:6px;background:#FAFAFA">
+        <div style="font-size:12px;font-weight:600;color:#5C6675;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Agregar idea propia</div>
+        <input type="text" id="AddIdea-Title" placeholder="Título de la idea (5-200 caracteres)" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
+        <select id="AddIdea-Category" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
+          <option value="autoridad_tecnica">Autoridad Técnica e Instrucción</option>
+          <option value="validacion_resultados">Validación de Resultados e Impacto</option>
+          <option value="posicionamiento_narrativa">Posicionamiento y Tesis de Mercado</option>
+          <option value="narrativa_fundadora">Narrativa Fundadora y Origen</option>
+          <option value="discusion_industria">Discusión y Co-creación de Industria</option>
+        </select>
+        <textarea id="AddIdea-Source" placeholder="Fuente: ¿de dónde sale esta idea? (tu experiencia, un dato, un link) — mínimo 10 caracteres" required style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;min-height:56px;box-sizing:border-box"></textarea>
+        <button class="btn btn--go" id="AddIdea-SubmitBtn" style="padding:6px 14px;font-size:12px">Agregar idea propia</button>
+      </div>
+
       <div class="docbody catalog-grid" id="Catalog-Categories"></div>
       <button class="gate" id="Catalog-Gate" style="margin:0 40px 26px;border:1px solid var(--warn);border-radius:4px;padding:16px 20px;display:flex;align-items:center;gap:18px;background:#FFF6E5;cursor:pointer;border:none;width:calc(100% - 80px)">
         <span class="gateicon" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--warn);display:grid;place-items:center;flex:none;color:var(--warn)">
@@ -954,6 +969,13 @@
 .catalog-inline-modal{margin:16px 40px 24px;border:1px solid var(--warn);border-radius:6px;padding:24px 28px;background:#FFF6E5;box-shadow:0 8px 24px rgba(36,25,22,.12)}.catalog-inline-title{font-size:20px;font-weight:600;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink)}.catalog-inline-sub{font-size:14px;color:var(--ink-soft);line-height:1.55;margin:0 0 16px}.catalog-inline-cost{display:flex;align-items:baseline;gap:14px;padding:12px 0;border-top:1px solid var(--warn);border-bottom:1px solid var(--warn);margin-bottom:16px}.cost-label{font-size:14px;font-weight:500}.cost-value{font-size:15px;font-weight:600;color:#B5791C;width:100px}.cost-cost-after{flex:1;font-size:13px;color:var(--ink-soft)}.catalog-inline-actions{display:flex;gap:12px}.catalog-inline-actions button:first-child{flex:1}.catalog-inline-actions button:last-child{flex:0 0 auto;padding:12px 24px}
 /* Idea State Feedback - Approved/Rejected/Pending */
 .idea.idea--approved{background:#F0FDF4;border-left:3px solid #22C55E;transition:background .2s ease,border-left-color .2s ease}.idea.idea--approved .ideatitle{color:#166534}.idea.idea--approved .angle{border-color:#22C55E;color:#22C55E;background:#DCFCE7}.idea.idea--rejected{background:#FEF2F2;border-left:3px solid #EF4444;transition:background .2s ease,border-left-color .2s ease}.idea.idea--rejected .ideatitle{color:#991B1B}.idea.idea--rejected .angle{border-color:#EF4444;color:#EF4444;background:#FEE2E2}.catalog-grid.idea.idea--approved{background:#F0FDF4;border-left:3px solid #22C55E}.catalog-grid.idea.idea--approved .ideatitle{color:#166534}.catalog-grid.idea.idea--approved .angle{border-color:#22C55E;color:#22C55E;background:#DCFCE7}.catalog-grid.idea.idea--rejected{background:#FEF2F2;border-left:3px solid #EF4444}.catalog-grid.idea.idea--rejected .ideatitle{color:#991B1B}.catalog-grid.idea.idea--rejected .angle{border-color:#EF4444;color:#EF4444;background:#FEE2E2}
+/* Pieza 29 (punto D3): idea descartada visualmente atenuada y tachada */
+.idea.idea--rejected{opacity:.55}
+.idea.idea--rejected .ideatitle{text-decoration:line-through}
+/* Pieza 29 (punto D1): badge "Tu idea" para ideas manuales del founder */
+.badge-founder{display:inline-block;font-size:10px;font-weight:600;color:#7C3AED;background:#EDE9FE;border:1px solid #C4B5FD;border-radius:3px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+/* Pieza 29 (punto D4): catálogo bloqueado -- controles inertes */
+.idea-actions button:disabled,.research-actions button:disabled{opacity:.4;cursor:not-allowed}
 /* 3-Column Category Grid Layout */
 .catalog-grid{display:flex;flex-wrap:wrap;gap:24px;padding:24px 32px 32px;background:var(--bg)}.catalog-grid .cat{display:flex;flex-direction:column;gap:8px;width:calc(33.333% - 16px)}.catalog-grid .cathead{display:flex;align-items:baseline;gap:10px;padding-bottom:7px;border-bottom:1px solid var(--line)}.catalog-grid .catname{font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--accent)}.catalog-grid .catcount{font-size:11px;color:var(--ink-soft)}.catalog-grid .idea{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(43,76,216,.06)}.catalog-grid .idea:last-child{border-bottom:none}.catalog-grid .ideatitle{font-size:14px;line-height:1.45;flex:1;min-width:0;font-weight:500;min-width:50%}.catalog-grid .angle{font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border:1px solid var(--accent);border-radius:3px;color:var(--accent);white-space:nowrap;flex:none;background:rgba(43,76,216,.06)}.catalog-grid .signal{font-size:11px;color:var(--ink-soft);width:180px;flex:none;line-height:1.45}.catalog-grid .research-actions{display:flex;gap:6px;margin-left:0;width:100%}.catalog-grid .btn-primary{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:4px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s ease}.catalog-grid .btn-primary:hover{background:var(--accent-soft);border-color:var(--accent-soft)}.catalog-grid .btn-secondary{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:border-color .2s ease}.catalog-grid .btn-secondary:hover{border-color:var(--ink-soft)}@media(max-width:1200px){.catalog-grid .cat{width:calc(50% - 12px)}}@media(max-width:768px){.catalog-grid .cat{width:100%}}
 </style>

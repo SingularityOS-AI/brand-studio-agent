@@ -1921,10 +1921,30 @@ ${htmlContent}
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
 
+  // Las 5 categorías maestras (MASTER_CATEGORIES en app/catalog/ideas.py) --
+  // hoisted a nivel de módulo para que tanto renderCatalogInPanel() como el
+  // handler de "Agregar idea propia" (punto D1) las reutilicen sin duplicar.
+  const CATALOG_CATEGORY_NAMES = {
+    'autoridad_tecnica': 'Autoridad Técnica e Instrucción',
+    'validacion_resultados': 'Validación de Resultados e Impacto',
+    'posicionamiento_narrativa': 'Posicionamiento y Tesis de Mercado',
+    'narrativa_fundadora': 'Narrativa Fundadora y Origen',
+    'discusion_industria': 'Discusión y Co-creación de Industria'
+  };
+  const CATALOG_CATEGORY_COLORS = {
+    'autoridad_tecnica': '#2B4CD8',
+    'validacion_resultados': '#1B7F4C',
+    'posicionamiento_narrativa': '#B5720B',
+    'narrativa_fundadora': '#8A2BE2',
+    'discusion_industria': '#C2262E'
+  };
+
   // Helper to check if all ideas are reviewed and enable/disable Lock button
+  // Pieza 29 (punto D4): se recalcula tras cada ✓/✗/↻/agregar. Si el catálogo
+  // ya está bloqueado (data-locked="true"), no se pisa el texto/estado.
   function checkAndEnableLockButton() {
     const lockBtn = document.getElementById('Catalog-LockBtn');
-    if (!lockBtn) return;
+    if (!lockBtn || lockBtn.dataset.locked === 'true') return;
 
     const pendingIdeas = document.querySelectorAll('.idea--pending');
     if (pendingIdeas.length === 0) {
@@ -1933,6 +1953,148 @@ ${htmlContent}
     } else {
       lockBtn.disabled = true;
       lockBtn.textContent = `Lock Catalog (${pendingIdeas.length} pending)`;
+    }
+  }
+
+  // Pieza 29 (punto D4): al bloquear el catálogo (o al recargar uno ya
+  // bloqueado), deshabilita ✓ ✗ ↻ y el formulario de "Agregar idea propia".
+  // Las WebSearch/YouTube/Trends NO se tocan (punto D6, pendiente decisión del CEO).
+  function applyCatalogLockedUI() {
+    const lockBtn = document.getElementById('Catalog-LockBtn');
+    if (lockBtn) {
+      lockBtn.dataset.locked = 'true';
+      lockBtn.disabled = true;
+      lockBtn.textContent = 'Catálogo bloqueado ✓';
+    }
+
+    document.querySelectorAll('.btn-approve, .btn-reject, .btn-regenerate').forEach(btn => {
+      btn.disabled = true;
+    });
+
+    const addIdeaTitle = document.getElementById('AddIdea-Title');
+    const addIdeaCategory = document.getElementById('AddIdea-Category');
+    const addIdeaSource = document.getElementById('AddIdea-Source');
+    const addIdeaSubmit = document.getElementById('AddIdea-SubmitBtn');
+    [addIdeaTitle, addIdeaCategory, addIdeaSource, addIdeaSubmit].forEach(el => {
+      if (el) el.disabled = true;
+    });
+  }
+
+  // Construye el HTML interno de una tarjeta de idea (compartido entre el
+  // render inicial, agregar idea propia sin recargar, y reemplazo por regenerar).
+  function buildIdeaCardHTML(idea, color) {
+    const founderBadge = idea.origin === 'founder' ? '<span class="badge-founder">Tu idea</span>' : '';
+    return `
+      <span class="ideatitle">${idea.title}${founderBadge}</span>
+      <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
+      <span class="signal">${idea.demand_signal}</span>
+      <div class="research-actions">
+        <button class="research-btn" data-research="websearch" data-idea="${idea.title}" title="WebSearch">WebSearch</button>
+        <button class="research-btn" data-research="youtube" data-idea="${idea.title}" title="YouTube API">YouTube</button>
+        <button class="research-btn" data-research="trends" data-idea="${idea.title}" title="Google Trends">Trends</button>
+      </div>
+      <div class="idea-actions">
+        <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">&#10003;</button>
+        <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">&#10007;</button>
+        <button class="btn-regenerate" data-idea-id="${idea.id}" title="Regenerar (3 créditos)">&#8635;</button>
+      </div>
+    `;
+  }
+
+  // Wire de ✓ / ✗ / ↻ para UNA tarjeta de idea puntual (reutilizable para
+  // ideas agregadas o regeneradas sin recargar el panel completo).
+  function wireIdeaCardActions(ideaDiv) {
+    const approveBtn = ideaDiv.querySelector('.btn-approve');
+    const rejectBtn = ideaDiv.querySelector('.btn-reject');
+    const regenerateBtn = ideaDiv.querySelector('.btn-regenerate');
+
+    if (approveBtn) {
+      approveBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaId = approveBtn.dataset.ideaId;
+        try {
+          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/accept`, { method: 'POST' });
+          const data = await response.json();
+          if (!response.ok) {
+            alert(`Failed to approve idea: ${data.error || data.detail || response.status}`);
+            return;
+          }
+          ideaDiv.classList.remove('idea--pending', 'idea--rejected');
+          ideaDiv.classList.add('idea--approved');
+          checkAndEnableLockButton();
+        } catch (error) {
+          console.error('Approve idea error:', error);
+          alert(`Failed to approve idea: ${error.message}`);
+        }
+      });
+    }
+
+    if (rejectBtn) {
+      rejectBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaId = rejectBtn.dataset.ideaId;
+        try {
+          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/discard`, { method: 'POST' });
+          const data = await response.json();
+          if (!response.ok) {
+            alert(`Failed to discard idea: ${data.error || data.detail || response.status}`);
+            return;
+          }
+          ideaDiv.classList.remove('idea--pending', 'idea--approved');
+          ideaDiv.classList.add('idea--rejected');
+          checkAndEnableLockButton();
+        } catch (error) {
+          console.error('Discard idea error:', error);
+          alert(`Failed to discard idea: ${error.message}`);
+        }
+      });
+    }
+
+    if (regenerateBtn) {
+      // Pieza 29 (punto D2): ↻ Regenerar (3 créditos) -- reemplaza la
+      // tarjeta con la idea nueva y actualiza créditos, sin recargar el panel.
+      regenerateBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaId = regenerateBtn.dataset.ideaId;
+        const originalText = regenerateBtn.innerHTML;
+        regenerateBtn.disabled = true;
+        regenerateBtn.innerHTML = '...';
+
+        try {
+          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/regenerate`, { method: 'POST' });
+          const data = await response.json();
+
+          if (!response.ok) {
+            alert(`Failed to regenerate idea: ${data.error || data.detail || response.status}`);
+            regenerateBtn.disabled = false;
+            regenerateBtn.innerHTML = originalText;
+            return;
+          }
+
+          if (data.credits_remaining !== undefined) {
+            credits = data.credits_remaining;
+            updateCreditsUI();
+          }
+
+          const newIdea = data.idea;
+          if (newIdea) {
+            // El id cambia -- se reconstruye la tarjeta completa en el mismo lugar.
+            const existingAngle = ideaDiv.querySelector('.angle');
+            const color = (existingAngle && existingAngle.style.color) || '#2B4CD8';
+            ideaDiv.id = `idea-${newIdea.id}`;
+            ideaDiv.className = `idea idea--${newIdea.status || 'pending'}`;
+            ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, color || '#2B4CD8');
+            wireIdeaCardActions(ideaDiv);
+          }
+
+          checkAndEnableLockButton();
+        } catch (error) {
+          console.error('Regenerate idea error:', error);
+          alert(`Failed to regenerate idea: ${error.message}`);
+          regenerateBtn.disabled = false;
+          regenerateBtn.innerHTML = originalText;
+        }
+      });
     }
   }
 
@@ -1962,21 +2124,8 @@ ${htmlContent}
 
   // Render Catalog in panel (BlockB view)
   function renderCatalogInPanel(catalog) {
-    const categoryNames = {
-      'autoridad_tecnica': 'Autoridad Técnica e Instrucción',
-      'validacion_resultados': 'Validación de Resultados e Impacto',
-      'posicionamiento_narrativa': 'Posicionamiento y Tesis de Mercado',
-      'narrativa_fundadora': 'Narrativa Fundadora y Origen',
-      'discusion_industria': 'Discusión y Co-creación de Industria'
-    };
-
-    const categoryColors = {
-      'autoridad_tecnica': '#2B4CD8',
-      'validacion_resultados': '#1B7F4C',
-      'posicionamiento_narrativa': '#B5720B',
-      'narrativa_fundadora': '#8A2BE2',
-      'discusion_industria': '#C2262E'
-    };
+    const categoryNames = CATALOG_CATEGORY_NAMES;
+    const categoryColors = CATALOG_CATEGORY_COLORS;
 
     let totalIdeas = 0;
     catalogCategories.innerHTML = '';
@@ -1999,6 +2148,7 @@ ${htmlContent}
 
       const catDiv = document.createElement('div');
       catDiv.className = 'cat';
+      catDiv.dataset.catKey = catKey; // Pieza 29 (punto D1): localizar la categoría al agregar una idea propia
 
       const catHead = document.createElement('div');
       catHead.className = 'cathead';
@@ -2009,94 +2159,21 @@ ${htmlContent}
         const ideaDiv = document.createElement('div');
         ideaDiv.id = `idea-${idea.id}`;
         ideaDiv.className = `idea idea--${idea.status || 'pending'}`;
-        ideaDiv.innerHTML = `
-          <span class="ideatitle">${idea.title}</span>
-          <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
-          <span class="signal">${idea.demand_signal}</span>
-          <div class="research-actions">
-            <button class="research-btn" data-research="websearch" data-idea="${idea.title}" title="WebSearch">WebSearch</button>
-            <button class="research-btn" data-research="youtube" data-idea="${idea.title}" title="YouTube API">YouTube</button>
-            <button class="research-btn" data-research="trends" data-idea="${idea.title}" title="Google Trends">Trends</button>
-          </div>
-          <div class="idea-actions">
-            <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">&#10003;</button>
-            <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">&#10007;</button>
-          </div>
-        `;
+        ideaDiv.innerHTML = buildIdeaCardHTML(idea, color);
+        wireIdeaCardActions(ideaDiv);
         catDiv.appendChild(ideaDiv);
       });
 
       catalogCategories.appendChild(catDiv);
     });  // Fixed: was missing closing parenthesis for forEach
 
-    // Add event listeners for approve/reject buttons
-    document.querySelectorAll('.btn-approve').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const ideaId = btn.dataset.ideaId;
-
-        try {
-          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/accept`, {
-            method: 'POST'
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            alert(`Failed to approve idea: ${data.error || data.detail || response.status}`);
-            return;
-          }
-
-          // Update UI to show approved state
-          const ideaDiv = document.getElementById(`idea-${ideaId}`);
-          if (ideaDiv) {
-            ideaDiv.classList.remove('idea--pending', 'idea--rejected');
-            ideaDiv.classList.add('idea--approved');
-          }
-
-          // Update Lock Catalog button state if all ideas reviewed
-          checkAndEnableLockButton();
-
-        } catch (error) {
-          console.error('Approve idea error:', error);
-          alert(`Failed to approve idea: ${error.message}`);
-        }
-      });
-    });
-
-    document.querySelectorAll('.btn-reject').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const ideaId = btn.dataset.ideaId;
-
-        try {
-          const response = await authenticatedFetch(`/api/catalog/idea/${ideaId}/discard`, {
-            method: 'POST'
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            alert(`Failed to discard idea: ${data.error || data.detail || response.status}`);
-            return;
-          }
-
-          // Update UI to show rejected state
-          const ideaDiv = document.getElementById(`idea-${ideaId}`);
-          if (ideaDiv) {
-            ideaDiv.classList.remove('idea--pending', 'idea--approved');
-            ideaDiv.classList.add('idea--rejected');
-          }
-
-          // Update Lock Catalog button state if all ideas reviewed
-          checkAndEnableLockButton();
-
-        } catch (error) {
-          console.error('Discard idea error:', error);
-          alert(`Failed to discard idea: ${error.message}`);
-        }
-      });
-    });
+    // Pieza 29 (punto D4): si el catálogo ya llegó bloqueado desde el
+    // backend (recarga de página), aplica el estado bloqueado de inmediato.
+    if (catalog.catalog_locked) {
+      applyCatalogLockedUI();
+    } else {
+      checkAndEnableLockButton();
+    }
 
     // Add event listeners for research buttons - integrate with /api/catalog/investigate API
     document.querySelectorAll('.research-btn').forEach(btn => {
@@ -2171,12 +2248,102 @@ ${htmlContent}
             return;
           }
 
+          // Pieza 29 (punto D4): deshabilita ✓ ✗ ↻ y el formulario, muestra
+          // "Catálogo bloqueado ✓" -- se persiste solo (catalog_locked viene
+          // del backend en cada carga, ver renderCatalogInPanel).
+          applyCatalogLockedUI();
           alert('Catalog locked successfully! Moving to script generation phase...');
           // TODO: Navigate to script generation phase
 
         } catch (error) {
           console.error('Lock catalog error:', error);
           alert(`Failed to lock catalog: ${error.message}`);
+        }
+      });
+    }
+
+    // Pieza 29 (punto D1): "Agregar idea propia" -- gratis, sin recargar el panel.
+    const addIdeaSubmitBtn = document.getElementById('AddIdea-SubmitBtn');
+    if (addIdeaSubmitBtn && !addIdeaSubmitBtn.dataset.wired) {
+      addIdeaSubmitBtn.dataset.wired = 'true';
+      addIdeaSubmitBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+
+        const titleInput = document.getElementById('AddIdea-Title');
+        const categorySelect = document.getElementById('AddIdea-Category');
+        const sourceInput = document.getElementById('AddIdea-Source');
+
+        const title = (titleInput.value || '').trim();
+        const masterCategory = categorySelect.value;
+        const source = (sourceInput.value || '').trim();
+
+        if (title.length < 5 || title.length > 200) {
+          alert('El título debe tener entre 5 y 200 caracteres.');
+          return;
+        }
+        if (source.length < 10) {
+          alert('La fuente debe tener al menos 10 caracteres (¿de dónde sale esta idea?).');
+          return;
+        }
+
+        addIdeaSubmitBtn.disabled = true;
+        const originalText = addIdeaSubmitBtn.textContent;
+        addIdeaSubmitBtn.textContent = 'Agregando...';
+
+        try {
+          const response = await authenticatedFetch('/api/catalog/idea', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, master_category: masterCategory, source })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            alert(`Failed to add idea: ${data.error || data.detail || response.status}`);
+            return;
+          }
+
+          const newCatalog = data.catalog;
+          const newIdea = newCatalog.ideas[newCatalog.ideas.length - 1];
+
+          // Agrega la tarjeta a la categoría correcta sin recargar el panel entero.
+          let catDiv = Array.from(catalogCategories.querySelectorAll('.cat')).find(
+            div => div.dataset.catKey === masterCategory
+          );
+          if (!catDiv) {
+            catDiv = document.createElement('div');
+            catDiv.className = 'cat';
+            catDiv.dataset.catKey = masterCategory;
+            const catHead = document.createElement('div');
+            catHead.className = 'cathead';
+            catHead.innerHTML = `<span class="catname">${CATALOG_CATEGORY_NAMES[masterCategory] || masterCategory}</span><span class="catcount">0</span>`;
+            catDiv.appendChild(catHead);
+            catalogCategories.appendChild(catDiv);
+          }
+
+          const ideaDiv = document.createElement('div');
+          ideaDiv.id = `idea-${newIdea.id}`;
+          ideaDiv.className = `idea idea--${newIdea.status || 'approved'}`;
+          ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, CATALOG_CATEGORY_COLORS[masterCategory] || '#2B4CD8');
+          wireIdeaCardActions(ideaDiv);
+          catDiv.appendChild(ideaDiv);
+
+          const catCountEl = catDiv.querySelector('.catcount');
+          if (catCountEl) catCountEl.textContent = String(catDiv.querySelectorAll('.idea').length);
+
+          // Limpiar el formulario
+          titleInput.value = '';
+          sourceInput.value = '';
+
+          checkAndEnableLockButton();
+
+        } catch (error) {
+          console.error('Add founder idea error:', error);
+          alert(`Failed to add idea: ${error.message}`);
+        } finally {
+          addIdeaSubmitBtn.disabled = false;
+          addIdeaSubmitBtn.textContent = originalText;
         }
       });
     }

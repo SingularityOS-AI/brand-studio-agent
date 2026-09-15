@@ -223,7 +223,15 @@ def test_catalog_locked_field():
 
 
 def test_catalog_ideas_max_count():
-    """Catalog should enforce max of 30 ideas."""
+    """
+    Catalog should enforce MAX_IDEAS (45), not TOTAL_IDEAS (30).
+
+    Pieza 29 (punto B): TOTAL_IDEAS=30 sigue siendo el objetivo exacto de la
+    generación por LLM; MAX_IDEAS=45 es el techo real del catálogo una vez
+    que se permiten hasta 15 ideas manuales del fundador encima de las 30.
+    """
+    from app.catalog.ideas import MAX_IDEAS
+
     ideas = [
         CatalogIdea(
             master_category="autoridad_tecnica",
@@ -231,15 +239,34 @@ def test_catalog_ideas_max_count():
             title=f"Idea Number {i}",
             demand_signal=f"Signal Number {i}"
         )
-        for i in range(31)
+        for i in range(MAX_IDEAS + 1)
     ]
 
-    with pytest.raises(ValueError, match="Máximo 30 ideas"):
+    with pytest.raises(ValueError, match=f"Máximo {MAX_IDEAS} ideas"):
         Catalog(
             session_id="test",
             niche="test",
             ideas=ideas
         )
+
+
+def test_catalog_allows_more_than_30_up_to_max_ideas():
+    """30 generated + manual founder ideas up to MAX_IDEAS must be accepted."""
+    from app.catalog.ideas import TOTAL_IDEAS, MAX_IDEAS
+
+    ideas = [
+        CatalogIdea(
+            master_category="autoridad_tecnica",
+            subcategory="Any",
+            title=f"Idea Number {i}",
+            demand_signal=f"Signal Number {i}"
+        )
+        for i in range(TOTAL_IDEAS + 5)  # 30 generadas + 5 manuales
+    ]
+    assert TOTAL_IDEAS + 5 <= MAX_IDEAS
+
+    catalog = Catalog(session_id="test", niche="test", ideas=ideas)
+    assert catalog.idea_count == TOTAL_IDEAS + 5
 
 
 # =============================================================================
@@ -367,9 +394,15 @@ def test_extract_niche_from_charco():
 # Cache Tests
 # =============================================================================
 
+@patch('app.catalog.ideas._get_catalog_client', return_value=None)
 @patch('app.catalog.ideas.get_brand_brain')
-def test_save_and_load_cache(mock_get_brain, brand_brain, tmp_path, monkeypatch):
-    """Should save and load catalog from cache."""
+def test_save_and_load_cache(mock_get_brain, mock_catalog_client, brand_brain, tmp_path, monkeypatch):
+    """
+    Should save and load catalog from cache.
+
+    Pieza 29: se mockea _get_catalog_client() a None para forzar el fallback
+    a archivo local (Supabase no configurado en tests).
+    """
     mock_get_brain.return_value = brand_brain
 
     catalog = Catalog(
