@@ -1958,7 +1958,9 @@ ${htmlContent}
 
   // Pieza 29 (punto D4): al bloquear el catálogo (o al recargar uno ya
   // bloqueado), deshabilita ✓ ✗ ↻ y el formulario de "Agregar idea propia".
-  // Las WebSearch/YouTube/Trends NO se tocan (punto D6, pendiente decisión del CEO).
+  // Pieza 30 (bug B3): los botones WebSearch/YouTube/Trends se eliminaron
+  // del render de cada tarjeta -- cobraban 25 créditos, repetían la
+  // investigación del nicho entero y solo mostraban un alert.
   function applyCatalogLockedUI() {
     const lockBtn = document.getElementById('Catalog-LockBtn');
     if (lockBtn) {
@@ -1990,11 +1992,6 @@ ${htmlContent}
       <span class="ideatitle">${idea.title}${founderBadge}</span>
       <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
       <span class="signal">${idea.demand_signal}</span>
-      <div class="research-actions">
-        <button class="research-btn" data-research="websearch" data-idea="${idea.title}" title="WebSearch">WebSearch</button>
-        <button class="research-btn" data-research="youtube" data-idea="${idea.title}" title="YouTube API">YouTube</button>
-        <button class="research-btn" data-research="trends" data-idea="${idea.title}" title="Google Trends">Trends</button>
-      </div>
       <div class="idea-actions">
         <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">&#10003;</button>
         <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">&#10007;</button>
@@ -2177,60 +2174,11 @@ ${htmlContent}
       checkAndEnableLockButton();
     }
 
-    // Add event listeners for research buttons - integrate with /api/catalog/investigate API
-    document.querySelectorAll('.research-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const ideaTitle = btn.dataset.idea;
-        const researchType = btn.dataset.research;
-
-        // Show loading state
-        const originalText = btn.textContent;
-        btn.textContent = '...';
-        btn.disabled = true;
-
-        try {
-          console.log(`[Catalog Research] Starting ${researchType} research for idea: "${ideaTitle}"`);
-
-          // Call /api/catalog/investigate API (costs 25 credits, returns catalog + niche_research)
-          const response = await authenticatedFetch('/api/catalog/investigate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idea_title: ideaTitle, research_type: researchType })
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.detail || 'Research failed');
-          }
-
-          const data = await response.json();
-          console.log('[Catalog Research] Success:', data);
-
-          // Update credits from response
-          if (data.credits_remaining !== undefined) {
-            credits = data.credits_remaining;
-            updateCreditsUI();
-          }
-
-          // Success feedback
-          alert(`✅ ${researchType.toUpperCase()} investigation complete!\n\nResearch data collected for your niche. Updated catalog with demand signals.`);
-
-        } catch (error) {
-          console.error('[Catalog Research] Error:', error);
-          if (error.message === 'PAYWALL_402') {
-            // Paywall already shown by authenticatedFetch handler
-            alert('❌ Insufficient credits. Please add credits to continue research.');
-          } else {
-            alert(`❌ Research failed: ${error.message}\n\nPlease try again or contact support.`);
-          }
-        } finally {
-          // Restore button state
-          btn.textContent = originalText;
-          btn.disabled = false;
-        }
-      });
-    });
+    // Pieza 30 (bug B3): los botones WebSearch/YouTube/Trends (y su listener
+    // sobre /api/catalog/investigate) se eliminaron -- cobraban 25 créditos,
+    // repetían la investigación del nicho entero y solo mostraban un alert.
+    // El endpoint /api/catalog/investigate se queda intacto en el backend,
+    // simplemente ya no se llama desde esta UI.
 
     // Add event listener for Lock Catalog button
     const lockCatalogBtn = document.getElementById('Catalog-LockBtn');
@@ -2621,17 +2569,6 @@ ${htmlContent}
   if (brandSoulCloseBtn) {
     brandSoulCloseBtn.addEventListener('click', closeBrandSoulOverlay);
   }
-
-  // Wire up research buttons (event delegation for dynamic content)
-  document.addEventListener('click', (e) => {
-    const researchBtn = e.target.closest('.research-btn');
-    if (researchBtn) {
-      const researchType = researchBtn.dataset.research;
-      const ideaTitle = researchBtn.dataset.idea;
-      console.log(`Research: ${researchType} for idea: ${ideaTitle}`);
-      // TODO: Implement actual research functionality when needed
-    }
-  });
 
   // Close overlay on Escape key
   document.addEventListener('keydown', (e) => {

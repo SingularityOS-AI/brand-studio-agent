@@ -914,7 +914,7 @@ async def test_classify_pain_from_comments():
     mock_model.generate_content_async = AsyncMock(return_value=mock_response)
 
     with patch('app.tools.brand_soul.generator._get_vertex_ai_client', return_value=mock_model):
-        pain_signals = await classify_pain_from_comments("Test Video", comments)
+        pain_signals = await classify_pain_from_comments("Test Video", comments, "test niche")
 
     # Should return list of pain signals
     assert isinstance(pain_signals, list)
@@ -928,7 +928,7 @@ async def test_classify_pain_from_comments_empty():
     """classify_pain_from_comments() returns empty list for no comments."""
     from app.catalog.demand import classify_pain_from_comments
 
-    pain_signals = await classify_pain_from_comments("Test Video", [])
+    pain_signals = await classify_pain_from_comments("Test Video", [], "test niche")
 
     assert pain_signals == []
 
@@ -942,7 +942,7 @@ async def test_classify_pain_from_comments_error():
 
     # Mock Vertex AI client function to raise exception
     with patch('app.tools.brand_soul.generator._get_vertex_ai_client', side_effect=Exception("API Error")):
-        pain_signals = await classify_pain_from_comments("Test Video", comments)
+        pain_signals = await classify_pain_from_comments("Test Video", comments, "test niche")
 
     assert pain_signals == []
 

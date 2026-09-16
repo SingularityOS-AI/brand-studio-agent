@@ -18,6 +18,7 @@ Elimina el campo emotional_angle (Útil/Inmersivo/Reflexivo/Vulnerable)
 from __future__ import annotations
 
 import os
+import re
 import time
 import json
 import hashlib
@@ -211,6 +212,16 @@ class Catalog(BaseModel):
     catalog_locked: bool = Field(
         default=False,
         description="Indica si el catálogo está lockeado (Piece 27)"
+    )
+    niche_research: Optional[NicheResearch] = Field(
+        default=None,
+        description=(
+            "Pieza 30 (bug B1): NicheResearch usado para generar este catálogo, "
+            "persistido para reutilizarlo en regenerate_single_idea() sin volver "
+            "a llamar research_niche() (~40s, causaba 520 en el proxy de "
+            "producción aunque la idea ya se hubiera reemplazado y cobrado). "
+            "None en catálogos viejos guardados antes de este campo."
+        )
     )
 
     @field_validator("ideas")
@@ -526,6 +537,15 @@ INSTRUCCIONES:
 6. Cada título debe conectar la señal de demanda real con el PERFIL DEL
    FUNDADOR de arriba (si existe) -- no generes una idea genérica de la
    categoría, ánclala a su ICP/tesis/posicionamiento real.
+7. El demand_signal de cada idea debe ser la señal LITERAL del CONTEXTO DE
+   DEMANDA REAL de arriba que respalda DIRECTAMENTE ese título específico
+   (no una señal genérica del nicho que no tenga relación real con el
+   título). Si ninguna señal del contexto respalda un título coherente,
+   NO generes esa idea -- prefiere generar menos ideas antes que forzar
+   una sin respaldo real.
+8. PROHIBIDO usar placeholders en el título: nunca escribas "X%", "[algo]",
+   "N clientes" ni ningún marcador de relleno entre corchetes. Si no tienes
+   la cifra/dato real, no lo pongas ni como placeholder (ver regla 5).
 
 RESPONDE EN JSON con este formato exacto:
 {{
@@ -595,10 +615,18 @@ async def _generate_ideas_for_category(
         ideas = []
         for idea_data in ideas_data[:count]:  # Limitar a count
             try:
+                title = idea_data.get("title", "Sin título")
+                # Bug B2 (c): descarta títulos con placeholders ("X%",
+                # corchetes de relleno) ANTES de contarlos -- el loop de
+                # relleno acotado (MAX_FILL_ROUNDS) ya existe y se encarga de
+                # rellenar el faltante en la siguiente ronda.
+                if _title_has_placeholder(title):
+                    print(f"[ideas] Descartada por placeholder en título: {title!r}")
+                    continue
                 idea = CatalogIdea(
                     master_category=master_category,
                     subcategory=idea_data.get("subcategory", subcategories[0]),
-                    title=idea_data.get("title", "Si título"),
+                    title=title,
                     demand_signal=idea_data.get(
                         "demand_signal",
                         _get_fallback_signal(niche_research)
@@ -625,6 +653,20 @@ PLACEHOLDER_DEMAND_SIGNALS = frozenset({
     "no hay señales específicas",
     "demanda detectada en investigación de nicho",
 })
+
+
+# Bug B2 (c): patrón de placeholders que el LLM a veces cuela en el título
+# ("Reduce tu tiempo de espera en X%", "Cómo [Nombre del Hospital] logró...")
+# -- se corta ANTES de contar la idea, no se corrige el texto a ciegas.
+_TITLE_PLACEHOLDER_PATTERN = re.compile(r"x%|\[[^\]]*\]", re.IGNORECASE)
+
+
+def _title_has_placeholder(title: str) -> bool:
+    """
+    True si el título trae un placeholder tipo "X%" o corchetes de relleno
+    ("[algo]"). Usado como gate ANTES de contar una idea como válida.
+    """
+    return bool(_TITLE_PLACEHOLDER_PATTERN.search(title or ""))
 
 
 def _get_fallback_signal(niche_research: NicheResearch) -> str:
@@ -854,7 +896,8 @@ async def generate_catalog(session_id: str, niche_research: Optional[NicheResear
         ideas=all_ideas,
         gate_passed=gate_passed,
         created_at=datetime.now(timezone.utc),
-        catalog_locked=False  # Piece 27
+        catalog_locked=False,  # Piece 27
+        niche_research=niche_research,  # Pieza 30 (bug B1): se persiste para regenerar sin re-investigar
     )
 
     return catalog
@@ -953,6 +996,13 @@ def _catalog_to_row(catalog: Catalog) -> Dict[str, Any]:
             "ideas": [idea.model_dump(mode="json") for idea in catalog.ideas],
             "gate_passed": catalog.gate_passed,
             "created_at": catalog.created_at.isoformat(),
+            # Pieza 30 (bug B1): persistido dentro del jsonb `data`, sin
+            # migración -- None si el catálogo no tiene research (viejo o
+            # nunca se guardó ninguno).
+            "niche_research": (
+                catalog.niche_research.model_dump(mode="json")
+                if catalog.niche_research else None
+            ),
         },
         "catalog_locked": catalog.catalog_locked,
     }
@@ -964,6 +1014,12 @@ def _row_to_catalog(row: Dict[str, Any], session_id: str) -> Optional[Catalog]:
     try:
         ideas = [CatalogIdea(**idea_data) for idea_data in data.get("ideas", [])]
         created_str = data.get("created_at")
+        # Pieza 30 (bug B1): catálogos viejos guardados sin este campo no
+        # traen "niche_research" en absoluto -- .get() default None cubre eso.
+        niche_research_data = data.get("niche_research")
+        niche_research = (
+            NicheResearch(**niche_research_data) if niche_research_data else None
+        )
         return Catalog(
             session_id=row.get("session_token", session_id),
             niche=row.get("niche", ""),
@@ -974,6 +1030,7 @@ def _row_to_catalog(row: Dict[str, Any], session_id: str) -> Optional[Catalog]:
                 if created_str else datetime.now(timezone.utc)
             ),
             catalog_locked=row.get("catalog_locked", False),
+            niche_research=niche_research,
         )
     except Exception as e:
         print(f"Error reconstruyendo catálogo: {e}")
@@ -1030,13 +1087,20 @@ def _check_catalog_cache(session_id: str) -> Optional[Catalog]:
         ]
 
         created_str = data.get("created_at")
+        # Pieza 30 (bug B1): mismo criterio que _row_to_catalog -- catálogos
+        # viejos del archivo local sin esta clave siguen cargando (None).
+        niche_research_data = data.get("niche_research")
+        niche_research = (
+            NicheResearch(**niche_research_data) if niche_research_data else None
+        )
         catalog = Catalog(
             session_id=data.get("session_id", session_id),
             niche=data.get("niche", ""),
             ideas=ideas,
             gate_passed=data.get("gate_passed", False),
             created_at=datetime.fromisoformat(created_str.replace("Z", "+00:00")) if created_str else datetime.now(timezone.utc),
-            catalog_locked=data.get("catalog_locked", False)
+            catalog_locked=data.get("catalog_locked", False),
+            niche_research=niche_research,
         )
 
         return catalog
@@ -1082,6 +1146,10 @@ def _save_catalog_cache(catalog: Catalog) -> None:
             "gate_passed": catalog.gate_passed,
             "created_at": catalog.created_at.isoformat(),
             "catalog_locked": catalog.catalog_locked,
+            "niche_research": (
+                catalog.niche_research.model_dump(mode="json")
+                if catalog.niche_research else None
+            ),
         }
 
         with open(cache_file, "w", encoding="utf-8") as f:
@@ -1174,7 +1242,7 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     if target_idea.origin == "founder":
         raise ValueError("Las ideas propias del founder no se regeneran.")
 
-    # Re-obtener brain y research
+    # Re-obtener brain
     brain = get_brand_brain(session_id)
     diagnostico = brain.get_section("diagnostico").content if brain else {}
     icp = brain.get_section("icp").content if brain else {}
@@ -1182,7 +1250,18 @@ async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     approach = _determine_approach(diagnostico)
     niche = _extract_niche(icp, charco, diagnostico)
 
-    niche_research = await research_niche(niche)
+    # Bug B1: reutilizar el NicheResearch ya persistido en el catálogo en vez
+    # de volver a llamar research_niche() (~40s, causaba 520 en el proxy de
+    # producción aunque la idea ya se hubiera reemplazado y cobrado). Solo se
+    # investiga si el catálogo es viejo y no lo trae -- y se guarda para que
+    # la próxima regeneración de este mismo catálogo tampoco vuelva a pagar
+    # ese costo.
+    if catalog.niche_research is not None:
+        niche_research = catalog.niche_research
+    else:
+        niche_research = await research_niche(niche)
+        catalog.niche_research = niche_research
+
     brand_context = _build_brand_context(brain) if brain else ""
 
     cat_info = next((c for c in MASTER_CATEGORIES if c["id"] == target_idea.master_category), None)

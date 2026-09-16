@@ -858,22 +858,31 @@ _trends_client = TrendsClient()
 # =============================================================================
 
 
-async def classify_pain_from_comments(video_title: str, comments: List[dict]) -> List[str]:
+async def classify_pain_from_comments(
+    video_title: str, comments: List[dict], niche: str
+) -> List[str]:
     """
     Classify pain signals from video comments using a single LLM call.
 
     This is expensive: 1 LLM call per video. Use sparingly.
     Reuses the Vertex AI client from brand_soul.generator.
 
+    Bug B2 (a): the prompt now receives the `niche` explicitly and is scoped
+    to extract ONLY real-world pains/problems of that niche's audience --
+    complaints about the video, channel, audio or production quality (e.g.
+    "difficulty finding content", "low video quality", "surprise/startle
+    from sudden audio") are explicitly excluded, not just "hoped to be
+    filtered" by a vague prompt.
+
     Args:
         video_title: Title of the video for context
         comments: List of comment dicts with "text" field
+        niche: The audience niche these comments are being mined for --
+            signals must describe a real problem of that niche, not the video
 
     Returns:
-        List of pain signal strings (e.g., ["cost", "complexity", "trust"])
-        Empty list on error or if no pain signals identified
-
-    # PLACEHOLDER: afinar en ronda posterior
+        List of pain signal strings in ENGLISH (e.g., ["cost", "complexity",
+        "trust"]). Empty list on error or if no real niche pain is found.
     """
     if not comments:
         logger.warning(f"[llm] No comments provided for pain classification")
@@ -894,14 +903,28 @@ async def classify_pain_from_comments(video_title: str, comments: List[dict]) ->
         comment_texts = "\n".join([c["text"] for c in comments[:20]])
 
         # Construct prompt
-        prompt = f"""# PLACEHOLDER: afinar en ronda posterior
-
-Video title: {video_title}
+        prompt = f"""Video title: {video_title}
+Niche: {niche}
 
 Comments:
 {comment_texts}
 
-Task: Analyze these comments and identify the main pain points or problems people express.
+Task: Identify ONLY real-world pain points or problems that the AUDIENCE of
+the "{niche}" niche experiences in their work or life.
+
+STRICT RULES:
+- ONLY extract pains that describe a real problem of someone working in or
+  affected by "{niche}" -- not a complaint about this specific video.
+- EXCLUDE anything about the video/channel/production itself: video quality,
+  audio quality, pacing, editing, difficulty finding the content, content
+  delivery, upload frequency, sudden/startling audio, etc. Those are NOT
+  niche pain signals even if they show up in the comments.
+- If a comment is ambiguous or clearly about the video/channel and not the
+  niche, ignore it.
+- If NONE of the comments contain a real niche-relevant pain point, return
+  an empty JSON array [].
+- Respond ONLY in English, regardless of the language of the comments.
+
 Return a JSON array of pain signals. Keep it concise (2-5 signals).
 
 Example format: ["cost", "complexity", "lack of trust", "time required"]
@@ -1128,8 +1151,10 @@ async def research_niche(niche: str) -> NicheResearch:
                     )
 
                     if comments:
-                        # Classify pain signals (1 LLM call)
-                        signals = await classify_pain_from_comments(video_title, comments)
+                        # Classify pain signals (1 LLM call). Bug B2 (a):
+                        # pasa el niche explícito para que el prompt filtre
+                        # quejas sobre el video/canal, no solo el nicho.
+                        signals = await classify_pain_from_comments(video_title, comments, niche)
                         pain_signals.extend(signals)
 
                 except asyncio.TimeoutError:
