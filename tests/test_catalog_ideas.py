@@ -360,10 +360,23 @@ def test_extract_niche_fails_without_bread_crumb(brand_brain):
 # CACHE TESTS
 # =============================================================================
 
+@patch('app.catalog.ideas._get_catalog_client')
 @patch('app.tools.brand_brain.store._get_client')
-def test_check_catalog_cache_no_cache(mock_get_client, brand_brain):
-    """Should return None when no cached catalog exists."""
+def test_check_catalog_cache_no_cache(mock_get_client, mock_get_catalog_client, brand_brain):
+    """
+    Should return None when no cached catalog exists.
+
+    PIEZA 31 (bug B3): el mock original solo apuntaba a
+    `brand_brain.store._get_client` (irrelevante para el catálogo) y dejaba
+    que `_check_catalog_cache` llamara al cliente Supabase REAL de este
+    entorno de desarrollo -- antes esto pasaba "por accidente" porque una
+    excepción de red se tragaba con un print() y devolvía None (justo el bug
+    B3 que esta pieza corrige). Ahora `_get_catalog_client` se mockea a None
+    explícitamente para forzar el fallback a archivo local (sin archivo =
+    None, el comportamiento real que este test quiere probar).
+    """
     mock_get_client.return_value = None
+    mock_get_catalog_client.return_value = None
 
     catalog = _check_catalog_cache("test_session")
     assert catalog is None

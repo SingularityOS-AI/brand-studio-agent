@@ -573,9 +573,15 @@ async def get_catalog(request: Request):
 
     # 4. Import catalog module (this also defines _check_catalog_cache)
     from app.catalog import ideas
+    from app.catalog.ideas import CatalogStorageError
 
     # 5. Check for cached catalog
-    catalog = ideas._check_catalog_cache(session_token)
+    try:
+        catalog = ideas._check_catalog_cache(session_token)
+    except CatalogStorageError as e:
+        # PIEZA 31 (bug B3): fallo real de lectura -- nunca 404 (que dispara
+        # regeneración/cobro en el frontend), siempre 503 explícito.
+        return JSONResponse(status_code=503, content={"error": str(e)})
     if not catalog:
         return JSONResponse(
             status_code=404,
@@ -630,12 +636,43 @@ async def generate_catalog_endpoint(request: Request):
     # 4. Generate catalog (main business logic in ideas.py) - VALIDATE BEFORE DEDUCTING CREDITS
     try:
         from app.catalog import ideas
-        from app.catalog.ideas import CREDITS_COST
+        from app.catalog.ideas import CREDITS_COST, CatalogStorageError
 
-        # Bug B11: el cache_status DEBE calcularse ANTES de get_or_generate_catalog
-        # -- calcularlo después siempre da "hit" porque para entonces ya se
-        # guardó el catálogo recién generado.
-        cache_status = "hit" if ideas._check_catalog_cache(session_token) else "generated"
+        # PIEZA 31 (bug B1): un catálogo ya guardado (de cualquier tamaño) se
+        # devuelve TAL CUAL, sin cobrar y sin volver a llamar al LLM -- antes
+        # cache_status se calculaba solo para etiquetar la respuesta pero los
+        # créditos se cobraban igual más abajo, sin importar si era "hit".
+        try:
+            cached = ideas._check_catalog_cache(session_token)
+        except CatalogStorageError as e:
+            return JSONResponse(status_code=503, content={"error": str(e)})
+
+        if cached:
+            remaining_balance = guard.get_remaining_credits(session_token)
+            return JSONResponse(content={
+                "catalog": cached.model_dump(mode="json"),
+                "cache_status": "hit",
+                "credits_remaining": remaining_balance,
+                "gate_passed": cached.gate_passed
+            })
+
+        # PIEZA 31 (bug B2): verificar saldo ANTES de generar -- antes se
+        # llamaba al LLM sin chequear créditos y, si el saldo era menor a
+        # CREDITS_COST, deduct_credits() lanzaba 402 DESPUÉS de haber
+        # gastado el trabajo del LLM y guardado el catálogo; el siguiente
+        # GET /api/catalog lo entregaba gratis porque ya estaba persistido.
+        remaining_balance = guard.get_remaining_credits(session_token)
+        if remaining_balance is None:
+            raise HTTPException(status_code=401, detail="Invalid session")
+        if remaining_balance < CREDITS_COST:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_remaining": remaining_balance,
+                    "payment_url": settings.payment_url,
+                }
+            )
 
         # Add timeout wrapper - max 2 minutes for full catalog generation
         catalog = await asyncio.wait_for(
@@ -655,6 +692,9 @@ async def generate_catalog_endpoint(request: Request):
             status_code=400,
             content={"error": str(e)}
         )
+    except CatalogStorageError as e:
+        # PIEZA 31 (bug B3): fallo real de persistencia -- nunca se cobra.
+        return JSONResponse(status_code=503, content={"error": str(e)})
     except Exception as e:
         print(f"[ERROR] Catalog generation error: {e}")
         import traceback
@@ -670,7 +710,7 @@ async def generate_catalog_endpoint(request: Request):
     # 5. Return success
     return JSONResponse(content={
         "catalog": catalog.model_dump(mode="json"),
-        "cache_status": cache_status,
+        "cache_status": "generated",
         "credits_remaining": remaining,
         "gate_passed": catalog.gate_passed
     })
@@ -720,8 +760,33 @@ async def add_founder_idea_endpoint(request: Request):
     if subcategory is not None and not isinstance(subcategory, str):
         return JSONResponse(status_code=400, content={"error": "subcategory debe ser texto"})
 
+    from app.catalog.ideas import MASTER_CATEGORIES
+
+    # PIEZA 31 (bug B4): validar subcategory contra las subcategorías
+    # permitidas de la categoría elegida ANTES de persistir. `subcategory`
+    # es texto libre que termina en innerHTML del frontend (ver
+    # buildIdeaCardHTML) -- limitarlo a la lista fija es defensa en
+    # profundidad además del escapeHtml del lado del cliente (B4 frontend).
+    cat_info_for_validation = next((c for c in MASTER_CATEGORIES if c["id"] == master_category), None)
+    if (
+        subcategory is not None
+        and subcategory.strip()
+        and cat_info_for_validation is not None
+        and subcategory.strip() not in cat_info_for_validation["subcategories"]
+    ):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": (
+                    f"subcategory inválida para la categoría '{master_category}'. "
+                    f"Debe ser una de {cat_info_for_validation['subcategories']}"
+                )
+            }
+        )
+
     try:
         from app.catalog import ideas
+        from app.catalog.ideas import CatalogStorageError
         catalog = ideas.add_founder_idea(
             session_id=session_token,
             title=title.strip(),
@@ -735,6 +800,8 @@ async def add_founder_idea_endpoint(request: Request):
         )
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except CatalogStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
 
 
 @app.post("/api/catalog/investigate", response_class=JSONResponse)
@@ -763,7 +830,32 @@ async def investigate_catalog_endpoint(request: Request):
 
     INVESTIGATE_COST = 25
 
-    # Bug B1: cobrar los 25 créditos ANTES de intentar generar significaba que
+    # PIEZA 31 (bug B1): un catálogo ya guardado (de cualquier tamaño) se
+    # devuelve TAL CUAL, sin cobrar los 25 créditos y sin repetir
+    # research_niche() (~40-90s) -- antes esta ruta siempre re-investigaba y
+    # re-cobraba aunque ya existiera un catálogo generado/investigado.
+    try:
+        from app.catalog import ideas
+        from app.catalog.ideas import CatalogStorageError
+
+        existing_catalog = ideas._check_catalog_cache(session_token)
+    except CatalogStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if existing_catalog:
+        remaining_balance = guard.get_remaining_credits(session_token)
+        return JSONResponse(content={
+            "catalog": existing_catalog.model_dump(mode="json"),
+            "niche_research": (
+                existing_catalog.niche_research.model_dump()
+                if existing_catalog.niche_research else None
+            ),
+            "credits_remaining": remaining_balance,
+            "gate_passed": existing_catalog.gate_passed,
+            "cache_status": "hit"
+        })
+
+    # Bug B1 (Pieza 30): cobrar los 25 créditos ANTES de intentar generar significaba que
     # todo fallo (TypeError garantizado por el bug de _extract_niche, timeout,
     # error del LLM) se llevaba los créditos del usuario sin entregar nada.
     # Se verifica saldo con el helper de solo-lectura (get_remaining_credits)
@@ -783,6 +875,7 @@ async def investigate_catalog_endpoint(request: Request):
 
     try:
         from app.catalog import ideas, demand
+        from app.catalog.ideas import CatalogStorageError
         from app.tools.brand_brain.store import get_brand_brain
 
         brain = get_brand_brain(session_token)
@@ -819,6 +912,9 @@ async def investigate_catalog_endpoint(request: Request):
         )
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except CatalogStorageError as e:
+        # PIEZA 31 (bug B3): fallo real de persistencia -- nunca se cobra.
+        return JSONResponse(status_code=503, content={"error": str(e)})
     except Exception as e:
         print(f"[ERROR] Investigate catalog error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -858,10 +954,13 @@ async def accept_idea_endpoint(request: Request, idea_id: str):
 
     try:
         from app.catalog import ideas
+        from app.catalog.ideas import CatalogStorageError
         catalog = await ideas.update_idea_status(session_token, idea_id, "approved")
         return JSONResponse(content={"catalog": catalog.model_dump(mode="json"), "status": "success"})
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except CatalogStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
 
 
 @app.post("/api/catalog/idea/{idea_id}/discard", response_class=JSONResponse)
@@ -876,10 +975,13 @@ async def discard_idea_endpoint(request: Request, idea_id: str):
 
     try:
         from app.catalog import ideas
+        from app.catalog.ideas import CatalogStorageError
         catalog = await ideas.update_idea_status(session_token, idea_id, "rejected")
         return JSONResponse(content={"catalog": catalog.model_dump(mode="json"), "status": "success"})
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except CatalogStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
 
 
 @app.post("/api/catalog/idea/{idea_id}/regenerate", response_class=JSONResponse)
@@ -911,15 +1013,26 @@ async def regenerate_idea_endpoint(request: Request, idea_id: str):
 
     try:
         from app.catalog import ideas
+        from app.catalog.ideas import CatalogStorageError
         new_idea = await ideas.regenerate_single_idea(session_token, idea_id)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except CatalogStorageError as e:
+        # PIEZA 31 (bug B3): la idea no quedó persistida -- nunca se cobra.
+        return JSONResponse(status_code=503, content={"error": str(e)})
     except Exception as e:
         print(f"[ERROR] Regenerate idea error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     remaining = guard.deduct_credits(session_token, amount=REGEN_COST)
-    catalog = ideas._check_catalog_cache(session_token)
+    try:
+        catalog = ideas._check_catalog_cache(session_token)
+    except CatalogStorageError as e:
+        # La regeneración ya se cobró y persistió con éxito -- este re-lectura
+        # es solo para adjuntar el catálogo completo a la respuesta; si falla,
+        # se informa sin catálogo en vez de reventar con un 500 crudo.
+        print(f"[ERROR] Regenerate idea: no se pudo releer el catálogo tras guardar: {e}")
+        catalog = None
     return JSONResponse(content={
         "idea": new_idea.model_dump(mode="json"),
         "catalog": catalog.model_dump(mode="json") if catalog else None,
@@ -939,6 +1052,7 @@ async def lock_catalog_endpoint(request: Request):
 
     try:
         from app.catalog import ideas
+        from app.catalog.ideas import CatalogStorageError
         catalog = ideas.lock_catalog_session(session_token)
         return JSONResponse(content={
             "catalog_locked": catalog.catalog_locked,
@@ -947,6 +1061,8 @@ async def lock_catalog_endpoint(request: Request):
         })
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except CatalogStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
 
 
 @app.post("/api/brain/extract", response_class=JSONResponse)

@@ -344,7 +344,30 @@ class Guard:
             True if credits were added, False if session not found
         """
         if self._use_supabase:
-            # Get user's most recent session
+            # PIEZA 31 (bug B8b): antes esto era lee-suma-escribe (SELECT
+            # credits, sumar en Python, UPDATE) -- un deduct_credits()
+            # concurrente entre el SELECT y el UPDATE se perdía: dos
+            # webhooks o un webhook + un gasto simultáneo podían pisarse y
+            # el balance final quedaba mal (perdiendo el descuento del
+            # otro). accrue_credits() (migración 004) hace
+            # `credits = credits + p_credits` en un solo UPDATE atómico de
+            # Postgres, sin gap de lectura-escritura.
+            try:
+                rpc_response = self._supabase.rpc(
+                    "accrue_credits",
+                    params={"p_user_id": user_id, "p_credits": credits},
+                ).execute()
+            except Exception as e:
+                print(f"[GUARD] ERROR: accrue_credits RPC failed for user {user_id}: {e}")
+                raise
+
+            updated = bool(rpc_response.data)
+            if not updated:
+                print(f"[GUARD] accrue_credits: no session found for user {user_id}")
+                return False
+
+            # Obtener el token + saldo ya actualizado, solo para el log y
+            # para sincronizar el cache en memoria (si existe).
             result = self._supabase.table("sessions") \
                 .select("*") \
                 .eq("user_id", user_id) \
@@ -353,17 +376,14 @@ class Guard:
                 .execute()
 
             if not result.data:
-                return False
+                # accrue_credits reportó éxito pero no encontramos la fila
+                # para loguear/sincronizar -- no es un fallo del accrue en
+                # sí (ya se sumó de forma atómica), así que seguimos siendo True.
+                print(f"[GUARD] Added {credits} credits to user {user_id} (source: {source}), pero no se pudo releer la sesión para sincronizar cache")
+                return True
 
             token = result.data[0]["token"]
-            current_credits = result.data[0].get("credits", 0)
-            new_credits = current_credits + credits
-
-            # Update credits in Supabase
-            self._supabase.table("sessions") \
-                .update({"credits": new_credits}) \
-                .eq("token", token) \
-                .execute()
+            new_credits = result.data[0].get("credits", 0)
 
             # FIX: Also update in-memory cache to ensure consistency
             # This prevents race conditions where webhook updates DB but
@@ -373,11 +393,8 @@ class Guard:
             # NUNCA se crea (ver __init__, solo existe en `else:` sin Supabase)
             # -- este `if token in self._sessions:` reventaba con
             # AttributeError DESPUES de sumar los créditos en la base real.
-            # El webhook handler devolvía 500, Stripe reintentaba el mismo
-            # evento hasta 3 días, y cada reintento volvía a sumar el paquete
-            # completo (el caso real: 550 créditos -> 1100). `getattr` con
-            # default None hace que este cache opcional se salte limpio en
-            # modo Supabase, en vez de tumbar un webhook que ya tuvo éxito.
+            # `getattr` con default None hace que este cache opcional se
+            # salte limpio en modo Supabase.
             in_memory_sessions = getattr(self, "_sessions", None)
             if in_memory_sessions is not None and token in in_memory_sessions:
                 in_memory_sessions[token]["credits"] = new_credits

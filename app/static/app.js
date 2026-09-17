@@ -1921,6 +1921,27 @@ ${htmlContent}
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
 
+  // PIEZA 31 (bug B6): faltaba declarar -- openCreditGateModal() la leía
+  // (`renderCatalogInPanel(currentCatalog)`) y disparaba un ReferenceError
+  // al hacer clic en el gate con un catálogo ya generado. Se asigna en cada
+  // punto donde se renderiza/carga un catálogo (renderCatalogInPanel).
+  let currentCatalog = null;
+
+  // PIEZA 31 (bug B4): escapa texto de terceros antes de interpolarlo en
+  // innerHTML. `demand_signal` viene de comentarios de YouTube / grounding
+  // web (texto ajeno, no confiable) y `title`/`subcategory` pueden incluir
+  // caracteres de HTML -- sin esto, un XSS almacenado corre con el JWT del
+  // founder en memoria.
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // Las 5 categorías maestras (MASTER_CATEGORIES en app/catalog/ideas.py) --
   // hoisted a nivel de módulo para que tanto renderCatalogInPanel() como el
   // handler de "Agregar idea propia" (punto D1) las reutilicen sin duplicar.
@@ -1985,16 +2006,21 @@ ${htmlContent}
     // Decisión del CEO: una idea propia del fundador no se regenera --
     // regenerar la reemplazaría por una idea del LLM, borrando lo que el
     // fundador escribió a mano. El botón ↻ simplemente no se renderiza.
+    // PIEZA 31 (bug B6/B4): idea.id se interpola en un atributo HTML sin
+    // comillas escapadas -- es un ID generado por el backend (uuid hex), no
+    // texto de terceros, pero se pasa por escapeHtml igual como defensa en
+    // profundidad barata.
+    const safeId = escapeHtml(idea.id);
     const regenerateBtnHTML = idea.origin === 'founder'
       ? ''
-      : `<button class="btn-regenerate" data-idea-id="${idea.id}" title="Regenerar (3 créditos)">&#8635;</button>`;
+      : `<button class="btn-regenerate" data-idea-id="${safeId}" title="Regenerar (3 créditos)">&#8635;</button>`;
     return `
-      <span class="ideatitle">${idea.title}${founderBadge}</span>
-      <span class="angle" style="border-color:${color};color:${color}">${idea.subcategory || 'Formato'}</span>
-      <span class="signal">${idea.demand_signal}</span>
+      <span class="ideatitle">${escapeHtml(idea.title)}${founderBadge}</span>
+      <span class="angle" style="border-color:${color};color:${color}">${escapeHtml(idea.subcategory || 'Formato')}</span>
+      <span class="signal">${escapeHtml(idea.demand_signal)}</span>
       <div class="idea-actions">
-        <button class="btn-approve" data-idea-id="${idea.id}" title="Approve idea">&#10003;</button>
-        <button class="btn-reject" data-idea-id="${idea.id}" title="Discard idea">&#10007;</button>
+        <button class="btn-approve" data-idea-id="${safeId}" title="Approve idea">&#10003;</button>
+        <button class="btn-reject" data-idea-id="${safeId}" title="Discard idea">&#10007;</button>
         ${regenerateBtnHTML}
       </div>
     `;
@@ -2072,7 +2098,9 @@ ${htmlContent}
 
           if (data.credits_remaining !== undefined) {
             credits = data.credits_remaining;
-            updateCreditsUI();
+            // PIEZA 31 (bug B5): faltaban los argumentos -- updateCreditsUI()
+            // sin remaining/initial dejaba el saldo mostrado como "undefined".
+            updateCreditsUI(data.credits_remaining, initialSessionCredits);
           }
 
           const newIdea = data.idea;
@@ -2123,6 +2151,10 @@ ${htmlContent}
 
   // Render Catalog in panel (BlockB view)
   function renderCatalogInPanel(catalog) {
+    // PIEZA 31 (bug B6): guardar la referencia -- openCreditGateModal() la
+    // usa para re-renderizar sin recargar cuando el catálogo ya existe.
+    currentCatalog = catalog;
+
     const categoryNames = CATALOG_CATEGORY_NAMES;
     const categoryColors = CATALOG_CATEGORY_COLORS;
 
@@ -2151,7 +2183,7 @@ ${htmlContent}
 
       const catHead = document.createElement('div');
       catHead.className = 'cathead';
-      catHead.innerHTML = `<span class="catname">${catName}</span><span class="catcount">${catIdeas.length}</span>`;
+      catHead.innerHTML = `<span class="catname">${escapeHtml(catName)}</span><span class="catcount">${catIdeas.length}</span>`;
       catDiv.appendChild(catHead);
 
       catIdeas.forEach(idea => {
@@ -2181,8 +2213,14 @@ ${htmlContent}
     // simplemente ya no se llama desde esta UI.
 
     // Add event listener for Lock Catalog button
+    // PIEZA 31 (bug B7): renderCatalogInPanel() se llama en cada carga del
+    // catálogo (generate, investigate, cache load, regenerate) y volvía a
+    // agregar OTRO listener sobre el MISMO botón del DOM (nunca se recrea) --
+    // N renders = N POST /api/catalog/lock + N alerts por un solo clic.
+    // Mismo guard dataset.wired que ya usa AddIdea-SubmitBtn más abajo.
     const lockCatalogBtn = document.getElementById('Catalog-LockBtn');
-    if (lockCatalogBtn) {
+    if (lockCatalogBtn && !lockCatalogBtn.dataset.wired) {
+      lockCatalogBtn.dataset.wired = 'true';
       lockCatalogBtn.addEventListener('click', async (e) => {
         e.preventDefault();
 
@@ -2267,7 +2305,7 @@ ${htmlContent}
             catDiv.dataset.catKey = masterCategory;
             const catHead = document.createElement('div');
             catHead.className = 'cathead';
-            catHead.innerHTML = `<span class="catname">${CATALOG_CATEGORY_NAMES[masterCategory] || masterCategory}</span><span class="catcount">0</span>`;
+            catHead.innerHTML = `<span class="catname">${escapeHtml(CATALOG_CATEGORY_NAMES[masterCategory] || masterCategory)}</span><span class="catcount">0</span>`;
             catDiv.appendChild(catHead);
             catalogCategories.appendChild(catDiv);
           }
@@ -2298,19 +2336,29 @@ ${htmlContent}
       });
     }
 
-    // Update gate button state
-    if (totalIdeas >= 30) {
+    // PIEZA 31 (bug B1): CUALQUIER catálogo ya guardado (30 ideas o menos --
+    // ej. uno viejo truncado, o uno con ideas descartadas) se muestra como
+    // generado, nunca como "Ready to generate". Antes, un catálogo con
+    // menos de 30 ideas caía en el `else if` de abajo, que dejaba el gate
+    // en estado "Ready to generate" -- cada clic volvía a abrir el modal de
+    // cobro y, si el founder lo aprobaba, /api/catalog/generate se llamaba
+    // de nuevo. El backend (bug B1 fix en main.py) ya no cobra dos veces
+    // para un catálogo existente, pero la UI tampoco debe OFRECER pagar de
+    // nuevo por algo que ya existe.
+    if (totalIdeas > 0) {
       catalogAlreadyGenerated = true;
       catalogGateTitle.textContent = 'Catalog ready';
-      catalogGateSub.textContent = 'Your 30 brand ideas are already generated.';
+      catalogGateSub.textContent = totalIdeas >= 30
+        ? 'Your 30 brand ideas are already generated.'
+        : `Your catalog is already generated (${totalIdeas} ideas).`;
       catalogGateCount.textContent = `${totalIdeas}/30`;
       catalogGate.style.background = '#F0F7FF';
       catalogGate.style.borderColor = '#2B4CD8';
-    } else if (totalIdeas > 0) {
+    } else {
       catalogAlreadyGenerated = false;
-      catalogGateTitle.textContent = 'Ready to generate';
-      catalogGateSub.textContent = 'Click to unlock your Brand Soul.';
-      catalogGateCount.textContent = `${totalIdeas}/30`;
+      catalogGateTitle.textContent = 'No ideas yet';
+      catalogGateSub.textContent = 'You need to build your catalog first. This is the research phase.';
+      catalogGateCount.textContent = '0/30';
       catalogGate.style.background = '#FFF6E5';
       catalogGate.style.borderColor = 'var(--warn)';
     }
@@ -2419,14 +2467,22 @@ ${htmlContent}
             return;
           }
 
-          // Check for incomplete brand brain
+          // Check for incomplete brand brain (mensaje real del backend trae
+          // "N of 9 sections confirmed" -- solo ESE caso especifico usa el
+          // mensaje amigable de "brand brain incompleto"; cualquier otro 400
+          // (ej. B3: 503 de storage no aplica aqui, pero un ValueError
+          // distinto si lo hubiera) debe mostrar el error real, no fingir
+          // que el problema es Brand Brain cuando no lo es -- PIEZA 31 (bug
+          // menor): antes CUALQUIER 400 que no mencionara "Brand Soul" caia
+          // aqui y mentia "Your brand brain is incomplete" sin importar la
+          // causa real.
           const match = body.error.match(/(\d+)\s*of\s*9/);
           if (match) {
             const confirmed = parseInt(match[1]);
             const missing = 9 - confirmed;
             alert(`Your brand brain is incomplete. ${missing} section${missing > 1 ? 's' : ''} need${missing > 1 ? '' : 's'} to be confirmed before generating your catalog. Keep talking with Brandy to complete them.`);
           } else {
-            alert(`Your brand brain is incomplete: ${body.error}. Keep talking with Brandy to complete all 9 sections.`);
+            alert(`Failed to generate catalog: ${body.error}`);
           }
         } else if (response.status === 402) {
           alert('Not enough credits to generate catalog. Please purchase more credits to continue.');

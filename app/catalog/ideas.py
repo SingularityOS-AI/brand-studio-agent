@@ -52,6 +52,19 @@ class NicheReportNotFoundError(Exception):
     pass
 
 
+class CatalogStorageError(Exception):
+    """
+    PIEZA 31 (bug B3): excepción propia para distinguir "no existe catálogo"
+    (None, caso normal) de "falló la lectura/escritura en Supabase" (antes
+    ambos casos se tragaban con un print() y devolvían/seguían como si no
+    hubiera catálogo). Los endpoints de main.py deben convertir esto en un
+    503 JSON y NUNCA cobrar créditos cuando ocurre -- una lectura fallida no
+    debe disparar una regeneración que pise el catálogo real, y una
+    escritura fallida no debe devolver 200 como si hubiera persistido.
+    """
+    pass
+
+
 # =============================================================================
 # CONSTANTES
 # =============================================================================
@@ -1066,8 +1079,14 @@ def _check_catalog_cache(session_id: str) -> Optional[Catalog]:
                 return None
             return _row_to_catalog(response.data[0], session_id)
         except Exception as e:
+            # PIEZA 31 (bug B3): antes esto tragaba el error con un print() y
+            # devolvía None -- indistinguible de "no hay catálogo todavía".
+            # Un fallo real de lectura (timeout, red, credenciales) disparaba
+            # una regeneración completa en /generate que PISABA el catálogo
+            # real del founder y encima le cobraba créditos. Ahora se levanta
+            # una excepción propia que el endpoint convierte en 503 sin cobrar.
             print(f"Error leyendo catálogo de Supabase: {e}")
-            return None
+            raise CatalogStorageError(f"No se pudo leer el catálogo desde Supabase: {e}") from e
 
     # Fallback: archivo local (Supabase no configurado)
     cache_dir = "cache/catalog"
@@ -1129,8 +1148,13 @@ def _save_catalog_cache(catalog: Catalog) -> None:
             ).execute()
             return
         except Exception as e:
+            # PIEZA 31 (bug B3): antes esto tragaba el error y devolvía como
+            # si hubiera guardado -- accept/discard/lock/add_founder_idea
+            # respondían 200 sin persistir NADA, y /generate cobraba créditos
+            # por un catálogo que nunca se guardó (la próxima carga lo
+            # regeneraba desde cero, gratis para el LLM pero ya cobrado).
             print(f"Error guardando catálogo en Supabase: {e}")
-            return
+            raise CatalogStorageError(f"No se pudo guardar el catálogo en Supabase: {e}") from e
 
     # Fallback: archivo local
     cache_dir = "cache/catalog"

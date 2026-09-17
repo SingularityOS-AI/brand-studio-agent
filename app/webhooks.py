@@ -78,6 +78,12 @@ async def _check_webhook_idempotency(event_id: str) -> bool:
     escribe en `_mark_webhook_processed()`, llamado únicamente después de que
     el handler termina con éxito (ver stripe_webhook()).
 
+    Pieza 31 (bug B8a): esta función se conserva SOLO como utilidad de
+    lectura (algunos tests la ejercitan directo), pero el endpoint real ya NO
+    la usa para decidir duplicados -- ver `_claim_webhook_event()`, que
+    reclama el evento con un INSERT atómico al inicio para cerrar la carrera
+    entre dos entregas concurrentes del mismo event_id.
+
     Args:
         event_id: Stripe event ID (e.g., "evt_1234567890")
 
@@ -120,7 +126,15 @@ async def _mark_webhook_processed(event_id: str, event_type: str) -> None:
     idempotencia real en producción pese a que el código "parecía" tenerla.
     `processed_at` tiene default en la base, no hace falta mandarlo.
 
-    Solo se llama tras un handler exitoso -- ver stripe_webhook().
+    Pieza 31 (bug B8a): se conserva como utilidad standalone (usada por
+    tests existentes), pero el flujo real de `stripe_webhook()` ya reclama el
+    evento al inicio con `_claim_webhook_event()` -- llamar a esta función
+    ahí otra vez sería un segundo INSERT redundante contra una fila que ya
+    existe.
+
+    Args:
+        event_id: Stripe event ID
+        event_type: Tipo de evento Stripe
     """
     from app.guard import guard
 
@@ -135,6 +149,89 @@ async def _mark_webhook_processed(event_id: str, event_type: str) -> None:
             print(f"[WEBHOOKS] WARNING: Failed to mark event as processed: {e}")
     else:
         print(f"[WEBHOOKS] WARNING: No database configured, skipping idempotency mark")
+
+
+def _is_duplicate_key_error(exc: Exception) -> bool:
+    """
+    Heurística para detectar una violación de PK/unique de Postgres
+    (código 23505) a través del cliente Supabase, que envuelve el error de
+    Postgrest sin garantizar un tipo de excepción estable entre versiones.
+    """
+    msg = str(exc).lower()
+    return "23505" in msg or "duplicate key" in msg or "already exists" in msg
+
+
+async def _claim_webhook_event(event_id: str, event_type: str) -> bool:
+    """
+    Pieza 31 (bug B8a): reclama el evento con un INSERT al INICIO del
+    procesamiento, en vez de chequear-y-luego-insertar al final.
+
+    Antes (`_check_webhook_idempotency` + `_mark_webhook_processed` al
+    final): dos entregas concurrentes del mismo evento (reintento de Stripe
+    solapado con la entrega original, ambos dentro de la ventana antes de
+    que el primero termine) pasaban las DOS el chequeo de "no existe" y las
+    DOS ejecutaban el handler -- doble acreditación de créditos.
+
+    Ahora: el INSERT es la operación atómica que decide quién gana. La PK de
+    `event_id` en `webhook_events` rechaza el segundo INSERT concurrente con
+    un error de duplicado -- ese segundo request ve `False` (ya reclamado) y
+    responde "duplicate" sin tocar créditos. Si el handler del que sí ganó
+    falla, `_release_webhook_event()` borra la fila para que el reintento de
+    Stripe pueda reclamar y procesar de nuevo.
+
+    Returns:
+        True si este request reclamó el evento (debe procesarlo).
+        False si el evento ya estaba reclamado (duplicado, no procesar).
+    """
+    from app.guard import guard
+
+    if guard._use_supabase and guard._supabase is not None:
+        try:
+            guard._supabase.table("webhook_events").insert({
+                "event_id": event_id,
+                "event_type": event_type,
+            }).execute()
+            return True
+        except Exception as e:
+            if _is_duplicate_key_error(e):
+                print(f"[WEBHOOKS] Event {event_id} already claimed (duplicate, concurrent or consecutive)")
+                return False
+            # Error de infraestructura (no de duplicado): mismo criterio
+            # fail-open que el resto del módulo -- Stripe reintentará si el
+            # handler también falla.
+            print(f"[WEBHOOKS] WARNING: Failed to claim event {event_id}: {e}")
+            return True
+    else:
+        # Fallback en memoria (sin Supabase configurado): el set actúa como
+        # la PK -- mismo criterio de "insert atómico" aplicado a un solo
+        # proceso (no hay concurrencia real entre procesos sin DB).
+        if not hasattr(guard, "_webhook_events"):
+            guard._webhook_events = set()
+        if event_id in guard._webhook_events:
+            print(f"[WEBHOOKS] Event {event_id} already claimed (duplicate, in-memory)")
+            return False
+        guard._webhook_events.add(event_id)
+        return True
+
+
+async def _release_webhook_event(event_id: str) -> None:
+    """
+    Pieza 31 (bug B8a): libera un evento reclamado cuando su handler falla,
+    para que el reintento de Stripe (hasta 3 días) pueda reclamarlo de nuevo
+    y procesarlo con éxito -- sin esto, el evento quedaría marcado como
+    "reclamado" para siempre aunque nunca haya acreditado los créditos.
+    """
+    from app.guard import guard
+
+    if guard._use_supabase and guard._supabase is not None:
+        try:
+            guard._supabase.table("webhook_events").delete().eq("event_id", event_id).execute()
+            print(f"[WEBHOOKS] Released claim on event {event_id} after handler failure")
+        except Exception as e:
+            print(f"[WEBHOOKS] WARNING: Failed to release event {event_id}: {e}")
+    else:
+        if hasattr(guard, "_webhook_events"):
+            guard._webhook_events.discard(event_id)
 
 
 # ============================================================================
@@ -219,9 +316,13 @@ async def stripe_webhook(request: Request):
     if not hasattr(guard, "_webhook_events"):
         guard._webhook_events = set()
 
-    # 4. Check idempotency (abort if already processed)
-    already_processed = await _check_webhook_idempotency(event_id)
-    if already_processed:
+    # 4. Pieza 31 (bug B8a): reclamar el evento con un INSERT atómico AL
+    # INICIO -- reemplaza el check-then-insert-al-final. Dos entregas
+    # concurrentes del mismo event_id ahora chocan contra la PK de
+    # `webhook_events`: solo una gana el INSERT y procesa; la otra ve
+    # `claimed=False` y responde "duplicate" sin tocar créditos.
+    claimed = await _claim_webhook_event(event_id, event_type)
+    if not claimed:
         print(f"[WEBHOOKS] Duplicate event {event_id}, ignoring (idempotency)")
         return {"status": "success", "duplicate": True}
 
@@ -238,9 +339,8 @@ async def stripe_webhook(request: Request):
             await _handle_setup_intent_succeeded(event)
         else:
             print(f"[WEBHOOKS] Unhandled event type: {event_type}")
-            # Still record the event to avoid retries
-            guard._webhook_events.add(event_id)
-            await _mark_webhook_processed(event_id, event_type)
+            # El evento ya quedó reclamado (INSERT del paso 4) -- no hace
+            # falta un segundo insert para "recordarlo".
             # Still return 200 OK because event type might be for future features
             return {"status": "success", "message": f"Event type {event_type} not handled"}
     except Exception as e:
@@ -249,19 +349,19 @@ async def stripe_webhook(request: Request):
         print(f"[WEBHOOKS] Error type: {type(e).__name__}")
         print(f"[WEBHOOKS] Error message: {str(e)}")
         print(f"[WEBHOOKS] Full traceback:\n{traceback.format_exc()}")
-        # Bug H2: el evento NO se marca como procesado aquí -- si el handler
-        # falló, Stripe debe poder reintentar y que SÍ se procese de verdad
-        # (antes se marcaba en _check_webhook_idempotency ANTES del handler,
-        # así que un fallo real dejaba el evento "fantasma" como completado).
+        # Bug H2 + Pieza 31 (bug B8a): el handler falló -- liberar el
+        # reclamo (borrar la fila de webhook_events) para que el reintento
+        # de Stripe pueda volver a reclamar y procesar de verdad. Sin esto,
+        # el evento quedaría marcado como "reclamado" para siempre sin haber
+        # acreditado nunca los créditos.
+        await _release_webhook_event(event_id)
         # Return 500 to trigger Stripe retry (up to 3 days)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing webhook: {str(e)}"
         )
 
-    # 6. Record event (SOLO tras éxito real) and return success response
-    guard._webhook_events.add(event_id)
-    await _mark_webhook_processed(event_id, event_type)
+    # 6. Éxito real -- el evento ya quedó reclamado/registrado en el paso 4.
     print(f"[WEBHOOKS] Successfully processed event {event_id}")
     return {"status": "success"}
 
