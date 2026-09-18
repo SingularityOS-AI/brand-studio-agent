@@ -150,7 +150,7 @@ async def test_update_idea_status_without_catalog_raises_value_error():
 
     with patch('app.catalog.ideas._check_catalog_cache', return_value=None):
         with patch('app.catalog.ideas.generate_catalog') as mock_generate:
-            with pytest.raises(ValueError, match="No hay catálogo generado"):
+            with pytest.raises(ValueError, match="No catalog generated"):
                 await update_idea_status("session_sin_catalogo", "idea_x", "approved")
             mock_generate.assert_not_called()
 
@@ -162,7 +162,7 @@ async def test_regenerate_single_idea_without_catalog_raises_value_error():
 
     with patch('app.catalog.ideas._check_catalog_cache', return_value=None):
         with patch('app.catalog.ideas.generate_catalog') as mock_generate:
-            with pytest.raises(ValueError, match="No hay catálogo generado"):
+            with pytest.raises(ValueError, match="No catalog generated"):
                 await regenerate_single_idea("session_sin_catalogo", "idea_x")
             mock_generate.assert_not_called()
 

@@ -1221,25 +1221,34 @@ async def update_idea_status(
 ) -> Catalog:
     """
     Actualiza el estado de aprobación/descarte de una idea individual.
+
+    Pieza 35: las ideas propias del founder (origin="founder") se pueden modificar
+    aunque el catálogo esté bloqueado. Las ideas generadas por el motor están
+    protegidas por el candado.
     """
     # Bug B10: usar SOLO el cache, nunca get_or_generate_catalog -- si no hay
     # catálogo generado todavía, esto disparaba una generación completa GRATIS
     # (sin cobrar los 15/25 créditos de /generate o /investigate).
     catalog = _check_catalog_cache(session_id)
     if not catalog:
-        raise ValueError("No hay catálogo generado para esta sesión. Genera o investiga primero.")
-    if catalog.catalog_locked:
-        raise ValueError("El catálogo está bloqueado. No se pueden modificar ideas.")
+        raise ValueError("No catalog generated for this session. Generate or investigate first.")
 
-    found = False
+    # Find the idea FIRST, then decide if we can modify it
+    # This allows us to check the origin before enforcing the lock
+    target_idea = None
     for idea in catalog.ideas:
         if idea.id == idea_id:
-            idea.status = new_status
-            found = True
+            target_idea = idea
             break
 
-    if not found:
-        raise ValueError(f"Idea con ID '{idea_id}' no encontrada en el catálogo.")
+    if not target_idea:
+        raise ValueError(f"Idea with ID '{idea_id}' not found in catalog.")
+
+    # Enforce lock guard: only founder ideas can be modified when catalog is locked
+    if catalog.catalog_locked and target_idea.origin != "founder":
+        raise ValueError("Catalog is locked. Ideas cannot be modified.")
+
+    target_idea.status = new_status
 
     _save_catalog_cache(catalog)
     return catalog
@@ -1248,17 +1257,19 @@ async def update_idea_status(
 async def regenerate_single_idea(session_id: str, idea_id: str) -> CatalogIdea:
     """
     Regenera únicamente una idea individual reemplazándola en la misma categoría.
+
+    Pieza 35: translated error messages to English for user-facing output.
     """
     # Bug B10: mismo fix que update_idea_status -- solo cache, nunca generación gratis.
     catalog = _check_catalog_cache(session_id)
     if not catalog:
-        raise ValueError("No hay catálogo generado para esta sesión. Genera o investiga primero.")
+        raise ValueError("No catalog generated for this session. Generate or investigate first.")
     if catalog.catalog_locked:
-        raise ValueError("El catálogo está bloqueado. No se pueden regenerar ideas.")
+        raise ValueError("Catalog is locked. Ideas cannot be regenerated.")
 
     target_idea = next((i for i in catalog.ideas if i.id == idea_id), None)
     if not target_idea:
-        raise ValueError(f"Idea con ID '{idea_id}' no encontrada en el catálogo.")
+        raise ValueError(f"Idea with ID '{idea_id}' not found in catalog.")
 
     # Decisión del CEO: una idea propia del fundador (origin="founder") no se
     # regenera -- regenerar la reemplazaría por una idea del LLM, borrando lo

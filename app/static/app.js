@@ -2290,11 +2290,12 @@ ${htmlContent}
           currentCatalog.catalog_locked = true;
           renderCatalogInPanel(currentCatalog);
 
-          // PIEZA 34 (bug 2): navegar al Bloque C con la primera idea aprobada
+          // BUG 3 (Pieza 35): REMOVED automatic navigation to Block C
+          // CEO decision: founder stays in catalog and chooses manually
+
+          // Show warning if no approved ideas (this was already in Pieza 34)
           const firstApprovedIdea = currentCatalog.ideas.find(i => i.status === 'approved');
-          if (firstApprovedIdea) {
-            showBlockCView(firstApprovedIdea.id);
-          } else {
+          if (!firstApprovedIdea) {
             // Caso borde: catálogo bloqueado sin ideas aprobadas
             const lockBtn = document.getElementById('Catalog-LockBtn');
             if (lockBtn) {
@@ -2338,7 +2339,7 @@ ${htmlContent}
 
         addIdeaSubmitBtn.disabled = true;
         const originalText = addIdeaSubmitBtn.textContent;
-        addIdeaSubmitBtn.textContent = 'Agregando...';
+        addIdeaSubmitBtn.textContent = 'Adding...';
 
         try {
           const response = await authenticatedFetch('/api/catalog/idea', {
@@ -2355,6 +2356,11 @@ ${htmlContent}
           }
 
           const newCatalog = data.catalog;
+
+          // BUG 2 (Pieza 35): update currentCatalog with backend response
+          // The backend returns the complete updated catalog - use it as truth
+          currentCatalog = newCatalog;
+
           const newIdea = newCatalog.ideas[newCatalog.ideas.length - 1];
 
           // Agrega la tarjeta a la categoría correcta sin recargar el panel entero.
@@ -2693,7 +2699,6 @@ ${htmlContent}
       scriptGenerateBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         const sourceMode = scriptSourceMode.value;
-        const ideaKind = scriptIdeaKind.value;
 
         // TODO: rename to "assisted" when backend renames it
         const finalSourceMode = sourceMode === 'brand_brain' ? 'brand_brain' : 'raw_footage';
@@ -2712,8 +2717,7 @@ ${htmlContent}
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               idea_id: ideaId,
-              source_mode: finalSourceMode,
-              idea_kind: ideaKind
+              source_mode: finalSourceMode
             })
           });
 

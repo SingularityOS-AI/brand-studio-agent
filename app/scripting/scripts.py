@@ -350,6 +350,71 @@ def _build_brand_context(brand_brain: BrandBrain) -> str:
     return "\n\n".join(sections_text) if sections_text else "No confirmed brand data available."
 
 
+def _derive_script_kind(idea: CatalogIdea) -> str:
+    """
+    Derive script kind from idea's subcategory and master category.
+
+    Pieza 35: Brandy chooses the script kind based on Brand Soul, not user selection.
+    The idea's classification (master_category + subcategory) is the signal.
+
+    Mapping from existing MASTER_CATEGORIES and their subcategories.
+    QA Pieza 35: este docstring decia que producia "testimony" y que
+    autoridad_tecnica daba "comparison" -- ninguno de los dos sale del mapeo real.
+    Es el patron que ya mordio tres veces en este repo (el nombre dice una cosa,
+    el codigo hace otra), asi que aqui va lo que el codigo DE VERDAD devuelve:
+    - autoridad_tecnica      -> tutorial
+    - validacion_resultados  -> case_study
+    - posicionamiento        -> promo (Mito vs Realidad) | story (el resto)
+    - narrativa_fundadora    -> story
+    - discusion_industria    -> comparison (Pregunta de debate) | story
+
+    Defaults to "tutorial" for unrecognized subcategories.
+    """
+    # Subcategory to script kind mapping
+    SUBCATEGORY_TO_KIND = {
+        "Autoridad Técnica e Instrucción": {
+            "Top N/Listículo técnico": "tutorial",
+            "Anatomía de un proceso": "tutorial",
+            "Dato contraintuitivo con fuente": "tutorial",
+        },
+        "Validación de Resultados e Impacto": {
+            "Antes/Después con métricas": "case_study",
+            "Desglose de caso de éxito": "case_study",
+            "Costo de la inacción": "case_study",
+        },
+        "Posicionamiento y Tesis de Mercado": {
+            "Mito vs Realidad": "promo",
+            "Tesis Contrarian": "story",
+            "Structured Yapping": "story",
+        },
+        "Narrativa Fundadora y Origen": {
+            "Historia personal con lección": "story",
+            "Vulnerabilidad operativa": "story",
+            "Detrás de cámaras": "story",
+        },
+        "Discusión y Co-creación de Industria": {
+            "Pregunta de debate": "comparison",
+            "Reacción a regulación/tendencia": "story",
+        },
+    }
+
+    # Try to find by subcategory first
+    for category_name, subcats in SUBCATEGORY_TO_KIND.items():
+        if idea.subcategory in subcats:
+            return subcats[idea.subcategory]
+
+    # Fallback to master category-based defaults
+    MASTER_CATEGORY_DEFAULTS = {
+        "autoridad_tecnica": "tutorial",
+        "validacion_resultados": "case_study",
+        "posicionamiento_narrativa": "story",
+        "narrativa_fundadora": "story",
+        "discusion_industria": "comparison",
+    }
+
+    return MASTER_CATEGORY_DEFAULTS.get(idea.master_category, "tutorial")
+
+
 # =============================================================================
 # AUDIT RULES (12 deterministic rules, no LLM)
 # =============================================================================
@@ -490,11 +555,14 @@ def _build_generation_prompt(
     idea: CatalogIdea,
     interview_transcript: str,
     source_mode: Literal["brand_brain", "raw_footage"],
+    script_kind: str,
 ) -> str:
     """
     Build prompt for script generation with Gemini.
 
     Prompt is in English as per spec.
+
+    Pieza 35: script_kind parameter now included in the prompt and actually used.
     """
     footage_instruction = ""
     if source_mode == "raw_footage":
@@ -512,6 +580,7 @@ PARAMETERS:
 - Tone: Professional, authoritative yet conversational
 - Structure: 6 phases (hook, lock_in, body_1, rehook, body_2, close_cta)
 - Each scene: 3-7 seconds
+- Script kind: {script_kind} (use this as a guide for style and approach)
 - Progressive angle: Open very general, then narrow progressively toward CTA
 
 BRAND CONTEXT:
@@ -616,7 +685,13 @@ async def generate_script(
 
     # 4. Build context and prompt
     brand_context = _build_brand_context(brand_brain)
-    prompt = _build_generation_prompt(brand_context, idea, interview_transcript, source_mode)
+
+    # Pieza 35: derive script kind from idea if not provided as override
+    final_idea_kind = idea_kind
+    if final_idea_kind is None:
+        final_idea_kind = _derive_script_kind(idea)
+
+    prompt = _build_generation_prompt(brand_context, idea, interview_transcript, source_mode, final_idea_kind)
 
     # 5. Call Gemini
     from vertexai.generative_models import GenerativeModel

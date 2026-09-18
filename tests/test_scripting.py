@@ -1659,9 +1659,10 @@ def test_prompt_differs_based_on_source_mode():
 
     brain_brain = "test brand context"
     transcript = "test transcript"
+    script_kind = "tutorial"
 
-    prompt_brand = _build_generation_prompt(brain_brain, idea, transcript, "brand_brain")
-    prompt_raw = _build_generation_prompt(brain_brain, idea, transcript, "raw_footage")
+    prompt_brand = _build_generation_prompt(brain_brain, idea, transcript, "brand_brain", script_kind)
+    prompt_raw = _build_generation_prompt(brain_brain, idea, transcript, "raw_footage", script_kind)
 
     # raw_footage mode should include footage instruction
     assert "EXISTING footage" not in prompt_brand
