@@ -2042,9 +2042,9 @@ ${htmlContent}
     const regenerateBtnHTML = idea.origin === 'founder'
       ? ''
       : `<button class="btn-regenerate" data-idea-id="${safeId}" title="Regenerar (3 créditos)">&#8635;</button>`;
-    // Block C: Add "Write script" / "Open script" button on approved ideas when catalog is locked
+    // PIEZA 34 (bug 3): Add "Write script" / "Open script" button on approved ideas when catalog is locked
     const scriptBtnHTML = (catalogLocked && idea.status === 'approved')
-      ? `<button class="btn-script" data-idea-id="${safeId}" title="Write script">📝</button>`
+      ? `<button class="btn-script" data-idea-id="${safeId}" title="Write script">📝 Write script</button>`
       : '';
     return `
       <span class="ideatitle">${escapeHtml(idea.title)}${founderBadge}</span>
@@ -2284,8 +2284,26 @@ ${htmlContent}
           // "Catálogo bloqueado ✓" -- se persiste solo (catalog_locked viene
           // del backend en cada carga, ver renderCatalogInPanel).
           applyCatalogLockedUI();
-          alert('Catalog locked successfully! Moving to script generation phase...');
-          // TODO: Navigate to script generation phase
+
+          // PIEZA 34 (bug 1): al bloquear, actualizar estado en memoria y re-renderizar
+          // las tarjetas para que el botón de guion aparezca en ideas aprobadas.
+          currentCatalog.catalog_locked = true;
+          renderCatalogInPanel(currentCatalog);
+
+          // PIEZA 34 (bug 2): navegar al Bloque C con la primera idea aprobada
+          const firstApprovedIdea = currentCatalog.ideas.find(i => i.status === 'approved');
+          if (firstApprovedIdea) {
+            showBlockCView(firstApprovedIdea.id);
+          } else {
+            // Caso borde: catálogo bloqueado sin ideas aprobadas
+            const lockBtn = document.getElementById('Catalog-LockBtn');
+            if (lockBtn) {
+              const warning = document.createElement('div');
+              warning.style.cssText = 'margin: 12px 40px; padding: 12px 16px; background: #FFF6E5; border: 1px solid #EAB308; border-radius: 4px; color: #854D0E; font-size: 13px;';
+              warning.textContent = 'Approve at least one idea to write a script';
+              lockBtn.after(warning);
+            }
+          }
 
         } catch (error) {
           console.error('Lock catalog error:', error);
