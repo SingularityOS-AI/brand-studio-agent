@@ -1935,6 +1935,7 @@ ${htmlContent}
   const scriptSourceMode = document.getElementById('Script-SourceMode');
   const scriptIdeaKind = document.getElementById('Script-IdeaKind');
   const scriptGenerateBtn = document.getElementById('Script-GenerateBtn');
+  const scriptGenerateHelp = document.getElementById('Script-GenerateHelp');
   const scriptFrameZero = document.getElementById('Script-FrameZero');
   const scriptFrameZeroContent = document.getElementById('Script-FrameZeroContent');
   const scriptScenes = document.getElementById('Script-Scenes');
@@ -2018,8 +2019,21 @@ ${htmlContent}
       lockBtn.textContent = 'Catálogo bloqueado ✓';
     }
 
-    document.querySelectorAll('.btn-approve, .btn-reject, .btn-regenerate').forEach(btn => {
-      btn.disabled = true;
+    // PIEZA 36 (bug 4): Skip founder ideas when disabling approve/discard/regenerate buttons
+    document.querySelectorAll('.idea').forEach(ideaDiv => {
+      const origin = ideaDiv.dataset.origin || 'engine';
+      if (origin !== 'founder') {
+        ideaDiv.querySelectorAll('.btn-approve, .btn-reject, .btn-regenerate').forEach(btn => {
+          btn.disabled = true;
+        });
+      }
+      // The regenerate button is already filtered out for founder ideas in buildIdeaCardHTML(),
+      // but this is an extra safety check at the DOM level.
+
+      // PIEZA 36 (bug 4): Script button is still disabled on ALL ideas when catalog is locked
+      // - Approved ideas show the "Write script" button (via buildIdeaCardHTML)
+      // - Founder can edit their own approved ideas with the script writer
+      // - Engine ideas remain locked completely
     });
 
     // Decisión del CEO: agregar ideas propias sigue SIEMPRE disponible y
@@ -2078,9 +2092,18 @@ ${htmlContent}
             alert(`Failed to approve idea: ${data.error || data.detail || response.status}`);
             return;
           }
+          // PIEZA 36 (bug 3): Update CSS classes
           ideaDiv.classList.remove('idea--pending', 'idea--rejected');
           ideaDiv.classList.add('idea--approved');
+          // PIEZA 36 (bug 3): Sync currentCatalog from backend response (source of truth)
+          if (currentCatalog && data.catalog && data.catalog.ideas) {
+            currentCatalog.ideas = data.catalog.ideas;
+          }
           checkAndEnableLockButton();
+          // PIEZA 36 (bug 3): Update script button visibility if this is the current idea
+          if (currentScriptIdeaId === ideaId) {
+            updateScriptGenerateButton();
+          }
         } catch (error) {
           console.error('Approve idea error:', error);
           alert(`Failed to approve idea: ${error.message}`);
@@ -2099,9 +2122,18 @@ ${htmlContent}
             alert(`Failed to discard idea: ${data.error || data.detail || response.status}`);
             return;
           }
+          // PIEZA 36 (bug 3): Update CSS classes
           ideaDiv.classList.remove('idea--pending', 'idea--approved');
           ideaDiv.classList.add('idea--rejected');
+          // PIEZA 36 (bug 3): Sync currentCatalog from backend response (source of truth)
+          if (currentCatalog && data.catalog && data.catalog.ideas) {
+            currentCatalog.ideas = data.catalog.ideas;
+          }
           checkAndEnableLockButton();
+          // PIEZA 36 (bug 3): Update script button visibility if this is the current idea
+          if (currentScriptIdeaId === ideaId) {
+            updateScriptGenerateButton();
+          }
         } catch (error) {
           console.error('Discard idea error:', error);
           alert(`Failed to discard idea: ${error.message}`);
@@ -2145,6 +2177,8 @@ ${htmlContent}
             const catalogLocked = currentCatalog && currentCatalog.catalog_locked;
             ideaDiv.id = `idea-${newIdea.id}`;
             ideaDiv.className = `idea idea--${newIdea.status || 'pending'}`;
+            // PIEZA 36 (bug 4): Add data-origin attribute to identify founder ideas in applyCatalogLockedUI()
+            ideaDiv.dataset.origin = newIdea.origin || 'engine';
             ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, color || '#2B4CD8', catalogLocked);
             wireIdeaCardActions(ideaDiv);
           }
@@ -2234,6 +2268,8 @@ ${htmlContent}
         const ideaDiv = document.createElement('div');
         ideaDiv.id = `idea-${idea.id}`;
         ideaDiv.className = `idea idea--${idea.status || 'pending'}`;
+        // PIEZA 36 (bug 4): Add data-origin attribute to identify founder ideas in applyCatalogLockedUI()
+        ideaDiv.dataset.origin = idea.origin || 'engine';
         ideaDiv.innerHTML = buildIdeaCardHTML(idea, color, catalog.catalog_locked);
         wireIdeaCardActions(ideaDiv);
         catDiv.appendChild(ideaDiv);
@@ -2381,6 +2417,8 @@ ${htmlContent}
           const ideaDiv = document.createElement('div');
           ideaDiv.id = `idea-${newIdea.id}`;
           ideaDiv.className = `idea idea--${newIdea.status || 'approved'}`;
+          // PIEZA 36 (bug 4): Add data-origin attribute to identify founder ideas in applyCatalogLockedUI()
+          ideaDiv.dataset.origin = newIdea.origin || 'engine';
           ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, CATALOG_CATEGORY_COLORS[masterCategory] || '#2B4CD8', newCatalog.catalog_locked);
           wireIdeaCardActions(ideaDiv);
           catDiv.appendChild(ideaDiv);
@@ -2687,75 +2725,35 @@ ${htmlContent}
 
   // Block C: Update generate button state based on transcript
   function updateScriptGenerateButton() {
-    // Enable button if we have transcript data (user answered questions)
-    const hasTranscript = fullTranscript && fullTranscript.length > 0;
-    scriptGenerateBtn.disabled = !hasTranscript;
-  }
+    if (!scriptGenerateBtn) return;
+    // Pieza 36B (fallo 1): Use cachedBrain from module state, NOT currentScriptData which is null in empty state
+    const sourceMode = scriptSourceMode?.value || 'brand_brain';
+    const hasTranscript = fullTranscript && Array.isArray(fullTranscript) && fullTranscript.length > 0;
+    // Brand Brain exists if cachedBrain has confirmed sections or any sections at all
+    const hasBrandBrain = cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0;
 
-  // Block C: Handle script generation
-  async function handleScriptGenerate(ideaId) {
-    if (!scriptGenerateBtn.dataset.wired) {
-      scriptGenerateBtn.dataset.wired = 'true';
-      scriptGenerateBtn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const sourceMode = scriptSourceMode.value;
-
-        // TODO: rename to "assisted" when backend renames it
-        const finalSourceMode = sourceMode === 'brand_brain' ? 'brand_brain' : 'raw_footage';
-
-        const originalText = scriptGenerateBtn.innerHTML;
-        scriptGenerateBtn.disabled = true;
-        scriptGenerateBtn.innerHTML = 'Generating...';
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 135000);
-
-        try {
-          const response = await authenticatedFetch('/api/script/generate', {
-            method: 'POST',
-            signal: controller.signal,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              idea_id: ideaId,
-              source_mode: finalSourceMode
-            })
-          });
-
-          clearTimeout(timeoutId);
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            if (response.status === 402) {
-              alert('Paywall: Not enough credits to generate script. You need 10 credits.');
-            } else {
-              alert(`Failed to generate script: ${data.error || data.detail || response.status}`);
-            }
-            scriptGenerateBtn.disabled = false;
-            scriptGenerateBtn.innerHTML = originalText;
-            return;
-          }
-
-          if (data.credits_remaining !== undefined) {
-            credits = data.credits_remaining;
-            updateCreditsUI(data.credits_remaining, initialSessionCredits);
-          }
-
-          // Load the generated script
-          await loadScriptData(ideaId);
-
-        } catch (error) {
-          clearTimeout(timeoutId);
-          console.error('Generate script error:', error);
-          if (error.name === 'AbortError') {
-            alert('Script generation timed out. Please try again.');
-          } else {
-            alert(`Failed to generate script: ${error.message}`);
-          }
-          scriptGenerateBtn.disabled = false;
-          scriptGenerateBtn.innerHTML = originalText;
+    if (sourceMode === 'raw_footage') {
+      // Raw footage mode: founder already has material, never depends on transcript
+      scriptGenerateBtn.disabled = false;
+      // Pieza 36B (fallo 3): No help message needed when enabled
+      if (scriptGenerateHelp) scriptGenerateHelp.style.display = 'none';
+    } else if (sourceMode === 'brand_brain') {
+      // Brand Brain mode: need either transcript OR brand brain
+      scriptGenerateBtn.disabled = !hasTranscript && !hasBrandBrain;
+      // Pieza 36B (fallo 3): Show concrete help message only when disabled
+      if (scriptGenerateHelp) {
+        if (scriptGenerateBtn.disabled) {
+          // No transcript, no Brand Brain: need to talk to Brandy first
+          scriptGenerateHelp.style.display = 'block';
+          scriptGenerateHelp.textContent = 'Talk to Brandy about this idea first to enable assisted generation';
+        } else {
+          scriptGenerateHelp.style.display = 'none';
         }
-      });
+      }
+    } else {
+      // Unknown mode: disable
+      scriptGenerateBtn.disabled = true;
+      if (scriptGenerateHelp) scriptGenerateHelp.style.display = 'none';
     }
   }
 
@@ -3078,13 +3076,77 @@ ${htmlContent}
   }
 
   // Wire up Block C generate button
-  if (scriptGenerateBtn && !scriptGenerateBtn.dataset.wired) {
-    scriptGenerateBtn.addEventListener('click', () => {
-      if (currentScriptData && currentScriptData.idea_id) {
-        handleScriptGenerate(currentScriptData.idea_id);
+  if (scriptGenerateBtn) {
+    scriptGenerateBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+
+      // PIEZA 36 (bug 1): Use currentScriptIdeaId (set by showBlockCView) instead of currentScriptData.idea_id
+      if (!currentScriptIdeaId) {
+        alert('No idea selected. Please select an idea from the catalog first.');
+        return;
+      }
+
+      const sourceMode = scriptSourceMode?.value || 'brand_brain';
+      const finalSourceMode = sourceMode === 'brand_brain' ? 'brand_brain' : 'raw_footage';
+
+      const originalText = scriptGenerateBtn.innerHTML;
+      scriptGenerateBtn.disabled = true;
+      scriptGenerateBtn.innerHTML = 'Generating...';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 135000);
+
+      try {
+        const response = await authenticatedFetch('/api/script/generate', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            idea_id: currentScriptIdeaId,
+            source_mode: finalSourceMode
+          })
+        });
+
+        clearTimeout(timeoutId);
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 402) {
+            alert('Paywall: Not enough credits to generate script. You need 10 credits.');
+          } else {
+            alert(`Failed to generate script: ${data.error || data.detail || response.status}`);
+          }
+          scriptGenerateBtn.disabled = false;
+          scriptGenerateBtn.innerHTML = originalText;
+          return;
+        }
+
+        if (data.credits_remaining !== undefined) {
+          credits = data.credits_remaining;
+          updateCreditsUI(data.credits_remaining, initialSessionCredits);
+        }
+
+        // Load the generated script
+        await loadScriptData(currentScriptIdeaId);
+
+      } catch (error) {
+        clearTimeout(timeoutId);
+        console.error('Generate script error:', error);
+        if (error.name === 'AbortError') {
+          alert('Script generation timed out. Please try again.');
+        } else {
+          alert(`Failed to generate script: ${error.message}`);
+        }
+        scriptGenerateBtn.disabled = false;
+        scriptGenerateBtn.innerHTML = originalText;
       }
     });
-    scriptGenerateBtn.dataset.wired = 'true';
+  }
+
+  // PIEZA 36 (bug 2): Update script button when source mode changes
+  if (scriptSourceMode) {
+    scriptSourceMode.addEventListener('change', updateScriptGenerateButton);
   }
 
   // Wire up Block C lock button
