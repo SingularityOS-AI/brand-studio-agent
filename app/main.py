@@ -535,6 +535,347 @@ async def get_demand_validation(request: Request):
 from app.catalog.ideas import generate_catalog
 
 
+# =============================================================================
+# SCRIPTING ENDPOINTS (Piece 32 — Block C: Scripting)
+# =============================================================================
+
+from app.scripting.scripts import (
+    generate_script,
+    audit_script,
+    regenerate_scene,
+    update_scene_text,
+    lock_script,
+    ScriptStorageError,
+    CREDITS_COST_GENERATE,
+    CREDITS_COST_REGENERATE_SCENE,
+)
+from typing import Literal, Optional
+
+
+class ScriptGenerateRequest(BaseModel):
+    interview_transcript: str
+    source_mode: Literal["brand_brain", "raw_footage"] = "brand_brain"
+    idea_kind: Optional[str] = None
+
+
+@app.get("/api/script/{idea_id}", response_class=JSONResponse)
+async def get_script_endpoint(request: Request, idea_id: str):
+    """
+    Retrieve script by idea ID.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Checks for cached script from previous generation
+    3. Returns script with audit findings
+    4. Returns 404 if script not yet generated
+
+    No cost to retrieve cached content.
+    Requires JWT authentication.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    from app.scripting.scripts import _check_script
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    if not script:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": f"Script not yet generated for idea {idea_id}",
+                "hint": "Call POST /api/script/generate to create script (10 credits)"
+            }
+        )
+
+    return JSONResponse(content={"script": script.model_dump(mode="json")})
+
+
+@app.post("/api/script/generate", response_class=JSONResponse)
+async def generate_script_endpoint(request: Request, body: ScriptGenerateRequest):
+    """
+    Generate a script from an approved catalog idea.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Checks if catalog is locked (catalog_locked=True required)
+    3. Verifies idea exists and is approved
+    4. Calls Gemini to generate script with FrameZero, scenes, and audit
+    5. Caches result by (session_token, idea_id)
+    6. Returns script with 12 audit findings
+
+    Protected by credits - requires 10 credits.
+    Requires JWT authentication.
+    REQUIRES:
+    - BrandBrain to be complete
+    - Catalog idea to be approved
+    - Catalog to be locked (catalog_locked=True)
+    """
+    # 1. Validate JWT
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header"
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # No rate limit - credits serve as protection
+
+    # Extract idea_id from body
+    idea_id = request.query_params.get("idea_id")
+    if not idea_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing 'idea_id' query parameter"}
+        )
+
+    # BUG B1 (mismo patrón que /api/catalog/generate, 4b273e7): un guion ya
+    # guardado para esta idea se devuelve TAL CUAL, sin cobrar y sin volver a
+    # llamar al LLM -- antes el endpoint siempre generaba y siempre cobraba
+    # aunque ya existiera guion (incluso locked), pisándolo en silencio.
+    from app.scripting.scripts import _check_script
+
+    try:
+        existing = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if existing:
+        remaining_balance = guard.get_remaining_credits(session_token)
+        return JSONResponse(content={
+            "script": existing.model_dump(mode="json"),
+            "cache_status": "hit",
+            "credits_remaining": remaining_balance,
+        })
+
+    # Check balance BEFORE deducting
+    remaining_balance = guard.get_remaining_credits(session_token)
+    if remaining_balance is None:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    if remaining_balance < CREDITS_COST_GENERATE:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "Session budget exhausted",
+                "credits_remaining": remaining_balance,
+                "payment_url": settings.payment_url,
+            }
+        )
+
+    # Generate script
+    try:
+        script = await generate_script(
+            session_id=session_token,
+            idea_id=idea_id,
+            interview_transcript=body.interview_transcript,
+            source_mode=body.source_mode,
+            idea_kind=body.idea_kind,
+        )
+    except ValueError as e:
+        # Validation error - NO CREDIT DEDUCTION
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ScriptStorageError as e:
+        # Storage error - NO CREDIT DEDUCTION
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    except Exception as e:
+        print(f"[ERROR] Script generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": f"Script generation failed: {str(e)}"})
+
+    # Deduct credits AFTER success
+    remaining = guard.deduct_credits(session_token, amount=CREDITS_COST_GENERATE)
+
+    return JSONResponse(content={
+        "script": script.model_dump(mode="json"),
+        "cache_status": "generated",
+        "credits_remaining": remaining
+    })
+
+
+@app.post("/api/script/{idea_id}/scene/{scene_n}/regenerate", response_class=JSONResponse)
+async def regenerate_scene_endpoint(
+    request: Request,
+    idea_id: str,
+    scene_n: int,
+    body: BaseModel = None
+):
+    """
+    Regenerate a single scene based on instruction.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Checks if script exists and is not locked
+    3. Calls Gemini to regenerate the target scene only
+    4. Re-runs audit on updated script
+    5. Returns updated script
+
+    Protected by credits - requires 2 credits.
+    Requires JWT authentication.
+    """
+    # Parse body manually (direct JSON)
+    try:
+        body_data = await request.json() if body is None else body.model_dump()
+    except Exception:
+        body_data = {}
+
+    instruction = body_data.get("instruction", "")
+    if not instruction:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing 'instruction' in request body"}
+        )
+
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # Check balance BEFORE deducting
+    remaining_balance = guard.get_remaining_credits(session_token)
+    if remaining_balance is None or remaining_balance < CREDITS_COST_REGENERATE_SCENE:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "Session budget exhausted",
+                "credits_remaining": remaining_balance or 0
+            }
+        )
+
+    # Regenerate scene
+    try:
+        script = await regenerate_scene(
+            session_id=session_token,
+            idea_id=idea_id,
+            scene_n=scene_n,
+            instruction=instruction,
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    except Exception as e:
+        print(f"[ERROR] Scene regeneration error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # Deduct credits AFTER success
+    remaining = guard.deduct_credits(session_token, amount=CREDITS_COST_REGENERATE_SCENE)
+
+    return JSONResponse(content={
+        "script": script.model_dump(mode="json"),
+        "credits_remaining": remaining
+    })
+
+
+@app.patch("/api/script/{idea_id}/scene/{scene_n}", response_class=JSONResponse)
+async def update_scene_text_endpoint(
+    request: Request,
+    idea_id: str,
+    scene_n: int,
+    body: BaseModel = None
+):
+    """
+    Manually update spoken text for a scene.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Checks if script exists and is not locked
+    3. Updates the spoken text for the target scene
+    4. Re-runs audit on updated script
+    5. Returns updated script
+
+    No cost - manual edit.
+    Requires JWT authentication.
+    """
+    try:
+        body_data = await request.json() if body is None else body.model_dump()
+    except Exception:
+        body_data = {}
+
+    spoken_text = body_data.get("spoken_text", "")
+    if not spoken_text:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing 'spoken_text' in request body"}
+        )
+
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    try:
+        script = update_scene_text(
+            session_id=session_token,
+            idea_id=idea_id,
+            scene_n=scene_n,
+            spoken_text=spoken_text,
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    return JSONResponse(content={"script": script.model_dump(mode="json")})
+
+
+@app.post("/api/script/{idea_id}/lock", response_class=JSONResponse)
+async def lock_script_endpoint(request: Request, idea_id: str):
+    """
+    Lock a script (final state, no further edits allowed).
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Checks if script exists and is not already locked
+    3. Validates lock rules (has CTA, no critical failures)
+    4. Sets script state to 'locked'
+    5. Returns locked script
+
+    No cost - lock operation.
+    Requires JWT authentication.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    try:
+        script = lock_script(session_id=session_token, idea_id=idea_id)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    return JSONResponse(content={
+        "script": script.model_dump(mode="json"),
+        "status": "locked"
+    })
+
+
 @app.get("/api/catalog", response_class=JSONResponse)
 async def get_catalog(request: Request):
     """
