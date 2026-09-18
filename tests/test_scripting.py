@@ -1332,6 +1332,60 @@ def test_regenerate_scene_locked_rejected(valid_script, tmp_path):
 
 
 # =============================================================================
+# ENDPOINT BODY VALIDATION TESTS (Bug 1 + Bug 2 -- ver PATCH/regenerate
+# endpoints en app/main.py). Antes `body: BaseModel = None` hacía que
+# `body.model_dump()` diera siempre `{}`, así que `spoken_text`/`instruction`
+# llegaban vacíos y el endpoint respondía 400 aunque el cliente sí los
+# mandara. Ahora usan SceneUpdateRequest/SceneRegenerateRequest.
+# =============================================================================
+
+def test_patch_scene_endpoint_with_valid_spoken_text_does_not_fail_on_body(valid_script, api_client):
+    """
+    PATCH con `spoken_text` válido en el body no debe fallar por el parseo
+    del body -- antes siempre daba 400 "Missing 'spoken_text'" sin importar
+    lo que mandara el cliente.
+    """
+    with patch('app.main.update_scene_text', return_value=valid_script) as mock_update:
+        response = api_client.patch(
+            '/api/script/idea_123/scene/1',
+            json={"spoken_text": "Updated spoken text from client"},
+        )
+
+    assert response.status_code == 200, response.text
+    mock_update.assert_called_once_with(
+        session_id='test_session',
+        idea_id='idea_123',
+        scene_n=1,
+        spoken_text='Updated spoken text from client',
+    )
+
+
+def test_regenerate_scene_endpoint_without_instruction_succeeds(valid_script, api_client):
+    """
+    `instruction` es opcional en SceneRegenerateRequest -- regenerar una
+    escena sin mandar `instruction` en el body debe funcionar (200), no
+    fallar por el body como antes.
+    """
+    with patch.object(guard, 'get_session', return_value={'credits': 42}):
+        with patch.object(guard, 'get_remaining_credits', return_value=42):
+            with patch.object(guard, 'deduct_credits', return_value=40) as mock_deduct:
+                with patch('app.main.regenerate_scene', new_callable=AsyncMock, return_value=valid_script) as mock_regen:
+                    response = api_client.post(
+                        '/api/script/idea_123/scene/1/regenerate',
+                        json={},
+                    )
+
+    assert response.status_code == 200, response.text
+    mock_regen.assert_called_once_with(
+        session_id='test_session',
+        idea_id='idea_123',
+        scene_n=1,
+        instruction='',
+    )
+    mock_deduct.assert_called_once_with('test_session', amount=CREDITS_COST_REGENERATE_SCENE)
+
+
+# =============================================================================
 # SCRIPT GENERATION TESTS
 # =============================================================================
 

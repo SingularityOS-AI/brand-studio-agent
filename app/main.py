@@ -14,7 +14,7 @@ import os
 import asyncio
 import httpx
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -243,7 +243,7 @@ async def reserve_voice_credits(request: Request):
 # BRAND BRAIN ENDPOINTS (Pieza 2: Bloque A — el Cerebro de Marca)
 # =============================================================================
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 
 class BrainRetrieveResponse(BaseModel):
@@ -558,6 +558,20 @@ class ScriptGenerateRequest(BaseModel):
     idea_kind: Optional[str] = None
 
 
+# BUG 1 (Capitán, verificado en vivo): `body: BaseModel = None` en los
+# endpoints de scene/regenerate y scene PATCH declaraba el tipo base sin
+# campos -- FastAPI parseaba el JSON a un modelo vacío y `body.model_dump()`
+# siempre daba `{}`, así que `instruction`/`spoken_text` llegaban vacíos y
+# el endpoint respondía 400 aunque el cliente sí los mandara. Modelos reales
+# al estilo de ScriptGenerateRequest arriba.
+class SceneRegenerateRequest(BaseModel):
+    instruction: Optional[str] = None
+
+
+class SceneUpdateRequest(BaseModel):
+    spoken_text: str
+
+
 @app.get("/api/script/{idea_id}", response_class=JSONResponse)
 async def get_script_endpoint(request: Request, idea_id: str):
     """
@@ -713,7 +727,7 @@ async def regenerate_scene_endpoint(
     request: Request,
     idea_id: str,
     scene_n: int,
-    body: BaseModel = None
+    body: dict | None = Body(default=None),
 ):
     """
     Regenerate a single scene based on instruction.
@@ -728,19 +742,10 @@ async def regenerate_scene_endpoint(
     Protected by credits - requires 2 credits.
     Requires JWT authentication.
     """
-    # Parse body manually (direct JSON)
-    try:
-        body_data = await request.json() if body is None else body.model_dump()
-    except Exception:
-        body_data = {}
-
-    instruction = body_data.get("instruction", "")
-    if not instruction:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Missing 'instruction' in request body"}
-        )
-
+    # BUG 2 (Capitán): JWT se valida ANTES que el body -- sin token debe dar
+    # 401, nunca 400. `body` se deja `dict | None` en la firma (no el modelo
+    # Pydantic estricto) para que FastAPI no dispare su propia validación de
+    # 422 antes de que lleguemos siquiera a leer el header de auth.
     authorization = request.headers.get("authorization")
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
@@ -750,6 +755,22 @@ async def regenerate_scene_endpoint(
     session = guard.get_session(session_token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
+
+    # BUG 1 (Capitán): validar el body con el modelo Pydantic real
+    # (SceneRegenerateRequest) en vez de `BaseModel = None` -- antes
+    # `body.model_dump()` siempre daba `{}` porque BaseModel no tiene
+    # campos. `instruction` es opcional.
+    try:
+        parsed_body = SceneRegenerateRequest(**(body or {}))
+    except ValidationError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid request body: {e}"}
+        )
+    # regenerate_scene() interpola `instruction` directamente en el prompt de
+    # Gemini -- si viene None se cae a "" en vez de imprimir literalmente
+    # "None" en el prompt.
+    instruction = parsed_body.instruction or ""
 
     # Check balance BEFORE deducting
     remaining_balance = guard.get_remaining_credits(session_token)
@@ -792,7 +813,7 @@ async def update_scene_text_endpoint(
     request: Request,
     idea_id: str,
     scene_n: int,
-    body: BaseModel = None
+    body: dict | None = Body(default=None),
 ):
     """
     Manually update spoken text for a scene.
@@ -807,24 +828,32 @@ async def update_scene_text_endpoint(
     No cost - manual edit.
     Requires JWT authentication.
     """
-    try:
-        body_data = await request.json() if body is None else body.model_dump()
-    except Exception:
-        body_data = {}
-
-    spoken_text = body_data.get("spoken_text", "")
-    if not spoken_text:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Missing 'spoken_text' in request body"}
-        )
-
+    # BUG 2 (Capitán): JWT primero -- sin token debe dar 401, nunca 400.
     authorization = request.headers.get("authorization")
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
 
     user_id = supabase_auth.get_user_id(authorization)
     session_token = guard.get_or_create_user_session(user_id)
+
+    # BUG 1 (Capitán): validar el body con el modelo Pydantic real
+    # (SceneUpdateRequest) en vez de `BaseModel = None`. `spoken_text` es
+    # obligatorio en el modelo pero Pydantic acepta "" como str válido, así
+    # que se sigue rechazando explícitamente vacío/solo-espacios con 400.
+    try:
+        parsed_body = SceneUpdateRequest(**(body or {}))
+    except ValidationError:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing 'spoken_text' in request body"}
+        )
+
+    spoken_text = parsed_body.spoken_text.strip()
+    if not spoken_text:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing 'spoken_text' in request body"}
+        )
 
     try:
         script = update_scene_text(

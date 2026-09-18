@@ -307,6 +307,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
       const data = await response.json();
       cachedBrain = data.brand_brain;
       console.log('[Brain] Loaded brand brain with', cachedBrain?.sections?.length || 0, 'sections');
+      // Update global progress indicator
+      if (typeof initGlobalProgress === 'function') {
+        initGlobalProgress();
+      }
       return cachedBrain;
     } catch (e) {
       console.error('[Brain] Error loading brand brain:', e);
@@ -1907,6 +1911,7 @@ ${htmlContent}
   const catalogLabel = document.getElementById('Catalog-Label');
   const blockAView = document.getElementById('BlockA-View');
   const blockBView = document.getElementById('BlockB-View');
+  const blockCView = document.getElementById('BlockC-View');
   const catalogCategories = document.getElementById('Catalog-Categories');
   const catalogGate = document.getElementById('Catalog-Gate');
   const catalogGateTitle = document.getElementById('Catalog-GateTitle');
@@ -1918,14 +1923,37 @@ ${htmlContent}
   const gateApproveBtn = document.getElementById('Gate-ApproveBtn');
   const gateBalanceAfter = document.getElementById('Gate-BalanceAfter');
 
+  // Script (BlockC) DOM elements
+  const scriptBackBtn = document.getElementById('Script-BackBtn');
+  const scriptIdeaTitle = document.getElementById('Script-IdeaTitle');
+  const scriptMeta = document.getElementById('Script-Meta');
+  const scriptAngle = document.getElementById('Script-Angle');
+  const scriptFunnelStage = document.getElementById('Script-FunnelStage');
+  const scriptDuration = document.getElementById('Script-Duration');
+  const scriptContent = document.getElementById('Script-Content');
+  const scriptEmptyState = document.getElementById('Script-EmptyState');
+  const scriptSourceMode = document.getElementById('Script-SourceMode');
+  const scriptIdeaKind = document.getElementById('Script-IdeaKind');
+  const scriptGenerateBtn = document.getElementById('Script-GenerateBtn');
+  const scriptFrameZero = document.getElementById('Script-FrameZero');
+  const scriptFrameZeroContent = document.getElementById('Script-FrameZeroContent');
+  const scriptScenes = document.getElementById('Script-Scenes');
+  const scriptAudit = document.getElementById('Script-Audit');
+  const scriptLockBtn = document.getElementById('Script-LockBtn');
+
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
+  // Block C: Track current script data
+  let currentScriptData = null;
 
   // PIEZA 31 (bug B6): faltaba declarar -- openCreditGateModal() la leía
   // (`renderCatalogInPanel(currentCatalog)`) y disparaba un ReferenceError
   // al hacer clic en el gate con un catálogo ya generado. Se asigna en cada
   // punto donde se renderiza/carga un catálogo (renderCatalogInPanel).
   let currentCatalog = null;
+
+  // Script state tracking
+  let currentScriptIdeaId = null;  // ID of the idea the script belongs to
 
   // PIEZA 31 (bug B4): escapa texto de terceros antes de interpolarlo en
   // innerHTML. `demand_signal` viene de comentarios de YouTube / grounding
@@ -2001,7 +2029,7 @@ ${htmlContent}
 
   // Construye el HTML interno de una tarjeta de idea (compartido entre el
   // render inicial, agregar idea propia sin recargar, y reemplazo por regenerar).
-  function buildIdeaCardHTML(idea, color) {
+  function buildIdeaCardHTML(idea, color, catalogLocked = false) {
     const founderBadge = idea.origin === 'founder' ? '<span class="badge-founder">Tu idea</span>' : '';
     // Decisión del CEO: una idea propia del fundador no se regenera --
     // regenerar la reemplazaría por una idea del LLM, borrando lo que el
@@ -2014,6 +2042,10 @@ ${htmlContent}
     const regenerateBtnHTML = idea.origin === 'founder'
       ? ''
       : `<button class="btn-regenerate" data-idea-id="${safeId}" title="Regenerar (3 créditos)">&#8635;</button>`;
+    // Block C: Add "Write script" / "Open script" button on approved ideas when catalog is locked
+    const scriptBtnHTML = (catalogLocked && idea.status === 'approved')
+      ? `<button class="btn-script" data-idea-id="${safeId}" title="Write script">📝</button>`
+      : '';
     return `
       <span class="ideatitle">${escapeHtml(idea.title)}${founderBadge}</span>
       <span class="angle" style="border-color:${color};color:${color}">${escapeHtml(idea.subcategory || 'Formato')}</span>
@@ -2022,6 +2054,7 @@ ${htmlContent}
         <button class="btn-approve" data-idea-id="${safeId}" title="Approve idea">&#10003;</button>
         <button class="btn-reject" data-idea-id="${safeId}" title="Discard idea">&#10007;</button>
         ${regenerateBtnHTML}
+        ${scriptBtnHTML}
       </div>
     `;
   }
@@ -2032,6 +2065,7 @@ ${htmlContent}
     const approveBtn = ideaDiv.querySelector('.btn-approve');
     const rejectBtn = ideaDiv.querySelector('.btn-reject');
     const regenerateBtn = ideaDiv.querySelector('.btn-regenerate');
+    const scriptBtn = ideaDiv.querySelector('.btn-script');
 
     if (approveBtn) {
       approveBtn.addEventListener('click', async (e) => {
@@ -2108,9 +2142,10 @@ ${htmlContent}
             // El id cambia -- se reconstruye la tarjeta completa en el mismo lugar.
             const existingAngle = ideaDiv.querySelector('.angle');
             const color = (existingAngle && existingAngle.style.color) || '#2B4CD8';
+            const catalogLocked = currentCatalog && currentCatalog.catalog_locked;
             ideaDiv.id = `idea-${newIdea.id}`;
             ideaDiv.className = `idea idea--${newIdea.status || 'pending'}`;
-            ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, color || '#2B4CD8');
+            ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, color || '#2B4CD8', catalogLocked);
             wireIdeaCardActions(ideaDiv);
           }
 
@@ -2121,6 +2156,15 @@ ${htmlContent}
           regenerateBtn.disabled = false;
           regenerateBtn.innerHTML = originalText;
         }
+      });
+    }
+
+    // Block C: Event listener for script button
+    if (scriptBtn) {
+      scriptBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const ideaId = scriptBtn.dataset.ideaId;
+        showBlockCView(ideaId);
       });
     }
   }
@@ -2190,7 +2234,7 @@ ${htmlContent}
         const ideaDiv = document.createElement('div');
         ideaDiv.id = `idea-${idea.id}`;
         ideaDiv.className = `idea idea--${idea.status || 'pending'}`;
-        ideaDiv.innerHTML = buildIdeaCardHTML(idea, color);
+        ideaDiv.innerHTML = buildIdeaCardHTML(idea, color, catalog.catalog_locked);
         wireIdeaCardActions(ideaDiv);
         catDiv.appendChild(ideaDiv);
       });
@@ -2313,7 +2357,7 @@ ${htmlContent}
           const ideaDiv = document.createElement('div');
           ideaDiv.id = `idea-${newIdea.id}`;
           ideaDiv.className = `idea idea--${newIdea.status || 'approved'}`;
-          ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, CATALOG_CATEGORY_COLORS[masterCategory] || '#2B4CD8');
+          ideaDiv.innerHTML = buildIdeaCardHTML(newIdea, CATALOG_CATEGORY_COLORS[masterCategory] || '#2B4CD8', newCatalog.catalog_locked);
           wireIdeaCardActions(ideaDiv);
           catDiv.appendChild(ideaDiv);
 
@@ -2362,6 +2406,9 @@ ${htmlContent}
       catalogGate.style.background = '#FFF6E5';
       catalogGate.style.borderColor = 'var(--warn)';
     }
+
+    // Update global progress indicator
+    initGlobalProgress();
   }
 
   // Open credit gate inline modal (CEO specifies inline, not overlay)
@@ -2533,12 +2580,416 @@ ${htmlContent}
   function showBlockAView() {
     blockAView.style.display = 'block';
     blockBView.style.display = 'none';
+    blockCView.style.display = 'none';
   }
 
   // Show BlockB view (catalog)
   function showBlockBView() {
     blockAView.style.display = 'none';
     blockBView.style.display = 'block';
+    blockCView.style.display = 'none';
+  }
+
+  // Show BlockC view (script) with empty state for interview mode
+  function showBlockCView(ideaId) {
+    // Track current idea ID
+    currentScriptIdeaId = ideaId;
+
+    // Find the idea data from current catalog
+    const idea = currentCatalog?.ideas?.find(i => i.id === ideaId);
+    if (!idea) {
+      alert('Idea not found in catalog');
+      return;
+    }
+
+    // Switch view
+    blockAView.style.display = 'none';
+    blockBView.style.display = 'none';
+    blockCView.style.display = 'block';
+
+    // Set idea title
+    scriptIdeaTitle.textContent = idea.title;
+
+    // Check if script already exists for this idea
+    loadScriptData(ideaId);
+  }
+
+  // Block C: Load script data for an idea
+  async function loadScriptData(ideaId) {
+    try {
+      const response = await authenticatedFetch(`/api/script/${ideaId}`, {
+        method: 'GET'
+      });
+
+      if (response.status === 404) {
+        // Script doesn't exist yet - show empty state
+        showScriptEmptyState();
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        alert(`Failed to load script: ${data.error || data.detail || response.status}`);
+        showScriptEmptyState();
+        return;
+      }
+
+      const scriptData = await response.json();
+      // Backend returns {"script": {...}}
+      currentScriptData = scriptData.script || scriptData;
+      renderScript(scriptData);
+      initGlobalProgress();
+    } catch (error) {
+      console.error('Load script error:', error);
+      alert(`Failed to load script: ${error.message}`);
+      showScriptEmptyState();
+      initGlobalProgress();
+    }
+  }
+
+  // Block C: Show empty state (generate form)
+  function showScriptEmptyState() {
+    currentScriptData = null;
+    scriptMeta.style.display = 'none';
+    scriptEmptyState.style.display = 'block';
+    scriptFrameZero.style.display = 'none';
+    scriptScenes.style.display = 'none';
+    scriptAudit.style.display = 'none';
+    scriptLockBtn.disabled = true;
+
+    // Enable/disable generate button based on transcript availability
+    updateScriptGenerateButton();
+  }
+
+  // Block C: Update generate button state based on transcript
+  function updateScriptGenerateButton() {
+    // Enable button if we have transcript data (user answered questions)
+    const hasTranscript = fullTranscript && fullTranscript.length > 0;
+    scriptGenerateBtn.disabled = !hasTranscript;
+  }
+
+  // Block C: Handle script generation
+  async function handleScriptGenerate(ideaId) {
+    if (!scriptGenerateBtn.dataset.wired) {
+      scriptGenerateBtn.dataset.wired = 'true';
+      scriptGenerateBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const sourceMode = scriptSourceMode.value;
+        const ideaKind = scriptIdeaKind.value;
+
+        // TODO: rename to "assisted" when backend renames it
+        const finalSourceMode = sourceMode === 'brand_brain' ? 'brand_brain' : 'raw_footage';
+
+        const originalText = scriptGenerateBtn.innerHTML;
+        scriptGenerateBtn.disabled = true;
+        scriptGenerateBtn.innerHTML = 'Generating...';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 135000);
+
+        try {
+          const response = await authenticatedFetch('/api/script/generate', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              idea_id: ideaId,
+              source_mode: finalSourceMode,
+              idea_kind: ideaKind
+            })
+          });
+
+          clearTimeout(timeoutId);
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            if (response.status === 402) {
+              alert('Paywall: Not enough credits to generate script. You need 10 credits.');
+            } else {
+              alert(`Failed to generate script: ${data.error || data.detail || response.status}`);
+            }
+            scriptGenerateBtn.disabled = false;
+            scriptGenerateBtn.innerHTML = originalText;
+            return;
+          }
+
+          if (data.credits_remaining !== undefined) {
+            credits = data.credits_remaining;
+            updateCreditsUI(data.credits_remaining, initialSessionCredits);
+          }
+
+          // Load the generated script
+          await loadScriptData(ideaId);
+
+        } catch (error) {
+          clearTimeout(timeoutId);
+          console.error('Generate script error:', error);
+          if (error.name === 'AbortError') {
+            alert('Script generation timed out. Please try again.');
+          } else {
+            alert(`Failed to generate script: ${error.message}`);
+          }
+          scriptGenerateBtn.disabled = false;
+          scriptGenerateBtn.innerHTML = originalText;
+        }
+      });
+    }
+  }
+
+  // ==================== Block C Render Functions ====================
+
+  function renderScript() {
+    scriptEmptyState.style.display = 'none';
+    scriptContent.style.display = 'block';
+    scriptGenerateBtn.style.display = 'none';
+
+    const meta = `${currentScriptData.state}${currentScriptData.state === 'locked' ? ' • Locked' : ''}`;
+    scriptMeta.textContent = meta;
+    scriptAngle.textContent = `Angle: ${currentScriptData.angle || '-'}`;
+    scriptFunnelStage.textContent = `Funnel: ${currentScriptData.funnel_stage || '-'}`;
+    scriptDuration.textContent = `Target: ${currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '-'}`;
+
+    // Render Frame Zero
+    scriptFrameZero.style.display = 'block';
+    if (scriptFrameZeroContent) {
+      scriptFrameZeroContent.textContent = currentScriptData.frame_zero || 'Frame zero not set';
+    }
+
+    // Render Scenes
+    scriptScenes.style.display = 'block';
+    renderScenes();
+
+    // Render Audit
+    scriptAudit.style.display = 'block';
+    renderAudit();
+
+    // Update Lock Button
+    updateScriptLockButton();
+
+    // Update global progress
+    initGlobalProgress();
+  }
+
+  function renderScenes() {
+    scriptScenes.innerHTML = '';
+    if (!currentScriptData.scenes || currentScriptData.scenes.length === 0) {
+      scriptScenes.innerHTML = '<div class="script-scenes-empty">No scenes yet</div>';
+      return;
+    }
+
+    currentScriptData.scenes.forEach((scene, idx) => {
+      const sceneEl = document.createElement('div');
+      sceneEl.className = 'script-scene';
+      sceneEl.dataset.sceneIndex = idx;
+      sceneEl.innerHTML = `
+        <div class="script-scene-header">
+          <span class="script-scene-number">Scene ${idx + 1}</span>
+          <button class="script-scene-regenerate" title="Regenerate this scene">⟳</button>
+        </div>
+        <div class="script-scene-content" contenteditable="true">${escapeHtml(scene.spoken_text || '')}</div>
+      `;
+      scriptScenes.appendChild(sceneEl);
+    });
+
+    wireSceneEvents();
+  }
+
+  function wireSceneEvents() {
+    const sceneContents = scriptScenes.querySelectorAll('.script-scene-content');
+    sceneContents.forEach((contentEl) => {
+      const sceneIdx = parseInt(contentEl.closest('.script-scene').dataset.sceneIndex);
+
+      // Debounced PATCH on blur/input
+      let editTimeout;
+      contentEl.addEventListener('input', () => {
+        clearTimeout(editTimeout);
+        editTimeout = setTimeout(() => handleScriptSceneEdit(sceneIdx, contentEl.innerText), 1500);
+      });
+      contentEl.addEventListener('blur', () => {
+        clearTimeout(editTimeout);
+        handleScriptSceneEdit(sceneIdx, contentEl.innerText);
+      });
+    });
+
+    // Regenerate buttons
+    const regenerateBtns = scriptScenes.querySelectorAll('.script-scene-regenerate');
+    regenerateBtns.forEach((btn) => {
+      const sceneIdx = parseInt(btn.closest('.script-scene').dataset.sceneIndex);
+      btn.addEventListener('click', async () => {
+        if (!confirm('Regenerate this scene? This costs 2 credits.')) return;
+        await handleScriptRegenerate(sceneIdx);
+      });
+    });
+  }
+
+  function renderAudit() {
+    scriptAudit.innerHTML = '';
+    if (!currentScriptData.audit || currentScriptData.audit.length === 0) {
+      scriptAudit.innerHTML = '<div class="script-audit-empty">No audit records</div>';
+      return;
+    }
+
+    const auditList = document.createElement('ul');
+    auditList.className = 'script-audit-list';
+    currentScriptData.audit.forEach((entry) => {
+      const li = document.createElement('li');
+      li.className = 'script-audit-item';
+      li.innerHTML = `<span class="audit-rule">${escapeHtml(entry.rule)}</span>: ${escapeHtml(entry.message || 'Check passed')}`;
+      auditList.appendChild(li);
+    });
+    scriptAudit.appendChild(auditList);
+  }
+
+  function updateScriptLockButton() {
+    if (!currentScriptData) {
+      scriptLockBtn.disabled = true;
+      return;
+    }
+
+    const isLocked = currentScriptData.state === 'locked';
+    scriptLockBtn.textContent = isLocked ? 'Unlock Script' : 'Lock Script';
+    scriptLockBtn.dataset.locked = isLocked.toString();
+
+    // Critical rules that must pass to allow locking
+    const criticalRules = ['rule_1', 'rule_4', 'rule_5', 'rule_8', 'rule_9', 'rule_12'];
+    let failedRule = null;
+
+    if (currentScriptData.audit) {
+      for (const rule of criticalRules) {
+        const ruleEntry = currentScriptData.audit.find((a) => a.rule === rule);
+        if (ruleEntry && !ruleEntry.passed) {
+          failedRule = rule;
+          break;
+        }
+      }
+    }
+
+    if (!isLocked && failedRule) {
+      scriptLockBtn.disabled = true;
+      scriptLockBtn.title = `Cannot lock: ${failedRule} must pass`;
+    } else {
+      scriptLockBtn.disabled = false;
+      scriptLockBtn.title = '';
+    }
+  }
+
+  async function handleScriptSceneEdit(sceneIdx, newContent) {
+    try {
+      // Backend expects scene_n (1-indexed)
+      const sceneN = sceneIdx + 1;
+      const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/scene/${sceneN}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spoken_text: newContent }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || data.detail || response.statusText || 'Failed to save edit');
+      }
+
+      // Update local data silently
+      if (currentScriptData.scenes[sceneIdx]) {
+        currentScriptData.scenes[sceneIdx].spoken_text = newContent;
+      }
+    } catch (error) {
+      console.error('Scene edit error:', error);
+      alert(`Failed to save edit: ${error.message}`);
+    }
+  }
+
+  async function handleScriptRegenerate(sceneIdx) {
+    try {
+      // Backend expects scene_n (1-indexed)
+      const sceneN = sceneIdx + 1;
+      const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/scene/${sceneN}/regenerate`, {
+        method: 'POST',
+      });
+
+      if (response.status === 402) {
+        alert('Insufficient credits to regenerate scene (costs 2 credits).');
+        return;
+      }
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.detail || data.message || response.statusText || 'Failed to regenerate scene');
+      }
+
+      // Backend returns {"script": {...}, "credits_remaining": N}
+      currentScriptData = data.script || data;
+      renderScenes();
+      renderAudit();
+      updateScriptLockButton();
+    } catch (error) {
+      console.error('Scene regenerate error:', error);
+      alert(`Failed to regenerate scene: ${error.message}`);
+    }
+  }
+
+  async function handleScriptLock() {
+    // Nota: el campo real del objeto script es `state` (ver Script.state en
+    // app/scripting/scripts.py y su uso consistente en líneas ~2747/2850/2972
+    // de este mismo archivo), NO `status` -- verificado con
+    // Script.model_dump(mode="json"). El bug real era de scope: el const
+    // vivía dentro del try y se usaba en el catch (ReferenceError si el
+    // fetch fallaba), no el nombre del campo.
+    const isCurrentlyLocked = currentScriptData?.state === 'locked';
+    try {
+      const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || data.detail || response.statusText || 'Failed to update lock status');
+      }
+
+      const data = await response.json();
+      // Backend returns {"script": {...}, "status": "locked"}
+      currentScriptData = data.script || data;
+      renderScript();
+      alert(isCurrentlyLocked ? 'Script unlocked successfully.' : 'Script locked successfully.');
+    } catch (error) {
+      console.error('Lock script error:', error);
+      alert(`Failed to ${isCurrentlyLocked ? 'unlock' : 'lock'} script: ${error.message}`);
+    }
+  }
+
+  // Global progress indicator
+  function initGlobalProgress() {
+    // Find progress steps by data-step attribute
+    const progressSteps = document.querySelectorAll('.progress-step');
+
+    // Track brand brain sections (section 01-09)
+    const brainSectionsCount = Object.keys(cachedBrain || {}).filter(k => k.startsWith('section_')).length;
+
+    // Brain step: complete if all 9 sections have data
+    const brainComplete = brainSectionsCount >= 9;
+    updateProgressStep('brain', brainComplete);
+
+    // Catalog step: complete if catalog exists and is locked
+    const catalogComplete = currentCatalog && currentCatalog.catalog_locked;
+    updateProgressStep('catalog', catalogComplete);
+
+    // Script step: complete if current script exists and is locked
+    const scriptComplete = currentScriptData && currentScriptData.state === 'locked';
+    updateProgressStep('script', scriptComplete);
+
+    // Video step: always pending
+    updateProgressStep('video', false);
+  }
+
+  function updateProgressStep(step, isComplete) {
+    const progressStep = document.querySelector(`.progress-step[data-step="${step}"]`);
+    if (!progressStep) return;
+
+    const progressFill = progressStep.querySelector('.progress-fill');
+    if (progressFill) {
+      progressFill.style.width = isComplete ? '100%' : '0%';
+    }
   }
 
   // Load cache and show catalog
@@ -2597,6 +3048,31 @@ ${htmlContent}
   const catalogBackBtn = document.getElementById('Catalog-BackBtn');
   if (catalogBackBtn) {
     catalogBackBtn.addEventListener('click', showBlockAView);
+  }
+
+  // Wire up Block C back button
+  if (scriptBackBtn) {
+    scriptBackBtn.addEventListener('click', showBlockBView);
+  }
+
+  // Wire up Block C generate button
+  if (scriptGenerateBtn && !scriptGenerateBtn.dataset.wired) {
+    scriptGenerateBtn.addEventListener('click', () => {
+      if (currentScriptData && currentScriptData.idea_id) {
+        handleScriptGenerate(currentScriptData.idea_id);
+      }
+    });
+    scriptGenerateBtn.dataset.wired = 'true';
+  }
+
+  // Wire up Block C lock button
+  if (scriptLockBtn && !scriptLockBtn.dataset.wired) {
+    scriptLockBtn.addEventListener('click', () => {
+      if (currentScriptData && currentScriptData.id) {
+        handleScriptLock();
+      }
+    });
+    scriptLockBtn.dataset.wired = 'true';
   }
 
   // Close modal on Escape key

@@ -358,6 +358,95 @@
         <span class="mono" style="font-size:20px;color:#B5791C;flex:none" id="Catalog-GateCount">0/30</span>
       </button>
     </div>
+
+    <!-- BlockC-View: Scripting Block -->
+    <div id="BlockC-View" style="display:none">
+      <div class="dochead" style="display:flex;align-items:start;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button id="Script-BackBtn" style="background:none;border:none;cursor:pointer;font-size:13px;color:#5C6675;padding:0;font-family:inherit">← Back</button>
+          <div>
+            <div class="eyebrow">Block C</div>
+            <h1 class="disp" id="Script-IdeaTitle" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">Script</h1>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn--go" id="Script-LockBtn" disabled style="padding:6px 14px;font-size:12px">Lock Script</button>
+        </div>
+      </div>
+
+      <!-- Script Meta Info -->
+      <div id="Script-Meta" style="margin:0 40px 16px;padding:16px;border:1px solid #E2E8F0;border-radius:6px;background:#FAFAFA;display:none">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:13px">
+          <div>
+            <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Angle</div>
+            <div id="Script-Angle" style="font-weight:500;color:#14181F">—</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Funnel Stage</div>
+            <div id="Script-FunnelStage" style="font-weight:500;color:#14181F">—</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Duration</div>
+            <div id="Script-Duration" style="font-weight:500;color:#14181F">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Script Content -->
+      <div id="Script-Content" style="margin:0 40px 26px">
+        <!-- Empty State: Generate Form -->
+        <div id="Script-EmptyState" style="padding:40px 0;text-align:center">
+          <div style="margin-bottom:24px">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#D5DAE4" stroke-width="1.5" style="display:inline-block">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <line x1="10" y1="9" x2="8" y2="9"></line>
+            </svg>
+          </div>
+          <div style="font-size:15px;font-weight:600;color:#14181F;margin-bottom:8px">Generate Script</div>
+          <div style="font-size:13px;color:#5C6675;margin-bottom:20px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.5">Choose the generation mode to create a video script based on your approved idea.</div>
+
+          <div style="max-width:320px;margin:0 auto 24px;text-align:left">
+            <div style="font-size:12px;font-weight:600;color:#14181F;margin-bottom:8px">Generation Mode</div>
+            <select id="Script-SourceMode" style="width:100%;padding:10px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
+              <option value="brand_brain">Assisted (Brand Brain + Interview)</option>
+              <option value="raw_footage">Manually Edit (Raw Footage Only)</option>
+            </select>
+          </div>
+
+          <div style="max-width:320px;margin:0 auto 24px;text-align:left">
+            <div style="font-size:12px;font-weight:600;color:#14181F;margin-bottom:8px">Script Kind</div>
+            <select id="Script-IdeaKind" style="width:100%;padding:10px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
+              <option value="tutorial">Tutorial / How-to</option>
+              <option value="testimony">Customer Testimonial</option>
+              <option value="story">Brand Story</option>
+              <option value="promo">Product Promo</option>
+              <option value="comparison">Comparison / Versus</option>
+              <option value="case_study">Case Study</option>
+              <option value="intro">Logo Reveal / Intro</option>
+              <option value="outro">Outro / CTA</option>
+            </select>
+          </div>
+
+          <button class="btn btn--go" id="Script-GenerateBtn" style="padding:10px 24px;font-size:14px" disabled>Generate Script (10 credits)</button>
+          <div style="margin-top:12px;font-size:12px;color:#B5791C">Wait until you answers all questions</div>
+        </div>
+
+        <!-- Frame Zero -->
+        <div id="Script-FrameZero" style="display:none;margin-bottom:24px;padding:20px;border:1px solid #2B4CD8;border-radius:8px;background:#F0F7FF">
+          <div style="font-size:12px;font-weight:600;color:#2B4CD8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Frame Zero — Hero Shot</div>
+          <div id="Script-FrameZeroContent" style="font-size:14px;line-height:1.6;color:#14181F"></div>
+        </div>
+
+        <!-- Scenes List -->
+        <div id="Script-Scenes" style="display:none"></div>
+
+        <!-- Audit List -->
+        <div id="Script-Audit" style="display:none;margin-top:24px;padding:16px;border:1px solid #E2E8E0;border-radius:6px;background:#FAF9F6"></div>
+      </div>
+    </div>
   </main>
 
   <!-- Resizer 2: doc ↔ prod -->
@@ -420,6 +509,31 @@
         </svg>
         <span id="Catalog-Label">Catalog — 0 of 9 sections ready</span>
       </button>
+    </div>
+
+    <!-- Global Progress Indicator -->
+    <div class="global-progress" style="padding:16px 24px 18px;border-top:1px solid var(--line)">
+      <div style="font-size:11px;font-weight:600;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Progress</div>
+      <div style="display:flex;gap:8px;padding:4px 0">
+        <div class="progress-step" data-step="brain" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
+          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
+        </div>
+        <div class="progress-step" data-step="catalog" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
+          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
+        </div>
+        <div class="progress-step" data-step="script" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
+          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
+        </div>
+        <div class="progress-step" data-step="video" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
+          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#F0F0F0;border-radius:3px;transition:width 0.3s ease"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span style="font-size:11px;color:#5C6675">Brand Soul</span>
+        <span style="font-size:11px;color:#5C6675">Catalog</span>
+        <span style="font-size:11px;color:#5C6675">Script</span>
+        <span style="font-size:11px;color:#5C6675">Video</span>
+      </div>
     </div>
   </aside>
 
