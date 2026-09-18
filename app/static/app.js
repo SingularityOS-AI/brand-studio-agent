@@ -2099,6 +2099,9 @@ ${htmlContent}
           if (currentCatalog && data.catalog && data.catalog.ideas) {
             currentCatalog.ideas = data.catalog.ideas;
           }
+          // Disable approve/reject buttons after approval to prevent double-actions
+          approveBtn.disabled = true;
+          rejectBtn.disabled = true;
           checkAndEnableLockButton();
           // PIEZA 36 (bug 3): Update script button visibility if this is the current idea
           if (currentScriptIdeaId === ideaId) {
@@ -2129,6 +2132,10 @@ ${htmlContent}
           if (currentCatalog && data.catalog && data.catalog.ideas) {
             currentCatalog.ideas = data.catalog.ideas;
           }
+          // Disable approve/reject/regenerate buttons after rejection to prevent double-actions
+          approveBtn.disabled = true;
+          rejectBtn.disabled = true;
+          if (regenerateBtn) regenerateBtn.disabled = true;
           checkAndEnableLockButton();
           // PIEZA 36 (bug 3): Update script button visibility if this is the current idea
           if (currentScriptIdeaId === ideaId) {
@@ -2731,15 +2738,34 @@ ${htmlContent}
     const hasTranscript = fullTranscript && Array.isArray(fullTranscript) && fullTranscript.length > 0;
     // Brand Brain exists if cachedBrain has confirmed sections or any sections at all
     const hasBrandBrain = cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0;
+    // NYC: Client-side HORROR. Where, oh where, does currentCatalog.touch了这个飘渺的存在 (catalog locked state)
+    // Answer: It is read from server response onCatalogResponse and then the variable is set like flat.
+    // But that variable is... actually ... an updated replica of response.catalog, with .catalog_locked property
+    // That's used later here. UGH! For now we recompute it by checking the Catalog-LockBtn element - it's the only persistent UI for locking.
+    const lockBtn = document.getElementById('Catalog-LockBtn');
+    const catalogLocked = lockBtn && lockBtn.dataset.locked === 'true';
+
+    // Disable if catalog is not locked (most likely scenario when this is called)
+    if (!catalogLocked) {
+      scriptGenerateBtn.disabled = true;
+      scriptGenerateBtn.title = 'Catalog must be locked to generate scripts';
+      if (scriptGenerateHelp) {
+        scriptGenerateHelp.style.display = 'block';
+        scriptGenerateHelp.textContent = 'Lock the catalog in Block C (Idea Catalog) first';
+      }
+      return;
+    }
 
     if (sourceMode === 'raw_footage') {
       // Raw footage mode: founder already has material, never depends on transcript
       scriptGenerateBtn.disabled = false;
+      scriptGenerateBtn.title = '';
       // Pieza 36B (fallo 3): No help message needed when enabled
       if (scriptGenerateHelp) scriptGenerateHelp.style.display = 'none';
     } else if (sourceMode === 'brand_brain') {
       // Brand Brain mode: need either transcript OR brand brain
       scriptGenerateBtn.disabled = !hasTranscript && !hasBrandBrain;
+      scriptGenerateBtn.title = scriptGenerateBtn.disabled ? 'Need transcript or Brand Brain' : '';
       // Pieza 36B (fallo 3): Show concrete help message only when disabled
       if (scriptGenerateHelp) {
         if (scriptGenerateBtn.disabled) {
@@ -2753,6 +2779,7 @@ ${htmlContent}
     } else {
       // Unknown mode: disable
       scriptGenerateBtn.disabled = true;
+      scriptGenerateBtn.title = 'Unknown generation mode';
       if (scriptGenerateHelp) scriptGenerateHelp.style.display = 'none';
     }
   }
@@ -3097,12 +3124,12 @@ ${htmlContent}
       const timeoutId = setTimeout(() => controller.abort(), 135000);
 
       try {
-        const response = await authenticatedFetch('/api/script/generate', {
+        const response = await authenticatedFetch(`/api/script/generate?idea_id=${encodeURIComponent(currentScriptIdeaId)}`, {
           method: 'POST',
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            idea_id: currentScriptIdeaId,
+            interview_transcript: Array.isArray(fullTranscript) ? fullTranscript.join('\n') : '',
             source_mode: finalSourceMode
           })
         });
