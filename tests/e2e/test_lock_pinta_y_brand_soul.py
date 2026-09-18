@@ -401,6 +401,7 @@ def _brand_soul_label_text(page) -> str:
     return page.locator("#BrandSoul-Label").inner_text()
 
 
+@pytest.mark.e2e  # Skip by default - requires live server
 def test_lock_pinta_y_brand_soul(live_server):
     jwt_token = create_test_jwt(TEST_USER_ID)
 

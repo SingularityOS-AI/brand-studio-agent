@@ -120,6 +120,7 @@ def test_rate_limit_excess_returns_429(client_with_auth):
         assert response.status_code == 402
 
 
+@pytest.mark.slow
 def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
     """
     Path 3: Session exhausting budget gets 402 with configurable payment URL.

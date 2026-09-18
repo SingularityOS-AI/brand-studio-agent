@@ -38,6 +38,11 @@ class Guard:
         # Check for Supabase configuration
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
+        
+        # Never use Supabase in test mode - always fall back to in-memory storage
+        if os.getenv("TEST_MODE") == "true":
+            supabase_url = None
+            supabase_key = None
 
         if supabase_url and supabase_key:
             try:

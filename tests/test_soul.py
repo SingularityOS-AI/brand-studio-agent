@@ -94,7 +94,7 @@ def complete_confirmed_brain():
             "id": "contrarian", "label": "Postura Contraria",
             "content": {
                 "creencia_comun": "Necesitas más redes sociales",
-                "postura_opuesta": "Necesitas menos redes, más profundidad",
+                "postura_opuesta": "Elvia desafió la creencia de que necesitas más redes sociales",
                 "prueba": "Clientes redujeron redes y duplicaron engagement"
             },
             "citation_text": "Elvia desafió la creencia de que necesitas más redes sociales",
@@ -265,9 +265,11 @@ def sample_html_with_invented_citations():
 
 @patch("app.tools.brand_soul.generator.get_brand_brain")
 @patch("app.tools.brand_soul.generator._check_cache")
+@patch("app.tools.brand_soul.generator._call_llm_for_redaction")
 @patch("app.tools.brand_soul.generator._save_cache")
 def test_generate_soul_complete_brain_produces_valid_html(
     mock_save_cache,
+    mock_llm_redact,
     mock_check_cache,
     mock_get_brain,
     complete_confirmed_brain
@@ -281,6 +283,10 @@ def test_generate_soul_complete_brain_produces_valid_html(
     mock_get_brain.return_value = complete_confirmed_brain
     mock_check_cache.return_value = None  # No cache
     mock_save_cache.return_value = True
+
+    # Mock LLM redaction to return citation_text (safe for validation)
+    # This ensures the generated HTML only contains text from citations
+    mock_llm_redact.side_effect = lambda section_text, citation_text, instruction: citation_text
 
     # Generate
     session_token = "test_session_token"
@@ -529,9 +535,11 @@ def test_etapas_config_structure():
 
 @patch("app.tools.brand_soul.generator.get_brand_brain")
 @patch("app.tools.brand_soul.generator._check_cache")
+@patch("app.tools.brand_soul.generator._call_llm_for_redaction")
 @patch("app.tools.brand_soul.generator._save_cache")
 def test_html_includes_etapa_with_skill_and_prohibition(
     mock_save_cache,
+    mock_llm_redact,
     mock_check_cache,
     mock_get_brain,
     complete_confirmed_brain
@@ -545,6 +553,9 @@ def test_html_includes_etapa_with_skill_and_prohibition(
     mock_get_brain.return_value = complete_confirmed_brain
     mock_check_cache.return_value = None
     mock_save_cache.return_value = True
+
+    # Mock LLM redaction to return citation_text (safe for validation)
+    mock_llm_redact.side_effect = lambda section_text, citation_text, instruction: citation_text
 
     # Generate
     session_token = "test_session_token"

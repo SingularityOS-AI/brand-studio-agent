@@ -11,7 +11,10 @@ import pytest
 os.environ["TEST_MODE"] = "true"
 
 # JWT configuration for tests
+# Set SUPABASE_URL to match the issuer used in test JWTs
 os.environ["SUPABASE_URL"] = "https://test.supabase.co"
+# Set JWT secret to force HS256 mode in SupabaseAuth
+os.environ["SUPABASE_JWT_SECRET"] = "test_jwt_secret_for_testing_only_32bytes"
 
 # Import JWT helpers (use absolute import since conftest is at test root)
 from tests.jwt_helpers import create_test_jwt

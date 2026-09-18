@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 
 # JWT configuration for tests (uses environment variables from conftest)
 JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "test_jwt_secret_for_testing_only_32bytes")
-JWT_SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://test.supabase.co")
+# Use a fake URL for testing - we don't need it to resolve since tests use HS256 mode
+JWT_SUPABASE_URL = "https://test.supabase.co"
 
 
 def create_test_jwt(user_id: str, expires_in_hours: int = 24) -> str:
