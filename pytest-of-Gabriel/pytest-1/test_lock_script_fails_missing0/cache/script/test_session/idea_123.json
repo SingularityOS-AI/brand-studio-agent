@@ -1,0 +1,84 @@
+{
+  "session_token": "test_session",
+  "idea_id": "idea_123",
+  "status": "draft",
+  "data": {
+    "id": null,
+    "title": "Test",
+    "angle": "test",
+    "funnel_stage": "tofu",
+    "target_seconds": 60,
+    "frame_zero": {
+      "visual": "Founder staring at endless spreadsheets, clearly frustrated",
+      "on_screen_text": "Still doing this?",
+      "why_it_stops_the_scroll": "Relatable frustration stops scroll instantly"
+    },
+    "scenes": [
+      {
+        "n": 1,
+        "start_s": 0.0,
+        "end_s": 3.0,
+        "phase": "hook",
+        "spoken_text": "Hook",
+        "shot": "medium",
+        "b_roll": null,
+        "on_screen_text": "H",
+        "acting_note": "test",
+        "sound": "test"
+      },
+      {
+        "n": 2,
+        "start_s": 3.0,
+        "end_s": 6.0,
+        "phase": "lock_in",
+        "spoken_text": "Lock",
+        "shot": "medium",
+        "b_roll": null,
+        "on_screen_text": "L",
+        "acting_note": "test",
+        "sound": "test"
+      },
+      {
+        "n": 3,
+        "start_s": 6.0,
+        "end_s": 9.0,
+        "phase": "body_1",
+        "spoken_text": "Body 1",
+        "shot": "medium",
+        "b_roll": null,
+        "on_screen_text": "B1",
+        "acting_note": "test",
+        "sound": "test"
+      },
+      {
+        "n": 4,
+        "start_s": 9.0,
+        "end_s": 12.0,
+        "phase": "rehook",
+        "spoken_text": "Rehook",
+        "shot": "medium",
+        "b_roll": null,
+        "on_screen_text": "R",
+        "acting_note": "test",
+        "sound": "test"
+      },
+      {
+        "n": 5,
+        "start_s": 12.0,
+        "end_s": 15.0,
+        "phase": "body_2",
+        "spoken_text": "Body 2",
+        "shot": "medium",
+        "b_roll": null,
+        "on_screen_text": "B2",
+        "acting_note": "test",
+        "sound": "test"
+      }
+    ],
+    "audit": [],
+    "sources": [
+      "Test"
+    ],
+    "timestamp": "2026-09-18T12:59:56.913122+00:00"
+  }
+}
