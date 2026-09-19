@@ -722,12 +722,28 @@ async def generate_script(
     frame_zero = FrameZero(**script_data["frame_zero"])
     scenes_data = script_data["scenes"]
 
-    # Calculate timing
+    # Calculate timing with phase-specific duration limits
     current_time = 0.0
     scenes = []
     for idx, scene_data in enumerate(scenes_data, start=1):
-        # Estimate duration or use default (5s average)
-        duration = scene_data.get("duration_s", 5.0)
+        phase = scene_data["phase"]
+
+        # Use explicit duration if provided, otherwise compute based on phase
+        if "duration_s" in scene_data:
+            duration = scene_data["duration_s"]
+            # Enforce phase limits
+            if phase == "hook" and duration > 3.0:
+                duration = 3.0  # Hook must be ≤3s
+            elif not (3.0 <= duration <= 7.0):
+                # Clamp other phases to 3-7s range
+                duration = max(3.0, min(7.0, duration))
+        else:
+            # Default durations by phase when not specified
+            if phase == "hook":
+                duration = 2.5  # Hook default: 2.5s (well under 3s limit)
+            else:
+                duration = 5.0  # Other phases default: 5s
+
         start_s = current_time
         end_s = start_s + duration
         current_time = end_s
@@ -736,7 +752,7 @@ async def generate_script(
             n=idx,
             start_s=start_s,
             end_s=end_s,
-            phase=scene_data["phase"],
+            phase=phase,
             spoken_text=scene_data["spoken_text"],
             shot=scene_data["shot"],
             b_roll=scene_data.get("b_roll"),

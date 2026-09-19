@@ -1,5 +1,5 @@
 {
-  "session_id": "test_session_27",
+  "session_id": "test_session_29",
   "niche": "salud digital",
   "ideas": [
     {
@@ -8,7 +8,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 0",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -17,7 +17,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 1",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -26,7 +26,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 2",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -35,7 +35,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 3",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -44,7 +44,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 4",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -53,7 +53,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 5",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -62,7 +62,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 6",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -71,7 +71,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 7",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -80,7 +80,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 8",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -89,7 +89,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 9",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -98,7 +98,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 10",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -107,7 +107,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 11",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -116,7 +116,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 12",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -125,7 +125,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 13",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -134,7 +134,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 14",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -143,7 +143,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 15",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -152,7 +152,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 16",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -161,7 +161,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 17",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -170,7 +170,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 18",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -179,7 +179,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 19",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -188,7 +188,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 20",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -197,7 +197,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 21",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -206,7 +206,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 22",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -215,7 +215,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 23",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -224,7 +224,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 24",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -233,7 +233,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 25",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -242,7 +242,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 26",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -251,7 +251,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 27",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -260,7 +260,7 @@
       "subcategory": "Top N",
       "title": "Título de prueba 28",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     },
     {
@@ -269,12 +269,12 @@
       "subcategory": "Top N",
       "title": "Título de prueba 29",
       "demand_signal": "Demanda detectada en salud",
-      "status": "approved",
+      "status": "pending",
       "origin": "research"
     }
   ],
   "gate_passed": true,
-  "created_at": "2026-09-18T20:19:32.018887+00:00",
-  "catalog_locked": true,
+  "created_at": "2026-09-08T13:02:47.039560+00:00",
+  "catalog_locked": false,
   "niche_research": null
 }
