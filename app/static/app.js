@@ -1930,6 +1930,8 @@ ${htmlContent}
   const scriptAngle = document.getElementById('Script-Angle');
   const scriptFunnelStage = document.getElementById('Script-FunnelStage');
   const scriptDuration = document.getElementById('Script-Duration');
+  const scriptRecordingFormat = document.getElementById('Script-RecordingFormat');
+  const scriptMusicPrompt = document.getElementById('Script-MusicPrompt');
   const scriptContent = document.getElementById('Script-Content');
   const scriptEmptyState = document.getElementById('Script-EmptyState');
   const scriptSourceMode = document.getElementById('Script-SourceMode');
@@ -2786,6 +2788,34 @@ ${htmlContent}
 
   // ==================== Block C Render Functions ====================
 
+  // Phase name mapping
+  const PHASE_NAMES = {
+    hook: 'Hook',
+    lock_in: 'Lock-in',
+    body_1: 'Point 1',
+    rehook: 'Rehook',
+    body_2: 'Point 2',
+    close_cta: 'Close & CTA'
+  };
+
+  // Asset type name mapping
+  const ASSET_TYPE_NAMES = {
+    a_roll: 'You on camera',
+    stock: 'Stock footage',
+    ai_image: 'AI image',
+    ai_video: 'AI video',
+    motion_graphic: 'Motion graphic'
+  };
+
+  // Recording format name mapping
+  const RECORDING_FORMAT_NAMES = {
+    selfie_natural: 'Selfie (natural)',
+    pov: 'Point of view',
+    dramatization: 'Dramatization',
+    teleprompter_clean: 'Teleprompter (clean)',
+    dynamic: 'Dynamic'
+  };
+
   function renderScript() {
     scriptEmptyState.style.display = 'none';
     scriptContent.style.display = 'block';
@@ -2793,9 +2823,19 @@ ${htmlContent}
 
     const meta = `${currentScriptData.state}${currentScriptData.state === 'locked' ? ' • Locked' : ''}`;
     scriptMeta.textContent = meta;
-    scriptAngle.textContent = `Angle: ${currentScriptData.angle || '-'}`;
-    scriptFunnelStage.textContent = `Funnel: ${currentScriptData.funnel_stage || '-'}`;
-    scriptDuration.textContent = `Target: ${currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '-'}`;
+    scriptAngle.textContent = escapeHtml(currentScriptData.angle || '—');
+    scriptFunnelStage.textContent = escapeHtml(currentScriptData.funnel_stage || '—');
+    scriptDuration.textContent = currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '—';
+
+    // Recording format and music (new fields)
+    if (scriptRecordingFormat) {
+      const recordingFormatName = RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || (currentScriptData.recording_format ? currentScriptData.recording_format.replace(/_/g, ' ') : '—');
+      scriptRecordingFormat.textContent = escapeHtml(recordingFormatName);
+    }
+    if (scriptMusicPrompt) {
+      const musicValue = (currentScriptData.music_prompt !== null && currentScriptData.music_prompt !== undefined) ? currentScriptData.music_prompt : '—';
+      scriptMusicPrompt.textContent = escapeHtml(musicValue);
+    }
 
     // Render Frame Zero
     scriptFrameZero.style.display = 'block';
@@ -2818,6 +2858,13 @@ ${htmlContent}
     initGlobalProgress();
   }
 
+  function formatTime(seconds) {
+    if (seconds === null || seconds === undefined || isNaN(seconds)) return '—';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
   function renderScenes() {
     scriptScenes.innerHTML = '';
     if (!currentScriptData.scenes || currentScriptData.scenes.length === 0) {
@@ -2827,15 +2874,128 @@ ${htmlContent}
 
     currentScriptData.scenes.forEach((scene, idx) => {
       const sceneEl = document.createElement('div');
-      sceneEl.className = 'script-scene';
+      const phase = scene.phase || '';
+      const isHook = phase === 'hook';
+
+      sceneEl.className = 'script-scene' + (isHook ? ' hook' : '');
       sceneEl.dataset.sceneIndex = idx;
-      sceneEl.innerHTML = `
+
+      // Calculate time range
+      const startTime = formatTime(scene.start_s);
+      const endTime = formatTime(scene.end_s);
+      const timeRange = (scene.start_s !== null && scene.start_s !== undefined &&
+                         scene.end_s !== null && scene.end_s !== undefined)
+                        ? `${startTime}–${endTime}` : '—';
+
+      // Phase display name
+      const phaseName = PHASE_NAMES[phase] || (phase ? phase.replace(/_/g, ' ') : 'Scene');
+
+      // Asset type display name
+      const assetType = scene.asset_type || '';
+      const assetTypeName = ASSET_TYPE_NAMES[assetType] || (assetType ? assetType.replace(/_/g, ' ') : '—');
+
+      // Build main content
+      let html = '';
+
+      // Header: phase name, time estimate, regenerate button
+      html += `
         <div class="script-scene-header">
-          <span class="script-scene-number">Scene ${idx + 1}</span>
+          <span class="script-scene-phase ${isHook ? 'hook' : ''}">${escapeHtml(phaseName)}</span>
+          <span class="script-scene-time">
+            ${escapeHtml(timeRange)}
+            <span class="est-label">est.</span>
+          </span>
           <button class="script-scene-regenerate" title="Regenerate this scene">⟳</button>
         </div>
+      `;
+
+      // Spoken text (editable)
+      html += `
         <div class="script-scene-content" contenteditable="true">${escapeHtml(scene.spoken_text || '')}</div>
       `;
+
+      // Acting note - highlighted for hook
+      if (scene.acting_note) {
+        html += `
+          <div class="script-scene-acting-note ${isHook ? 'hook' : ''}">
+            <div class="script-scene-acting-label">How to say it</div>
+            <div class="script-scene-acting-text">${escapeHtml(scene.acting_note)}</div>
+          </div>
+        `;
+      }
+
+      // Technical line: subtitle and shot
+      const hasSubtitle = scene.on_screen_text !== null && scene.on_screen_text !== undefined && scene.on_screen_text !== '';
+      const hasShot = scene.shot !== null && scene.shot !== undefined && scene.shot !== '';
+      if (hasSubtitle || hasShot) {
+        html += '<div class="script-scene-tech">';
+        if (hasSubtitle) {
+          html += `<div class="script-scene-tech-item"><span class="script-scene-tech-label">Subtitle:</span> ${escapeHtml(scene.on_screen_text)}</div>`;
+        }
+        if (hasShot) {
+          html += `<div class="script-scene-tech-item"><span class="script-scene-tech-label">Shot:</span> ${escapeHtml(scene.shot)}</div>`;
+        }
+        html += '</div>';
+      }
+
+      // Visual & assets accordion
+      html += '<div class="script-scene-visual">';
+      html += '<button class="script-scene-visual-toggle" type="button">';
+      html += '<span>Visual & assets</span>';
+      html += '<span class="toggle-icon">▸</span>';
+      html += '</button>';
+      html += '<div class="script-scene-visual-content">';
+      html += '<div class="script-scene-visual-grid">';
+
+      // Asset type
+      html += `
+        <div class="script-scene-visual-row">
+          <div class="script-scene-visual-label">Asset Type</div>
+          <div class="script-scene-visual-value">${escapeHtml(assetTypeName)}</div>
+        </div>
+      `;
+
+      // B-roll
+      const bRollValue = (scene.b_roll !== null && scene.b_roll !== undefined) ? scene.b_roll : null;
+      html += `
+        <div class="script-scene-visual-row">
+          <div class="script-scene-visual-label">B-roll</div>
+          <div class="script-scene-visual-value ${bRollValue ? '' : 'null'}">${bRollValue ? escapeHtml(bRollValue) : '—'}</div>
+        </div>
+      `;
+
+      // Sound
+      const soundValue = (scene.sound !== null && scene.sound !== undefined) ? scene.sound : null;
+      html += `
+        <div class="script-scene-visual-row">
+          <div class="script-scene-visual-label">Sound</div>
+          <div class="script-scene-visual-value ${soundValue ? '' : 'null'}">${soundValue ? escapeHtml(soundValue) : '—'}</div>
+        </div>
+      `;
+
+      // Stock query
+      const stockQueryValue = (scene.stock_query !== null && scene.stock_query !== undefined) ? scene.stock_query : null;
+      html += `
+        <div class="script-scene-visual-row">
+          <div class="script-scene-visual-label">Stock Search</div>
+          <div class="script-scene-visual-value ${stockQueryValue ? '' : 'null'}">${stockQueryValue ? escapeHtml(stockQueryValue) : '—'}</div>
+        </div>
+      `;
+
+      // Visual prompt
+      const visualPromptValue = (scene.visual_prompt !== null && scene.visual_prompt !== undefined) ? scene.visual_prompt : null;
+      html += `
+        <div class="script-scene-visual-row script-scene-visual-full">
+          <div class="script-scene-visual-label">Visual Prompt</div>
+          <div class="script-scene-visual-value ${visualPromptValue ? '' : 'null'}">
+            ${visualPromptValue ? `<div class="script-scene-visual-prompt">${escapeHtml(visualPromptValue)}</div>` : '—'}
+          </div>
+        </div>
+      `;
+
+      html += '</div></div></div>';
+
+      sceneEl.innerHTML = html;
       scriptScenes.appendChild(sceneEl);
     });
 
@@ -2866,6 +3026,17 @@ ${htmlContent}
       btn.addEventListener('click', async () => {
         if (!confirm('Regenerate this scene? This costs 2 credits.')) return;
         await handleScriptRegenerate(sceneIdx);
+      });
+    });
+
+    // Accordion toggles for Visual & assets
+    const toggles = scriptScenes.querySelectorAll('.script-scene-visual-toggle');
+    toggles.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        const content = toggle.nextElementSibling;
+        const isExpanded = content.classList.contains('expanded');
+        content.classList.toggle('expanded', !isExpanded);
+        toggle.classList.toggle('expanded', !isExpanded);
       });
     });
   }

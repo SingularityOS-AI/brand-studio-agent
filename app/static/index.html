@@ -214,6 +214,51 @@
   .google-btn.loading{opacity:0.6;cursor:wait}
   .error-msg{color:#dc2626;font-size:13px;margin-top:16px;text-align:center;display:none;line-height:1.5}
   .error-msg.visible{display:block}
+
+  /* Script Scenes - Complete script display */
+  .script-scenes{display:flex;flex-direction:column;gap:16px;padding:0}
+  .script-scenes-empty{padding:40px 0;text-align:center;color:var(--ink-soft);font-size:14px}
+  
+  .script-scene{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;transition:border-color 0.2s ease}
+  .script-scene:hover{border-color:var(--accent-soft)}
+  .script-scene.hook{border-left:3px solid var(--accent)}
+  
+  .script-scene-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .script-scene-phase{display:flex;align-items:center;gap:8px;font-family:'Space Grotesk',Inter,sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--accent)}
+  .script-scene-phase.hook{color:var(--accent);font-size:13px}
+  .script-scene-time{margin-left:auto;font-size:11px;color:var(--ink-soft);display:flex;align-items:center;gap:4px}
+  .script-scene-time .est-label{font-size:9px;text-transform:uppercase;letter-spacing:0.08em;opacity:0.7}
+  .script-scene-regenerate{width:28px;height:28px;border:none;background:var(--surface-alt);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--ink-soft);transition:background-color 0.2s ease,color 0.2s ease}
+  .script-scene-regenerate:hover{background:var(--accent);color:#fff}
+  
+  .script-scene-content{font-size:15px;line-height:1.6;color:var(--ink);min-height:60px;padding:12px;background:var(--surface-alt);border-radius:6px;border:1px solid transparent;transition:border-color 0.2s ease}
+  .script-scene-content:hover{border-color:var(--line)}
+  .script-scene-content:focus{outline:none;border-color:var(--accent);background:var(--surface)}
+  
+  .script-scene-acting-note{margin-top:12px;padding:12px;background:#FEF9E7;border-radius:6px;border-left:3px solid #F4D03F}
+  .script-scene-acting-note.hook{background:#E8F4FD;border-left-color:var(--accent)}
+  .script-scene-acting-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#B5791C;margin-bottom:4px}
+  .script-scene.hook .script-scene-acting-label{color:var(--accent)}
+  .script-scene-acting-text{font-size:13px;line-height:1.5;color:var(--ink);font-style:italic}
+  
+  .script-scene-tech{margin-top:12px;display:flex;gap:16px;font-size:12px;color:var(--ink-soft);flex-wrap:wrap}
+  .script-scene-tech-item{display:flex;align-items:center;gap:4px}
+  .script-scene-tech-label{font-weight:600;color:var(--ink)}
+  
+  .script-scene-visual{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+  .script-scene-visual-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface-alt);border:none;border-radius:6px;cursor:pointer;font-size:12px;color:var(--ink-soft);transition:background-color 0.2s ease}
+  .script-scene-visual-toggle:hover{background:#E8EDF5}
+  .script-scene-visual-toggle .toggle-icon{transition:transform 0.2s ease}
+  .script-scene-visual-toggle.expanded .toggle-icon{transform:rotate(90deg)}
+  .script-scene-visual-content{display:none;padding:12px 0 0}
+  .script-scene-visual-content.expanded{display:block}
+  .script-scene-visual-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;font-size:12px}
+  .script-scene-visual-row{display:flex;flex-direction:column;gap:2px}
+  .script-scene-visual-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft)}
+  .script-scene-visual-value{color:var(--ink);line-height:1.4}
+  .script-scene-visual-value.null{color:var(--ink-soft);font-style:italic}
+  .script-scene-visual-full{grid-column:1/-1}
+  .script-scene-visual-prompt{background:var(--surface-alt);padding:8px;border-radius:4px;font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;max-height:100px;overflow-y:auto}
   </style>
 </head>
 <body>
@@ -376,7 +421,7 @@
 
       <!-- Script Meta Info -->
       <div id="Script-Meta" style="margin:0 40px 16px;padding:16px;border:1px solid #E2E8F0;border-radius:6px;background:#FAFAFA;display:none">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:13px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:13px;margin-bottom:12px">
           <div>
             <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Angle</div>
             <div id="Script-Angle" style="font-weight:500;color:#14181F">—</div>
@@ -388,6 +433,16 @@
           <div>
             <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Duration</div>
             <div id="Script-Duration" style="font-weight:500;color:#14181F">—</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;font-size:13px;border-top:1px solid #E2E8F0;padding-top:12px">
+          <div>
+            <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Recording Format</div>
+            <div id="Script-RecordingFormat" style="font-weight:500;color:#14181F">—</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Music</div>
+            <div id="Script-MusicPrompt" style="font-weight:500;color:#14181F">—</div>
           </div>
         </div>
       </div>
