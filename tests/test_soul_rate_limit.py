@@ -85,8 +85,19 @@ def client_with_brain(authenticated_client, complete_brain_for_tests):
     # Update the client's session token
     authenticated_client._test_session_token = session_token
 
-    # Save the brain to the store
-    save_brand_brain(session_token, complete_brain_for_tests)
+    # Save the brain to the store.
+    # Pre-existing bug found by round-3 network lock work (unrelated to the
+    # lock itself, reproduces identically with the lock unchanged): this
+    # fixture never mocked `app.tools.brand_brain.store._get_client`, so
+    # save_brand_brain() hit the real (unconfigured-in-tests) Supabase client
+    # path and raised RuntimeError instead of taking its documented "no
+    # client, no-op" path -- the same pattern already mocked elsewhere (see
+    # tests/test_catalog_ideas.py). The endpoint under test mocks
+    # generate_brand_soul() directly, so this save is a no-op either way;
+    # only the client construction needs mocking so it doesn't raise.
+    from unittest.mock import patch
+    with patch("app.tools.brand_brain.store._get_client", return_value=None):
+        save_brand_brain(session_token, complete_brain_for_tests)
 
     return authenticated_client
 

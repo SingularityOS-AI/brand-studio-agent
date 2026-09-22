@@ -56,24 +56,70 @@ os.environ["ENVIRONMENT"] = "test"
 # This prevents tests from making real HTTP calls to external services.
 # The lock is applied BEFORE importing app modules to catch any imports
 # that might trigger network calls.
+#
+# WHY TWO WRAPPERS (round 3 fix, 2026-09-22):
+# `socket.socket.connect` alone is NOT enough. On Windows, asyncio's default
+# event loop (ProactorEventLoop) connects through overlapped I/O -- Proactor.
+# sock_connect() calls `self._proactor.connect(sock, address)`, which goes
+# straight to the IOCP `ConnectEx` syscall (asyncio/windows_events.py +
+# asyncio/proactor_events.py) and NEVER calls `socket.socket.connect`. So an
+# async client (e.g. `httpx.AsyncClient().get(...)`, which every async path in
+# this app -- app/main.py's `mint_temporary_token`, etc. -- goes through) sailed
+# right past the connect() wrapper with no exception at all.
+#
+# What every async (and sync) network call DOES do first, hostname or not, is
+# resolve the address: asyncio's default `loop.getaddrinfo()` is implemented as
+# `run_in_executor(None, socket.getaddrinfo, host, port, family, type, proto,
+# flags)` (see `asyncio.base_events.BaseEventLoop.getaddrinfo`), and anyio's
+# `connect_tcp` (which httpcore's async backend uses, which httpx.AsyncClient
+# uses) calls that same `getaddrinfo` for any target that isn't already a raw
+# IP literal. So wrapping the plain `socket.getaddrinfo` function closes the
+# hole for async *and* sync hostname resolution, on top of the existing
+# `connect()` wrapper (which still covers direct IP-literal connections made
+# synchronously, and localhost bypass for TestClient/uvicorn).
+#
+# WHAT THIS LOCK STILL CANNOT CATCH:
+# - An async connection straight to a raw IP literal (e.g.
+#   `httpx.AsyncClient().get("https://93.184.216.34/")`) on Windows: anyio's
+#   connect_tcp() skips getaddrinfo entirely when the host is already parseable
+#   as an IP address (see anyio/_core/_sockets.py, `ip_address(remote_host)`
+#   check), and ProactorEventLoop's sock_connect() never calls
+#   `socket.socket.connect` either (see above) -- so neither wrapper fires.
+#   This app never calls external services by raw IP (always by hostname), so
+#   it's a theoretical gap, not one seen in this codebase, but it is real.
+# - Any library that resolves/connects via a compiled extension that bypasses
+#   Python's `socket` module entirely (e.g. a C-extension DB driver with its
+#   own networking stack) -- none of this app's dependencies do that today.
+# - A custom asyncio event loop / third-party async backend that doesn't route
+#   through `BaseEventLoop.getaddrinfo` (this project doesn't install one).
 
 
 def _is_localhost(addr):
-    """Check if an address is localhost (127.0.0.1 or ::1)."""
+    """Check if an address or hostname is localhost (127.0.0.1 or ::1)."""
     if isinstance(addr, tuple):
         addr = addr[0]
+    if isinstance(addr, bytes):
+        try:
+            addr = addr.decode("idna")
+        except UnicodeError:
+            addr = addr.decode("utf-8", errors="replace")
     if isinstance(addr, str):
         return addr in ("127.0.0.1", "::1", "localhost", "0.0.0.0")
     return False
 
 
 def _create_blocked_socket_connect(real_connect):
-    """Create a wrapper that blocks non-localhost connections."""
+    """Create a wrapper that blocks non-localhost connections.
+
+    Covers synchronous connects (raw sockets, sync httpx/requests) to a
+    non-localhost address. See the module docstring above for what this
+    does NOT cover on its own (async connections on Windows).
+    """
     def blocked_connect(self, addr):
         # Allow localhost connections for TestClient and other local services
         if _is_localhost(addr):
             return real_connect(self, addr)
-        
+
         # Get the host for error message
         if isinstance(addr, tuple):
             host = addr[0]
@@ -81,7 +127,7 @@ def _create_blocked_socket_connect(real_connect):
             host = addr
         else:
             host = str(addr)
-        
+
         raise RuntimeError(
             f"NETWORK_LOCK: Test attempted to connect to external host '{host}'. "
             "All external network connections are disabled during tests. "
@@ -91,9 +137,38 @@ def _create_blocked_socket_connect(real_connect):
     return blocked_connect
 
 
-# Apply the socket lock immediately
+def _create_blocked_getaddrinfo(real_getaddrinfo):
+    """Create a wrapper that blocks DNS resolution of non-localhost hosts.
+
+    This is what actually closes the async hole: asyncio's default event
+    loop resolves every hostname through `socket.getaddrinfo` in a thread
+    executor -- synchronously AND from an async caller -- before connecting,
+    so blocking it here catches `httpx.AsyncClient` (and anything else async)
+    talking to an external hostname, not just sync socket connects.
+    `host` is allowed through untouched when it's `None` (used internally for
+    server-side binding, e.g. "listen on all interfaces") since that is not
+    an outbound connection attempt.
+    """
+    def blocked_getaddrinfo(host, *args, **kwargs):
+        if host is not None and not _is_localhost(host):
+            raise RuntimeError(
+                f"NETWORK_LOCK: Test attempted to resolve external host '{host}'. "
+                "All external network connections are disabled during tests. "
+                "Please mock the appropriate HTTP library (httpx, requests, etc.) "
+                "in your test fixtures or use responses/aioresponses/httpx_mock."
+            )
+        return real_getaddrinfo(host, *args, **kwargs)
+    return blocked_getaddrinfo
+
+
+# Apply the socket lock immediately: block sync connects AND async/sync DNS
+# resolution, so async httpx.AsyncClient calls to external hosts are caught
+# too (see the long comment above for exactly why both wrappers are needed).
 _original_socket_connect = socket.socket.connect
 socket.socket.connect = _create_blocked_socket_connect(_original_socket_connect)
+
+_original_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = _create_blocked_getaddrinfo(_original_getaddrinfo)
 
 # ============================================================================
 # NOW we can import from app (after all secrets are neutralized)
@@ -229,14 +304,18 @@ def get_session_token_for_user(user_id: str) -> str:
 def network_lock_active():
     """
     Fixture documenting that network lock is active for all tests.
-    
+
     This fixture serves as documentation that the NETWORK_LOCK applied
     in the module-level code above is active. Any test attempting
-    to connect to external hosts will fail with RuntimeError.
-    
+    to connect to external hosts will fail with RuntimeError -- both
+    synchronously (socket.socket.connect) and via DNS resolution
+    (socket.getaddrinfo, which is what actually catches async clients
+    like httpx.AsyncClient on Windows -- see the long comment where the
+    lock is installed above for why both wrappers exist).
+
     Localhost connections (127.0.0.1, ::1, localhost) are allowed
     for TestClient and other local services.
-    
+
     To mock external HTTP calls, use:
     - @respx.mock for httpx (recommended)
     - responses for requests library

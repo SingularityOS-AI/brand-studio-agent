@@ -8,13 +8,23 @@ import os
 os.environ["TEST_MODE"] = "true"
 
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.main import app
 from app.guard import guard
 
 
-def test_get_brand_brain_endpoint_returns_404_when_not_found():
-    """GET /api/brain returns 404 if no brand brain exists for session"""
+@patch("app.tools.brand_brain.store._get_client", return_value=None)
+def test_get_brand_brain_endpoint_returns_404_when_not_found(mock_get_client):
+    """GET /api/brain returns 404 if no brand brain exists for session
+
+    Pre-existing bug found by round-3 network lock work (unrelated to the
+    lock itself, reproduces identically with the lock unchanged): this test
+    never mocked `app.tools.brand_brain.store._get_client`, so
+    `get_brand_brain()` hit the real (unconfigured-in-tests) Supabase client
+    path and raised RuntimeError instead of returning None -- the same
+    pattern already mocked elsewhere (see tests/test_catalog_ideas.py).
+    """
     # Use jwt_helpers to create JWT token with ES256
     from tests.jwt_helpers import create_test_jwt
 
