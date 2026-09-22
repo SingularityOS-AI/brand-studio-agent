@@ -65,10 +65,15 @@ class Scene(BaseModel):
     - acting_note: how to say it (e.g., "lean forward", "pause before this")
     - sound: background mood or SFX (e.g., "upbeat", "suspenseful", "silence")
     - start_s, end_s: timing (seconds)
+
+    BLUEPRINT FIELDS (Pieza 39) - for Block D (audiovisual generation):
+    - asset_type: what kind of visual the scene needs (a_roll, stock, ai_image, ai_video, motion_graphic)
+    - stock_query: search query for Pexels/Pixabay (IN ENGLISH)
+    - visual_prompt: generation prompt for AI image/video (IN ENGLISH)
     """
     n: int = Field(..., description="Scene number (1-indexed)")
-    start_s: float = Field(..., ge=0, description="Start time in seconds")
-    end_s: float = Field(..., gt=0, description="End time in seconds")
+    start_s: float = Field(..., ge=0, description="Start time in seconds (ESTIMATED)")
+    end_s: float = Field(..., gt=0, description="End time in seconds (ESTIMATED)")
     phase: Literal["hook", "lock_in", "body_1", "rehook", "body_2", "close_cta"] = Field(
         ..., description="Funnel phase"
     )
@@ -79,21 +84,35 @@ class Scene(BaseModel):
     acting_note: str = Field(..., description="Acting/direction note")
     sound: str = Field(..., description="Background mood or SFX")
 
+    # BLUEPRINT fields (Pieza 39) - Block D consumption
+    asset_type: Literal["a_roll", "stock", "ai_image", "ai_video", "motion_graphic"] = Field(
+        default="a_roll",
+        description="Visual asset type. a_roll = founder on camera; stock/ai_* = B-roll"
+    )
+    stock_query: str | None = Field(
+        default=None,
+        description="Search query for stock footage (Pexels/Pixabay). ALWAYS IN ENGLISH. None if a_roll."
+    )
+    visual_prompt: str | None = Field(
+        default=None,
+        description="Generation prompt for AI image/video. ALWAYS IN ENGLISH. None if a_roll."
+    )
+
     @property
     def duration_s(self) -> float:
         """Scene duration in seconds."""
         return self.end_s - self.start_s
 
     def model_post_init(self, __context: Any):
-        """Validate Scene constraints."""
-        # Validate duration: 3-7 seconds for non-hook scenes, hook max 3 seconds
-        if self.phase == "hook":
-            if self.duration_s > 3:
-                raise ValueError(f"Hook scene must be at most 3 seconds, got {self.duration_s:.1f}s")
-        elif self.duration_s < 3 or self.duration_s > 7:
-            raise ValueError(f"Scene duration must be between 3 and 7 seconds, got {self.duration_s:.1f}s")
+        """
+        Validate Scene constraints.
 
-        # Validate on-screen text max 8 words
+        Pieza 39: Duration validation removed. Timings are ESTIMATES for planning,
+        not real measurements - actual duration only exists after recording.
+        Only validate on-screen text (it's text, we can measure words).
+        """
+        # Validate on-screen text max 8 words - this is the only hard check,
+        # because it's text and we can validate it before recording
         word_count = len(self.on_screen_text.split())
         if word_count > 8:
             raise ValueError(f"On-screen text must be at most 8 words, got {word_count}")
@@ -116,6 +135,10 @@ class Script(BaseModel):
 
     Linked to a catalog idea via idea_id and session_token.
     One live script per idea — regenerate replaces the current one.
+
+    BLUEPRINT FIELDS (Pieza 39) - for Block D (audiovisual generation):
+    - music_prompt: search query for background music (mood + genre, IN ENGLISH)
+    - recording_format: proposed recording format from CEO decision E3
     """
     # Persistence keys
     id: str | None = Field(None, description="UUID from database")
@@ -137,6 +160,18 @@ class Script(BaseModel):
     sources: list[str] = Field(default_factory=list, description="Citations from Brand Brain/demand")
 
     state: Literal["draft", "reviewed", "locked"] = Field(default="draft", description="Script state")
+
+    # BLUEPRINT fields (Pieza 39) - Block D consumption
+    music_prompt: str = Field(
+        default="",
+        description="Music search query for background (mood + genre). ALWAYS IN ENGLISH."
+    )
+    recording_format: Literal[
+        "selfie_natural", "pov", "dramatization", "teleprompter_clean", "dynamic"
+    ] = Field(
+        default="selfie_natural",
+        description="Proposed recording format per CEO decision E3"
+    )
 
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -210,6 +245,9 @@ def _script_to_row(script: Script) -> dict[str, Any]:
             "audit": [finding.model_dump(mode="json") for finding in script.audit],
             "sources": script.sources,
             "timestamp": script.timestamp.isoformat(),
+            # BLUEPRINT fields (Pieza 39)
+            "music_prompt": script.music_prompt,
+            "recording_format": script.recording_format,
         },
     }
 
@@ -242,6 +280,9 @@ def _row_to_script(row: dict[str, Any]) -> Script | None:
             audit=audit,
             sources=data.get("sources", []),
             state=row.get("status", "draft"),
+            # BLUEPRINT fields (Pieza 39) - TRAP: defaults for backward compatibility
+            music_prompt=data.get("music_prompt", "") if "music_prompt" in data else "",
+            recording_format=data.get("recording_format", "selfie_natural") if "recording_format" in data else "selfie_natural",
             timestamp=timestamp,
         )
     except (ValueError, KeyError, TypeError) as e:
@@ -606,11 +647,44 @@ STYLE REQUIREMENTS:
 - FORBIDDEN: AI counterexamples (e.g., "unlike other AI tools")
 - CTA: Must match funnel stage (tofu: awareness, mofu: consideration, bofu: decision)
 
+HUMANIZATION REQUIREMENTS (CRITICAL):
+1. WORDS BLACKLIST — NEVER use these in spoken_text: delve, crucial, tapestry, landscape, ever-evolving, unlock the potential, revolutionary, vital, in conclusion, in summary, discover how, optimize.
+2. BURSTINESS — Alternate long sentences with micro-phrases of 2-4 words. Uniform rhythm signals AI generation.
+3. RHETORICAL DEVICES — Forbidden by default. Maximum ONE rhetorical question or "list of three" per script if absolutely necessary.
+4. NO INVENTED DATA — If a claim needs a number not in Brand Context or interview transcript, DO NOT MAKE IT UP. Reformulate without the number (as question or general frame).
+
+RECORDING FORMAT:
+Based on the idea's master_category and subcategory, PROPOSE one of these 5 formats:
+- "selfie_natural": Authentic founder selfie style, casual lighting
+- "pov": Point-of-view shots showing the user's perspective
+- "dramatization": Acted out scenarios with clear staging
+- "teleprompter_clean": Clean background, founder looking at teleprompter
+- "dynamic": Fast cuts, multiple angles, energetic movement
+
+The shot and acting_note MUST match the chosen format.
+
+AUDIOVISUAL BLUEPRINT (for automated Block D):
+For EACH scene, include:
+- asset_type: Choose from "a_roll" (founder on camera), "stock" (stock footage), "ai_image" (AI generated image), "ai_video" (AI generated video), "motion_graphic" (motion graphic overlay)
+- stock_query: Search query IN ENGLISH for Pexels/Pixabay (null if asset_type is "a_roll")
+- visual_prompt: Generation prompt IN ENGLISH for AI image/video (null if asset_type is "a_roll")
+
+For SCRIPT-LEVEL:
+- music_prompt: Search query IN ENGLISH for background music (mood + genre, e.g., "upbeat corporate electronic" or "cinematic suspense piano")
+- recording_format: One of the 5 formats above
+
+NOTE ON A-ROLL: This is a personal brand product. Scenes where the founder speaks to camera are a_roll and cost $0. Stock/AI are used only for B-roll (visuals while founder speaks off-screen or supplementary visuals).
+
+HOOK REQUIREMENTS:
+The hook's acting_note MUST be SPECIFIC: include rhythm, energy level, which word to emphasize, where to breathe/pause/cut, and where to look. NO generic "say it confidently" — give actionable direction the founder can execute.
+
 OUTPUT: Valid JSON with this exact schema:
 {{
   "title": "script title",
   "angle": "progressive angle description",
   "target_seconds": 60,
+  "recording_format": "one of the 5 formats above",
+  "music_prompt": "search query in ENGLISH for background music",
   "frame_zero": {{
     "visual": "what we see",
     "on_screen_text": "max 8 words",
@@ -623,14 +697,17 @@ OUTPUT: Valid JSON with this exact schema:
       "shot": "camera angle",
       "b_roll": "what overlays (or null)",
       "on_screen_text": "subtitle max 8 words",
-      "acting_note": "how to say it",
-      "sound": "mood or SFX"
+      "acting_note": "specific direction: rhythm, emphasis, pauses, gaze",
+      "sound": "mood or SFX",
+      "asset_type": "a_roll|stock|ai_image|ai_video|motion_graphic",
+      "stock_query": "search query in ENGLISH for stock (or null)",
+      "visual_prompt": "generation prompt in ENGLISH for AI (or null)"
     }}
   ],
   "sources": ["citation text from brand context or demand signal"]
 }}
 
-Total scenes should be 7-12 to hit 45-90s. Return ONLY valid JSON.
+Total scenes should be 7-12. ALL queries and prompts must be IN ENGLISH. Return ONLY valid JSON.
 """
     return prompt
 
@@ -722,30 +799,25 @@ async def generate_script(
     frame_zero = FrameZero(**script_data["frame_zero"])
     scenes_data = script_data["scenes"]
 
-    # Calculate timing with phase-specific duration limits
+    # Pieza 39: Calculate timing as ESTIMATE based on spoken text.
+    # Formula: words / 2.5 words per second (150 words/minute = 2.5 words/sec)
+    # min_duration ensures no scene shows as 0 seconds.
+    # IMPORTANT: This is an ESTIMATE for planning — actual duration only exists after recording.
+    WORDS_PER_SECOND = 2.5
+    MIN_SCENE_DURATION = 1.0  # Minimum 1 second per scene
+
     current_time = 0.0
     scenes = []
     for idx, scene_data in enumerate(scenes_data, start=1):
         phase = scene_data["phase"]
 
-        # Use explicit duration if provided, otherwise compute based on phase
-        if "duration_s" in scene_data:
-            duration = scene_data["duration_s"]
-            # Enforce phase limits
-            if phase == "hook" and duration > 3.0:
-                duration = 3.0  # Hook must be ≤3s
-            elif not (3.0 <= duration <= 7.0):
-                # Clamp other phases to 3-7s range
-                duration = max(3.0, min(7.0, duration))
-        else:
-            # Default durations by phase when not specified
-            if phase == "hook":
-                duration = 2.5  # Hook default: 2.5s (well under 3s limit)
-            else:
-                duration = 5.0  # Other phases default: 5s
+        # Duration is ESTIMATED from spoken_text length, not clamped.
+        # We use the word count to give a proportional timeline for planning.
+        spoken_words = len(scene_data.get("spoken_text", "").split())
+        estimated_duration = max(MIN_SCENE_DURATION, spoken_words / WORDS_PER_SECOND)
 
         start_s = current_time
-        end_s = start_s + duration
+        end_s = start_s + estimated_duration
         current_time = end_s
 
         scene = Scene(
@@ -759,6 +831,10 @@ async def generate_script(
             on_screen_text=scene_data["on_screen_text"],
             acting_note=scene_data["acting_note"],
             sound=scene_data["sound"],
+            # BLUEPRINT fields (Pieza 39) - Block D consumption
+            asset_type=scene_data.get("asset_type", "a_roll"),
+            stock_query=scene_data.get("stock_query"),
+            visual_prompt=scene_data.get("visual_prompt"),
         )
         scenes.append(scene)
 
@@ -772,6 +848,9 @@ async def generate_script(
         frame_zero=frame_zero,
         scenes=scenes,
         sources=script_data.get("sources", []),
+        # BLUEPRINT fields (Pieza 39)
+        music_prompt=script_data.get("music_prompt", ""),
+        recording_format=script_data.get("recording_format", "selfie_natural"),
     )
 
     # 8. Run audit
@@ -826,35 +905,47 @@ async def regenerate_scene(
     brand_brain = get_brand_brain(session_id)
     brand_context = _build_brand_context(brand_brain)
 
-    # Build regeneration prompt
+    # Pieza 39: Use neutral instruction if None/empty to avoid "None" literal in prompt
+    effective_instruction = instruction if instruction else "improve this scene"
+
+    # Build regeneration prompt with BLUEPRINT fields (Pieza 39)
     prompt = f"""You are regenerating a single scene of a B2B short-form video script.
 
 CONTEXT:
 Brand: {brand_context}
+Script recording format: {script.recording_format}
 
 Original scene:
 - Phase: {target_scene.phase}
 - Original text: {target_scene.spoken_text}
 - Shot: {target_scene.shot}
 - Acting note: {target_scene.acting_note}
+- Asset type: {target_scene.asset_type}
 
-Instruction: {instruction}
+Instruction: {effective_instruction}
 
 RULES:
 - Keep the SAME phase ({target_scene.phase})
-- Keep the same timing ({target_scene.duration_s:.1f}s)
+- Use the SAME recording format ({script.recording_format}) for shot and acting_note
 - On-screen text: max 8 words
-- Output ONLY valid JSON for the scene (no markdown)
+- HUMANIZATION: NEVER use these words: delve, crucial, tapestry, landscape, ever-evolving, unlock the potential, revolutionary, vital, in conclusion, in summary, discover how, optimize
+- BURSTINESS: alternate long sentences with micro-phrases of 2-4 words
+- NO INVENTED DATA: if you need a number not in context, reformulate without it
 
-OUTPUT schema:
+OUTPUT schema (INCLUDE BLUEPRINT FIELDS for Block D):
 {{
-  "spoken_text": "new text",
-  "shot": "camera angle",
+  "spoken_text": "what the founder says",
+  "shot": "camera angle matching {script.recording_format} format",
   "b_roll": "overlay (or null)",
   "on_screen_text": "subtitle max 8 words",
-  "acting_note": "how to say it",
-  "sound": "mood or SFX"
+  "acting_note": "specific direction: rhythm, emphasis, pauses, gaze",
+  "sound": "mood or SFX",
+  "asset_type": "a_roll|stock|ai_image|ai_video|motion_graphic",
+  "stock_query": "search query IN ENGLISH for stock (or null)",
+  "visual_prompt": "generation prompt IN ENGLISH for AI (or null)"
 }}
+
+Return ONLY valid JSON.
 """
 
     from vertexai.generative_models import GenerativeModel
@@ -878,13 +969,31 @@ OUTPUT schema:
         else:
             raise ValueError("Failed to parse JSON from Gemini")
 
-    # Update the scene
+    # Update the scene (Pieza 39: include BLUEPRINT fields)
     target_scene.spoken_text = new_scene_data["spoken_text"]
     target_scene.shot = new_scene_data["shot"]
     target_scene.b_roll = new_scene_data.get("b_roll")
     target_scene.on_screen_text = new_scene_data["on_screen_text"]
     target_scene.acting_note = new_scene_data["acting_note"]
     target_scene.sound = new_scene_data["sound"]
+    # BLUEPRINT fields (Pieza 39) - preserve if not returned by model
+    target_scene.asset_type = new_scene_data.get("asset_type", target_scene.asset_type)
+    target_scene.stock_query = new_scene_data.get("stock_query", target_scene.stock_query)
+    target_scene.visual_prompt = new_scene_data.get("visual_prompt", target_scene.visual_prompt)
+
+    # Recalculate duration estimate based on new spoken_text (Pieza 39)
+    # Words / 2.5 words per second, min 1 second
+    spoken_words = len(target_scene.spoken_text.split())
+    new_duration = max(1.0, spoken_words / 2.5)
+    target_scene.end_s = target_scene.start_s + new_duration
+
+    # Update subsequent scene timings (shift start/end)
+    for i in range(scene_n, len(script.scenes)):
+        prev_scene = script.scenes[i - 1]
+        curr_scene = script.scenes[i]
+        duration = curr_scene.end_s - curr_scene.start_s
+        curr_scene.start_s = prev_scene.end_s
+        curr_scene.end_s = curr_scene.start_s + duration
 
     # Re-run audit
     script.audit = audit_script(script)

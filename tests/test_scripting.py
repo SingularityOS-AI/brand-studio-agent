@@ -286,36 +286,39 @@ def test_scene_duration_valid(valid_scene):
     assert valid_scene.duration_s <= 3.0
 
 
-def test_scene_duration_too_short():
-    """Scene rejects duration < 3 seconds (non-hook phases)."""
-    with pytest.raises(ValueError):
-        Scene(
-            n=1,
-            start_s=0.0,
-            end_s=2.0,
-            phase="body_1",
-            spoken_text="Too short",
-            shot="medium shot",
-            on_screen_text="Short",
-            acting_note="test",
-            sound="test"
-        )
+def test_scene_no_duration_validation():
+    """
+    Pieza 39: Duration validation removed from Scene.
+    Timings are ESTIMATES for planning, not real measurements.
+    Any duration is now accepted (only on-screen text is validated).
+    """
+    # Scene with very short duration (previously would fail)
+    short_scene = Scene(
+        n=1,
+        start_s=0.0,
+        end_s=2.0,
+        phase="body_1",
+        spoken_text="A very short scene",
+        shot="medium shot",
+        on_screen_text="Short scene",
+        acting_note="test",
+        sound="test"
+    )
+    assert short_scene.duration_s == 2.0
 
-
-def test_scene_duration_too_long():
-    """Scene rejects duration > 7 seconds (non-hook phases)."""
-    with pytest.raises(ValueError):
-        Scene(
-            n=1,
-            start_s=0.0,
-            end_s=8.0,
-            phase="body_1",
-            spoken_text="Too long",
-            shot="medium shot",
-            on_screen_text="Long",
-            acting_note="test",
-            sound="test"
-        )
+    # Scene with very long duration (previously would fail)
+    long_scene = Scene(
+        n=1,
+        start_s=0.0,
+        end_s=8.0,
+        phase="body_1",
+        spoken_text="A very long scene description",
+        shot="medium shot",
+        on_screen_text="Long scene",
+        acting_note="test",
+        sound="test"
+    )
+    assert long_scene.duration_s == 8.0
 
 
 def test_scene_on_screen_text_too_long():
