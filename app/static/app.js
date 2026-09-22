@@ -1927,11 +1927,11 @@ ${htmlContent}
   const scriptBackBtn = document.getElementById('Script-BackBtn');
   const scriptIdeaTitle = document.getElementById('Script-IdeaTitle');
   const scriptMeta = document.getElementById('Script-Meta');
-  const scriptAngle = document.getElementById('Script-Angle');
-  const scriptFunnelStage = document.getElementById('Script-FunnelStage');
-  const scriptDuration = document.getElementById('Script-Duration');
-  const scriptRecordingFormat = document.getElementById('Script-RecordingFormat');
-  const scriptMusicPrompt = document.getElementById('Script-MusicPrompt');
+  let scriptAngle = document.getElementById('Script-Angle');
+  let scriptFunnelStage = document.getElementById('Script-FunnelStage');
+  let scriptDuration = document.getElementById('Script-Duration');
+  let scriptRecordingFormat = document.getElementById('Script-RecordingFormat');
+  let scriptMusicPrompt = document.getElementById('Script-MusicPrompt');
   const scriptContent = document.getElementById('Script-Content');
   const scriptEmptyState = document.getElementById('Script-EmptyState');
   const scriptSourceMode = document.getElementById('Script-SourceMode');
