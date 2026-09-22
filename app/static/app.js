@@ -680,7 +680,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       ws.onerror = (err) => {
         if (myGeneration !== sessionGeneration) return; // Not the active session
         console.error('[WebSocket Error]', err);
-        appendLogMessage('error', 'Error en conexión WebSocket de AssemblyAI');
+        appendLogMessage('error', 'AssemblyAI WebSocket connection error');
         stopSession();
       };
 
@@ -692,7 +692,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
     } catch (err) {
       console.error('[StartSession Failed]', err);
-      alert('Error al iniciar sesión de voz: ' + err.message);
+      alert('Error starting voice session: ' + err.message);
       stopSession();
     }
   }
@@ -877,7 +877,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
     const p = document.createElement('p');
     p.className = 'sub';
     p.style.fontStyle = 'italic';
-    p.textContent = `Tú: ${text}`;
+    p.textContent = `You: ${text}`;
     streamContainer.appendChild(p);
     streamContainer.scrollTop = streamContainer.scrollHeight;
   }
@@ -1986,11 +1986,11 @@ ${htmlContent}
   // hoisted a nivel de módulo para que tanto renderCatalogInPanel() como el
   // handler de "Agregar idea propia" (punto D1) las reutilicen sin duplicar.
   const CATALOG_CATEGORY_NAMES = {
-    'autoridad_tecnica': 'Autoridad Técnica e Instrucción',
-    'validacion_resultados': 'Validación de Resultados e Impacto',
-    'posicionamiento_narrativa': 'Posicionamiento y Tesis de Mercado',
-    'narrativa_fundadora': 'Narrativa Fundadora y Origen',
-    'discusion_industria': 'Discusión y Co-creación de Industria'
+    'autoridad_tecnica': 'Technical Authority & Instruction',
+    'validacion_resultados': 'Results Validation & Impact',
+    'posicionamiento_narrativa': 'Positioning & Market Thesis',
+    'narrativa_fundadora': 'Founder Story & Origin',
+    'discusion_industria': 'Industry Discussion & Co-creation'
   };
   const CATALOG_CATEGORY_COLORS = {
     'autoridad_tecnica': '#2B4CD8',
@@ -2027,7 +2027,7 @@ ${htmlContent}
     if (lockBtn) {
       lockBtn.dataset.locked = 'true';
       lockBtn.disabled = true;
-      lockBtn.textContent = 'Catálogo bloqueado ✓';
+      lockBtn.textContent = 'Catalog locked ✓';
     }
 
     // PIEZA 36 (bug 4): Skip founder ideas when disabling approve/discard/regenerate buttons
@@ -2055,7 +2055,7 @@ ${htmlContent}
   // Construye el HTML interno de una tarjeta de idea (compartido entre el
   // render inicial, agregar idea propia sin recargar, y reemplazo por regenerar).
   function buildIdeaCardHTML(idea, color, catalogLocked = false) {
-    const founderBadge = idea.origin === 'founder' ? '<span class="badge-founder">Tu idea</span>' : '';
+    const founderBadge = idea.origin === 'founder' ? '<span class="badge-founder">Your idea</span>' : '';
     // Decisión del CEO: una idea propia del fundador no se regenera --
     // regenerar la reemplazaría por una idea del LLM, borrando lo que el
     // fundador escribió a mano. El botón ↻ simplemente no se renderiza.
@@ -2066,14 +2066,14 @@ ${htmlContent}
     const safeId = escapeHtml(idea.id);
     const regenerateBtnHTML = idea.origin === 'founder'
       ? ''
-      : `<button class="btn-regenerate" data-idea-id="${safeId}" title="Regenerar (3 créditos)">&#8635;</button>`;
+      : `<button class="btn-regenerate" data-idea-id="${safeId}" title="Regenerate (3 credits)">&#8635;</button>`;
     // PIEZA 34 (bug 3): Add "Write script" / "Open script" button on approved ideas when catalog is locked
     const scriptBtnHTML = (catalogLocked && idea.status === 'approved')
       ? `<button class="btn-script" data-idea-id="${safeId}" title="Write script">📝 Write script</button>`
       : '';
     return `
       <span class="ideatitle">${escapeHtml(idea.title)}${founderBadge}</span>
-      <span class="angle" style="border-color:${color};color:${color}">${escapeHtml(idea.subcategory || 'Formato')}</span>
+      <span class="angle" style="border-color:${color};color:${color}">${escapeHtml(idea.subcategory || 'Format')}</span>
       <span class="signal">${escapeHtml(idea.demand_signal)}</span>
       <div class="idea-actions">
         <button class="btn-approve" data-idea-id="${safeId}" title="Approve idea">&#10003;</button>
@@ -2383,11 +2383,11 @@ ${htmlContent}
         const source = (sourceInput.value || '').trim();
 
         if (title.length < 5 || title.length > 200) {
-          alert('El título debe tener entre 5 y 200 caracteres.');
+          alert('Title must be between 5 and 200 characters.');
           return;
         }
         if (source.length < 10) {
-          alert('La fuente debe tener al menos 10 caracteres (¿de dónde sale esta idea?).');
+          alert('Source must be at least 10 characters (where does this idea come from?).');
           return;
         }
 
@@ -2770,11 +2770,16 @@ ${htmlContent}
     }
 
     if (sourceMode === 'raw_footage') {
-      // Raw footage mode: founder already has material, never depends on transcript
-      scriptGenerateBtn.disabled = false;
-      scriptGenerateBtn.title = '';
-      // Pieza 36B (fallo 3): No help message needed when enabled
-      if (scriptGenerateHelp) scriptGenerateHelp.style.display = 'none';
+      // Video ingestion is not built yet (pending a CEO decision). The
+      // <option> itself is disabled in the DOM so a founder can't actually
+      // select this value -- this branch is defense in depth so no code
+      // path can ever fire a generate call in raw_footage mode.
+      scriptGenerateBtn.disabled = true;
+      scriptGenerateBtn.title = 'Raw footage upload is coming soon';
+      if (scriptGenerateHelp) {
+        scriptGenerateHelp.style.display = 'block';
+        scriptGenerateHelp.textContent = 'Raw footage upload is coming soon. Use Assisted mode for now.';
+      }
     } else if (sourceMode === 'brand_brain') {
       // Brand Brain mode: need either transcript OR brand brain
       scriptGenerateBtn.disabled = !hasTranscript && !hasBrandBrain;
@@ -2841,6 +2846,23 @@ ${htmlContent}
     'bofu': 'Decision (BoFu)'
   };
 
+  // Shows/hides the inline note in the Review panel when the founder picks
+  // a recording format different from the one the system proposed. Does
+  // NOT auto-regenerate scenes -- pricing that is a CEO decision.
+  function updateReviewFormatNote(formatSelect, noteEl) {
+    const proposedFormat = formatSelect.dataset.proposedFormat || '';
+    const selectedFormat = formatSelect.value;
+    if (!proposedFormat || selectedFormat === proposedFormat) {
+      noteEl.style.display = 'none';
+      noteEl.textContent = '';
+      return;
+    }
+    const proposedName = RECORDING_FORMAT_NAMES[proposedFormat] || proposedFormat;
+    const selectedName = RECORDING_FORMAT_NAMES[selectedFormat] || selectedFormat;
+    noteEl.textContent = `Camera shots and "How to say it" cues were written for ${proposedName}. Consider regenerating scenes (⟳) to adapt them to ${selectedName}.`;
+    noteEl.style.display = 'block';
+  }
+
   // PIEZA 42: Get state transition hint
   function getStateHint(state) {
     switch (state) {
@@ -2901,13 +2923,14 @@ ${htmlContent}
 
           <div style="margin-bottom:12px">
             <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:6px">Recording Format</label>
-            <select id="Review-RecordingFormat" style="width:100%;padding:8px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px">
+            <select id="Review-RecordingFormat" data-proposed-format="${escapeHtml(proposedFormat)}" style="width:100%;padding:8px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px">
               <option value="selfie_natural" ${proposedFormat === 'selfie_natural' ? 'selected' : ''}>Natural selfie</option>
               <option value="pov" ${proposedFormat === 'pov' ? 'selected' : ''}>POV (Point of view)</option>
               <option value="dramatization" ${proposedFormat === 'dramatization' ? 'selected' : ''}>Dramatization</option>
               <option value="teleprompter_clean" ${proposedFormat === 'teleprompter_clean' ? 'selected' : ''}>Teleprompter (clean background)</option>
               <option value="dynamic" ${proposedFormat === 'dynamic' ? 'selected' : ''}>Dynamic</option>
             </select>
+            <div id="Review-FormatNote" style="display:none;margin-top:8px;padding:8px 10px;font-size:12px;line-height:1.5;color:#8A5A00;background:#FFF6E0;border:1px solid #F0D583;border-radius:4px"></div>
           </div>
 
           <button id="Review-ConfirmBtn" class="btn btn--go" style="width:100%;padding:10px;font-size:13px">Confirm & Move to Reviewed</button>
@@ -2948,6 +2971,18 @@ ${htmlContent}
     const confirmBtn = document.getElementById('Review-ConfirmBtn');
     if (confirmBtn) {
       confirmBtn.addEventListener('click', handleScriptConfirm);
+    }
+
+    // Warn when the founder picks a recording format different from the
+    // one the system proposed: the camera shots and "How to say it" cues
+    // were written for the proposed format, and won't auto-update -- that
+    // is a CEO pricing decision, not something this UI does on its own.
+    const reviewFormatSelect = document.getElementById('Review-RecordingFormat');
+    const reviewFormatNote = document.getElementById('Review-FormatNote');
+    if (reviewFormatSelect && reviewFormatNote) {
+      reviewFormatSelect.addEventListener('change', () => {
+        updateReviewFormatNote(reviewFormatSelect, reviewFormatNote);
+      });
     }
 
     // Re-bind DOM references that were replaced
@@ -3223,6 +3258,7 @@ ${htmlContent}
       if (regeneratingSceneIndices.has(sceneIdx)) {
         btn.disabled = true;
         btn.title = 'Regenerating...';
+        btn.classList.add('is-regenerating');
       }
       btn.addEventListener('click', () => {
         showRegenerateForm(sceneIdx, btn);
@@ -3392,6 +3428,7 @@ ${htmlContent}
     if (regenBtn) {
       regenBtn.disabled = true;
       regenBtn.title = 'Regenerating...';
+      regenBtn.classList.add('is-regenerating');
     }
 
     try {
@@ -3434,6 +3471,7 @@ ${htmlContent}
       if (btnAfter) {
         btnAfter.disabled = false;
         btnAfter.title = 'Regenerate this scene';
+        btnAfter.classList.remove('is-regenerating');
       }
     }
   }
@@ -3612,23 +3650,35 @@ ${htmlContent}
     // Find progress steps by data-step attribute
     const progressSteps = document.querySelectorAll('.progress-step');
 
-    // Track brand brain sections (section 01-09)
-    const brainSectionsCount = Object.keys(cachedBrain || {}).filter(k => k.startsWith('section_')).length;
+    // Track confirmed brand brain sections. The backend sends
+    // brand_brain.sections as an ARRAY of {id, label, status, content} --
+    // not a flat object with section_* keys -- so this reuses the same
+    // helper the Catalog button uses to count them.
+    const brainSectionsCount = getReadySectionsCount(cachedBrain && cachedBrain.sections);
 
-    // Brain step: complete if all 9 sections have data
+    // Brain step: complete if all 9 sections are confirmed
     const brainComplete = brainSectionsCount >= 9;
     updateProgressStep('brain', brainComplete);
 
     // Catalog step: complete if catalog exists and is locked
-    const catalogComplete = currentCatalog && currentCatalog.catalog_locked;
+    const catalogComplete = Boolean(currentCatalog && currentCatalog.catalog_locked);
     updateProgressStep('catalog', catalogComplete);
 
     // Script step: complete if current script exists and is locked
-    const scriptComplete = currentScriptData && currentScriptData.state === 'locked';
+    const scriptComplete = Boolean(currentScriptData && currentScriptData.state === 'locked');
     updateProgressStep('script', scriptComplete);
 
-    // Video step: always pending
-    updateProgressStep('video', false);
+    // Video step: always pending -- video production isn't built yet
+    const videoComplete = false;
+    updateProgressStep('video', videoComplete);
+
+    // Overall completion across the four steps (Brain, Catalog, Script, Video)
+    const overallEl = document.getElementById('Progress-OverallPct');
+    if (overallEl) {
+      const completeCount = [brainComplete, catalogComplete, scriptComplete, videoComplete].filter(Boolean).length;
+      const overallPct = Math.round((completeCount / 4) * 100);
+      overallEl.textContent = `${overallPct}%`;
+    }
   }
 
   function updateProgressStep(step, isComplete) {
@@ -3716,7 +3766,14 @@ ${htmlContent}
       }
 
       const sourceMode = scriptSourceMode?.value || 'brand_brain';
-      const finalSourceMode = sourceMode === 'brand_brain' ? 'brand_brain' : 'raw_footage';
+      if (sourceMode === 'raw_footage') {
+        // Video ingestion is not built yet. The <option> is disabled and
+        // updateScriptGenerateButton() keeps this button disabled in that
+        // mode, so this should be unreachable -- kept as a hard stop so no
+        // code path can ever generate against footage that doesn't exist.
+        return;
+      }
+      const finalSourceMode = 'brand_brain';
 
       const originalText = scriptGenerateBtn.innerHTML;
       scriptGenerateBtn.disabled = true;

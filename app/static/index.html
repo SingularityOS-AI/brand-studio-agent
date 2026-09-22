@@ -230,6 +230,10 @@
   .script-scene-time .est-label{font-size:9px;text-transform:uppercase;letter-spacing:0.08em;opacity:0.7}
   .script-scene-regenerate{width:28px;height:28px;border:none;background:var(--surface-alt);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--ink-soft);transition:background-color 0.2s ease,color 0.2s ease}
   .script-scene-regenerate:hover{background:var(--accent);color:#fff}
+  .script-scene-regenerate:disabled{opacity:.4;cursor:not-allowed;background:var(--surface-alt);color:var(--ink-soft)}
+  .script-scene-regenerate:disabled:hover{background:var(--surface-alt);color:var(--ink-soft)}
+  .script-scene-regenerate.is-regenerating{animation:bsa-scene-spin .8s linear infinite}
+  @keyframes bsa-scene-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   
   .script-scene-content{font-size:15px;line-height:1.6;color:var(--ink);min-height:60px;padding:12px;background:var(--surface-alt);border-radius:6px;border:1px solid transparent;transition:border-color 0.2s ease}
   .script-scene-content:hover{border-color:var(--line)}
@@ -375,17 +379,17 @@
 
       <!-- Pieza 29 (punto D1): agregar idea propia del fundador, gratis -->
       <div id="Catalog-AddIdeaForm" style="margin:0 40px 16px;padding:16px;border:1px solid #E2E8F0;border-radius:6px;background:#FAFAFA">
-        <div style="font-size:12px;font-weight:600;color:#5C6675;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Agregar idea propia</div>
-        <input type="text" id="AddIdea-Title" placeholder="Título de la idea (5-200 caracteres)" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
+        <div style="font-size:12px;font-weight:600;color:#5C6675;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Add your own idea</div>
+        <input type="text" id="AddIdea-Title" placeholder="Idea title (5-200 characters)" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
         <select id="AddIdea-Category" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
-          <option value="autoridad_tecnica">Autoridad Técnica e Instrucción</option>
-          <option value="validacion_resultados">Validación de Resultados e Impacto</option>
-          <option value="posicionamiento_narrativa">Posicionamiento y Tesis de Mercado</option>
-          <option value="narrativa_fundadora">Narrativa Fundadora y Origen</option>
-          <option value="discusion_industria">Discusión y Co-creación de Industria</option>
+          <option value="autoridad_tecnica">Technical Authority &amp; Instruction</option>
+          <option value="validacion_resultados">Results Validation &amp; Impact</option>
+          <option value="posicionamiento_narrativa">Positioning &amp; Market Thesis</option>
+          <option value="narrativa_fundadora">Founder Story &amp; Origin</option>
+          <option value="discusion_industria">Industry Discussion &amp; Co-creation</option>
         </select>
-        <textarea id="AddIdea-Source" placeholder="Fuente: ¿de dónde sale esta idea? (tu experiencia, un dato, un link) — mínimo 10 caracteres" required style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;min-height:56px;box-sizing:border-box"></textarea>
-        <button class="btn btn--go" id="AddIdea-SubmitBtn" style="padding:6px 14px;font-size:12px">Agregar idea propia</button>
+        <textarea id="AddIdea-Source" placeholder="Source: where does this idea come from? (your experience, a data point, a link) — minimum 10 characters" required style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #E2E8F0;border-radius:4px;font-family:inherit;font-size:13px;min-height:56px;box-sizing:border-box"></textarea>
+        <button class="btn btn--go" id="AddIdea-SubmitBtn" style="padding:6px 14px;font-size:12px">Add idea</button>
       </div>
 
       <div class="docbody catalog-grid" id="Catalog-Categories"></div>
@@ -467,7 +471,7 @@
             <div style="font-size:12px;font-weight:600;color:#14181F;margin-bottom:8px">Generation Mode</div>
             <select id="Script-SourceMode" style="width:100%;padding:10px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box">
               <option value="brand_brain">Assisted (Brand Brain + Interview)</option>
-              <option value="raw_footage">Manually Edit (Raw Footage Only)</option>
+              <option value="raw_footage" disabled>Raw footage upload — coming soon</option>
             </select>
           </div>
 
@@ -554,7 +558,10 @@
 
     <!-- Global Progress Indicator -->
     <div class="global-progress" style="padding:16px 24px 18px;border-top:1px solid var(--line)">
-      <div style="font-size:11px;font-weight:600;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Progress</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:600;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em">Progress</span>
+        <span id="Progress-OverallPct" style="font-size:11px;font-weight:600;color:#2B4CD8">0%</span>
+      </div>
       <div style="display:flex;gap:8px;padding:4px 0">
         <div class="progress-step" data-step="brain" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
           <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
