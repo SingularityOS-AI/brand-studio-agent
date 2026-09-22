@@ -75,3 +75,30 @@ FIX_SUMMARY.md
 AUDIO_PERMISSION_ISSUE.md
 PROGRESS.md
 PROPUESTA_PRODUCCION.md
+
+# 2026-09-21 — artefactos que se colaron a main (repo PUBLICO). El carril
+# paralelo de MiniMax comitea con `git add -A`, asi que esto es lo unico que
+# los frena. Nada de esto es codigo: salida de tests, scripts de debug y notas.
+cache/
+pytest-of-*/
+.port_used
+test_screenshot.png
+# scripts de debug dentro de static/: se servian publicos en /static/*.py
+app/static/*.py
+debug_*.py
+fix_*.js
+test_*_local.py
+*.bat
+chrome-devtools-mcp/
+chrome*mcp*.md
+package-lock.json
+# notas y QA sueltos en la raiz -- la politica del repo es "ships code only"
+/*_QA.html
+/QA_CHECKLIST.html
+/PLAN_DE_PRUEBA_*.html
+/SUMMARY.md
+/PROYECTO_COMPLETO.md
+/DEPLOYMENT_CHECKLIST.md
+/SECURITY_AUDIT_REPORT.md
+# carpeta anidada con los analisis de MiniMax (viven en disco, no en el repo)
+/brand-studio-agent/
