@@ -1947,6 +1947,11 @@ ${htmlContent}
   // PIEZA 42: Review panel elements (created dynamically in renderScript)
   // Track active regenerate forms to prevent duplicates
   let activeRegenerateForms = new Set();
+  // In-flight guards: which scene indices currently have a regenerate POST
+  // pending, and whether a script-level lock POST is pending. Prevents
+  // double-charging when the founder double-clicks while a request is out.
+  let regeneratingSceneIndices = new Set();
+  let scriptLockInFlight = false;
 
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
@@ -2731,6 +2736,9 @@ ${htmlContent}
     scriptScenes.style.display = 'none';
     scriptAudit.style.display = 'none';
     scriptLockBtn.disabled = true;
+    // renderScript() hides this button once a script exists; restore it here
+    // so navigating Back and opening an idea with no script yet still shows it.
+    scriptGenerateBtn.style.display = '';
 
     // Enable/disable generate button based on transcript availability
     updateScriptGenerateButton();
@@ -2744,10 +2752,9 @@ ${htmlContent}
     const hasTranscript = fullTranscript && Array.isArray(fullTranscript) && fullTranscript.length > 0;
     // Brand Brain exists if cachedBrain has confirmed sections or any sections at all
     const hasBrandBrain = cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0;
-    // NYC: Client-side HORROR. Where, oh where, does currentCatalog.touch了这个飘渺的存在 (catalog locked state)
-    // Answer: It is read from server response onCatalogResponse and then the variable is set like flat.
-    // But that variable is... actually ... an updated replica of response.catalog, with .catalog_locked property
-    // That's used later here. UGH! For now we recompute it by checking the Catalog-LockBtn element - it's the only persistent UI for locking.
+    // Catalog lock state has no dedicated module variable to read from, so
+    // we recompute it from the Catalog-LockBtn element's dataset -- it's the
+    // only persistent UI signal for whether the catalog has been locked.
     const lockBtn = document.getElementById('Catalog-LockBtn');
     const catalogLocked = lockBtn && lockBtn.dataset.locked === 'true';
 
@@ -2757,7 +2764,7 @@ ${htmlContent}
       scriptGenerateBtn.title = 'Catalog must be locked to generate scripts';
       if (scriptGenerateHelp) {
         scriptGenerateHelp.style.display = 'block';
-        scriptGenerateHelp.textContent = 'Lock the catalog in Block C (Idea Catalog) first';
+        scriptGenerateHelp.textContent = 'Lock the catalog in Block B (Idea Catalog) first';
       }
       return;
     }
@@ -2950,10 +2957,19 @@ ${htmlContent}
     scriptRecordingFormat = document.getElementById('Script-RecordingFormat');
     scriptMusicPrompt = document.getElementById('Script-MusicPrompt');
 
-    // Render Frame Zero
+    // Render Frame Zero (object with visual/on_screen_text/why_it_stops_the_scroll)
     scriptFrameZero.style.display = 'block';
     if (scriptFrameZeroContent) {
-      scriptFrameZeroContent.textContent = currentScriptData.frame_zero || 'Frame zero not set';
+      const fz = currentScriptData.frame_zero;
+      if (fz && typeof fz === 'object') {
+        scriptFrameZeroContent.innerHTML = `
+          <div style="margin-bottom:8px"><strong>Visual:</strong> ${escapeHtml(fz.visual || '—')}</div>
+          <div style="margin-bottom:8px"><strong>On-screen text:</strong> ${escapeHtml(fz.on_screen_text || '—')}</div>
+          <div><strong>Why it stops the scroll:</strong> ${escapeHtml(fz.why_it_stops_the_scroll || '—')}</div>
+        `;
+      } else {
+        scriptFrameZeroContent.textContent = 'Frame zero not set';
+      }
     }
 
     // Render Scenes
@@ -2978,8 +2994,17 @@ ${htmlContent}
 
     if (!funnelSelect || !formatSelect) return;
 
+    // In-flight guard: ignore re-entry while a confirm POST is already out.
+    const confirmBtn = document.getElementById('Review-ConfirmBtn');
+    if (confirmBtn && confirmBtn.disabled) return;
+
     const funnelStage = funnelSelect.value;
     const recordingFormat = formatSelect.value;
+
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Confirming...';
+    }
 
     try {
       const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}`, {
@@ -2996,11 +3021,26 @@ ${htmlContent}
       const data = await response.json();
       // PIEZA 42: Update from backend response (source of truth)
       currentScriptData = data.script || data;
+      if (data.credits_remaining !== undefined) {
+        credits = data.credits_remaining;
+        updateCreditsUI(data.credits_remaining, initialSessionCredits);
+      }
+      // renderScript() rebuilds the review panel (and its Confirm button)
+      // from scratch, so no manual re-enable is needed on this path.
       renderScript();
 
     } catch (error) {
-      console.error('Script confirm error:', error);
-      alert(`Failed to confirm script: ${error.message}`);
+      if (error.message === 'PAYWALL_402') {
+        // Paywall overlay already shown by authenticatedFetch.
+        console.log('[Script] Confirm blocked by paywall');
+      } else {
+        console.error('Script confirm error:', error);
+        alert(`Failed to confirm script: ${error.message}`);
+      }
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Confirm & Move to Reviewed';
+      }
     }
   }
 
@@ -3017,6 +3057,9 @@ ${htmlContent}
       scriptScenes.innerHTML = '<div class="script-scenes-empty">No scenes yet</div>';
       return;
     }
+
+    // Lock is final per spec: locked scenes render read-only, no regenerate.
+    const isLocked = currentScriptData.state === 'locked';
 
     currentScriptData.scenes.forEach((scene, idx) => {
       const sceneEl = document.createElement('div');
@@ -3051,13 +3094,13 @@ ${htmlContent}
             ${escapeHtml(timeRange)}
             <span class="est-label">est.</span>
           </span>
-          <button class="script-scene-regenerate" title="Regenerate this scene">⟳</button>
+          ${isLocked ? '' : '<button class="script-scene-regenerate" title="Regenerate this scene">⟳</button>'}
         </div>
       `;
 
-      // Spoken text (editable)
+      // Spoken text (editable, unless the script is locked -- lock is final)
       html += `
-        <div class="script-scene-content" contenteditable="true">${escapeHtml(scene.spoken_text || '')}</div>
+        <div class="script-scene-content"${isLocked ? '' : ' contenteditable="true"'}>${escapeHtml(scene.spoken_text || '')}</div>
       `;
 
       // Acting note - highlighted for hook
@@ -3149,26 +3192,38 @@ ${htmlContent}
   }
 
   function wireSceneEvents() {
-    const sceneContents = scriptScenes.querySelectorAll('.script-scene-content');
-    sceneContents.forEach((contentEl) => {
-      const sceneIdx = parseInt(contentEl.closest('.script-scene').dataset.sceneIndex);
+    // Lock is final: locked scenes have no contenteditable and no
+    // regenerate button in the DOM, so skip wiring their handlers entirely.
+    const isLocked = currentScriptData.state === 'locked';
 
-      // Debounced PATCH on blur/input
-      let editTimeout;
-      contentEl.addEventListener('input', () => {
-        clearTimeout(editTimeout);
-        editTimeout = setTimeout(() => handleScriptSceneEdit(sceneIdx, contentEl.innerText), 1500);
+    if (!isLocked) {
+      const sceneContents = scriptScenes.querySelectorAll('.script-scene-content[contenteditable="true"]');
+      sceneContents.forEach((contentEl) => {
+        const sceneIdx = parseInt(contentEl.closest('.script-scene').dataset.sceneIndex);
+
+        // Debounced PATCH on blur/input
+        let editTimeout;
+        contentEl.addEventListener('input', () => {
+          clearTimeout(editTimeout);
+          editTimeout = setTimeout(() => handleScriptSceneEdit(sceneIdx, contentEl.innerText), 1500);
+        });
+        contentEl.addEventListener('blur', () => {
+          clearTimeout(editTimeout);
+          handleScriptSceneEdit(sceneIdx, contentEl.innerText);
+        });
       });
-      contentEl.addEventListener('blur', () => {
-        clearTimeout(editTimeout);
-        handleScriptSceneEdit(sceneIdx, contentEl.innerText);
-      });
-    });
+    }
 
     // PIEZA 42: Regenerate buttons — show inline form instead of confirm()
     const regenerateBtns = scriptScenes.querySelectorAll('.script-scene-regenerate');
     regenerateBtns.forEach((btn) => {
       const sceneIdx = parseInt(btn.closest('.script-scene').dataset.sceneIndex);
+      // In-flight guard: keep the button disabled if a regenerate for this
+      // scene is already out (e.g. this render happened mid-request).
+      if (regeneratingSceneIndices.has(sceneIdx)) {
+        btn.disabled = true;
+        btn.title = 'Regenerating...';
+      }
       btn.addEventListener('click', () => {
         showRegenerateForm(sceneIdx, btn);
       });
@@ -3193,12 +3248,20 @@ ${htmlContent}
       return;
     }
 
+    // AuditFinding backend fields: rule, status ("pass"|"fail"), detail, critical.
+    // There is no `message` and no `passed` -- read the real fields and make
+    // failures (especially critical ones) visibly distinct from passes.
     const auditList = document.createElement('ul');
     auditList.className = 'script-audit-list';
     currentScriptData.audit.forEach((entry) => {
       const li = document.createElement('li');
-      li.className = 'script-audit-item';
-      li.innerHTML = `<span class="audit-rule">${escapeHtml(entry.rule)}</span>: ${escapeHtml(entry.message || 'Check passed')}`;
+      const isFail = entry.status === 'fail';
+      const isCritical = isFail && entry.critical === true;
+      li.className = 'script-audit-item' + (isFail ? ' script-audit-item--fail' : ' script-audit-item--pass') + (isCritical ? ' script-audit-item--critical' : '');
+      const statusLabel = isFail ? (isCritical ? 'FAIL (critical)' : 'FAIL') : 'PASS';
+      const statusColor = isFail ? (isCritical ? '#991B1B' : '#B5720B') : '#1B7F4C';
+      const detail = entry.detail || (isFail ? 'Check failed' : 'Check passed');
+      li.innerHTML = `<span class="audit-status" style="display:inline-block;min-width:110px;font-weight:700;color:${statusColor}">${escapeHtml(statusLabel)}</span><span class="audit-rule">${escapeHtml(entry.rule)}</span>: ${escapeHtml(detail)}`;
       auditList.appendChild(li);
     });
     scriptAudit.appendChild(auditList);
@@ -3322,6 +3385,15 @@ ${htmlContent}
 
   // PIEZA 42: Handle script scene regeneration with instruction
   async function handleScriptRegenerate(sceneIdx, instruction) {
+    // In-flight guard: ignore re-entry for a scene already regenerating.
+    if (regeneratingSceneIndices.has(sceneIdx)) return;
+    regeneratingSceneIndices.add(sceneIdx);
+    const regenBtn = scriptScenes.querySelector(`.script-scene[data-scene-index="${sceneIdx}"] .script-scene-regenerate`);
+    if (regenBtn) {
+      regenBtn.disabled = true;
+      regenBtn.title = 'Regenerating...';
+    }
+
     try {
       // Backend expects scene_n (1-indexed)
       const sceneN = sceneIdx + 1;
@@ -3331,11 +3403,6 @@ ${htmlContent}
         body: JSON.stringify({ instruction: instruction || '' }),
       });
 
-      if (response.status === 402) {
-        alert('Insufficient credits to regenerate scene (costs 2 credits).');
-        return;
-      }
-
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || data.detail || data.message || response.statusText || 'Failed to regenerate scene');
@@ -3343,13 +3410,31 @@ ${htmlContent}
 
       // PIEZA 42: Update from backend response (source of truth)
       currentScriptData = data.script || data;
+      if (data.credits_remaining !== undefined) {
+        credits = data.credits_remaining;
+        updateCreditsUI(data.credits_remaining, initialSessionCredits);
+      }
       renderScenes();
       renderAudit();
       updateScriptLockButton();
       renderScript(); // Re-render to update state if it changed
     } catch (error) {
-      console.error('Scene regenerate error:', error);
-      alert(`Failed to regenerate scene: ${error.message}`);
+      if (error.message === 'PAYWALL_402') {
+        // authenticatedFetch throws this BEFORE the response reaches the
+        // caller when the backend answers 402 -- the paywall overlay is
+        // already shown at that point, nothing else to do here.
+        console.log('[Script] Regenerate blocked by paywall');
+      } else {
+        console.error('Scene regenerate error:', error);
+        alert(`Failed to regenerate scene: ${error.message}`);
+      }
+    } finally {
+      regeneratingSceneIndices.delete(sceneIdx);
+      const btnAfter = scriptScenes.querySelector(`.script-scene[data-scene-index="${sceneIdx}"] .script-scene-regenerate`);
+      if (btnAfter) {
+        btnAfter.disabled = false;
+        btnAfter.title = 'Regenerate this scene';
+      }
     }
   }
 
@@ -3357,6 +3442,10 @@ ${htmlContent}
   function showRegenerateForm(sceneIdx, buttonEl) {
     const sceneEl = buttonEl.closest('.script-scene');
     if (!sceneEl) return;
+
+    // In-flight guard: don't let the founder open a new form (and fire a
+    // second regenerate POST) while this scene's request is still out.
+    if (regeneratingSceneIndices.has(sceneIdx)) return;
 
     // Prevent duplicate forms
     const existingForm = sceneEl.querySelector('.scene-regenerate-form');
@@ -3480,6 +3569,11 @@ ${htmlContent}
       return;
     }
 
+    // In-flight guard: ignore re-entry while a lock POST is already out.
+    if (scriptLockInFlight) return;
+    scriptLockInFlight = true;
+    scriptLockBtn.disabled = true;
+
     try {
       const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/lock`, {
         method: 'POST',
@@ -3497,8 +3591,19 @@ ${htmlContent}
       renderScript();
       showLockMessage('Script locked successfully.', false);
     } catch (error) {
-      console.error('Lock script error:', error);
-      showLockMessage(`Failed to lock script: ${error.message}`, true);
+      if (error.message === 'PAYWALL_402') {
+        // Paywall overlay already shown by authenticatedFetch.
+        console.log('[Script] Lock blocked by paywall');
+      } else {
+        console.error('Lock script error:', error);
+        showLockMessage(`Failed to lock script: ${error.message}`, true);
+      }
+    } finally {
+      scriptLockInFlight = false;
+      // Restores the correct disabled/enabled state and label for the
+      // current script state (renderScript() already does this on success;
+      // harmless to call again, and it's the only path that fixes it on error).
+      updateScriptLockButton();
     }
   }
 
@@ -3626,7 +3731,12 @@ ${htmlContent}
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            interview_transcript: Array.isArray(fullTranscript) ? fullTranscript.join('\n') : '',
+            // fullTranscript is an array of {speaker, text} objects -- join()
+            // alone stringifies each entry to "[object Object]". Format it
+            // the same way the /api/brain/extract call does above.
+            interview_transcript: Array.isArray(fullTranscript)
+              ? fullTranscript.map(t => `${t.speaker}: ${t.text}`).join('\n')
+              : '',
             source_mode: finalSourceMode
           })
         });
@@ -3636,11 +3746,7 @@ ${htmlContent}
         const data = await response.json();
 
         if (!response.ok) {
-          if (response.status === 402) {
-            alert('Paywall: Not enough credits to generate script. You need 10 credits.');
-          } else {
-            alert(`Failed to generate script: ${data.error || data.detail || response.status}`);
-          }
+          alert(`Failed to generate script: ${data.error || data.detail || response.status}`);
           scriptGenerateBtn.disabled = false;
           scriptGenerateBtn.innerHTML = originalText;
           return;
@@ -3656,11 +3762,19 @@ ${htmlContent}
 
       } catch (error) {
         clearTimeout(timeoutId);
-        console.error('Generate script error:', error);
-        if (error.name === 'AbortError') {
-          alert('Script generation timed out. Please try again.');
+        if (error.message === 'PAYWALL_402') {
+          // authenticatedFetch throws this BEFORE the response reaches us
+          // when the backend answers 402 -- it has already shown the
+          // paywall overlay, so `response.status === 402` above can never
+          // run. Nothing else to do here.
+          console.log('[Script] Generate blocked by paywall');
         } else {
-          alert(`Failed to generate script: ${error.message}`);
+          console.error('Generate script error:', error);
+          if (error.name === 'AbortError') {
+            alert('Script generation timed out. Please try again.');
+          } else {
+            alert(`Failed to generate script: ${error.message}`);
+          }
         }
         scriptGenerateBtn.disabled = false;
         scriptGenerateBtn.innerHTML = originalText;
