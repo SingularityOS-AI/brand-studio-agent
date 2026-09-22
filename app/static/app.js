@@ -1944,6 +1944,10 @@ ${htmlContent}
   const scriptAudit = document.getElementById('Script-Audit');
   const scriptLockBtn = document.getElementById('Script-LockBtn');
 
+  // PIEZA 42: Review panel elements (created dynamically in renderScript)
+  // Track active regenerate forms to prevent duplicates
+  let activeRegenerateForms = new Set();
+
   // Flag to prevent re-charging for already generated catalog
   let catalogAlreadyGenerated = false;
   // Block C: Track current script data
@@ -2708,7 +2712,7 @@ ${htmlContent}
       const scriptData = await response.json();
       // Backend returns {"script": {...}}
       currentScriptData = scriptData.script || scriptData;
-      renderScript(scriptData);
+      renderScript();
       initGlobalProgress();
     } catch (error) {
       console.error('Load script error:', error);
@@ -2816,26 +2820,135 @@ ${htmlContent}
     dynamic: 'Dynamic'
   };
 
+  // PIEZA 42: State display names
+  const STATE_DISPLAY_NAMES = {
+    'draft': 'Draft',
+    'reviewed': 'Reviewed',
+    'locked': 'Locked'
+  };
+
+  // PIEZA 42: Funnel stage display names
+  const FUNNEL_STAGE_NAMES = {
+    'tofu': 'Awareness (ToFu)',
+    'mofu': 'Consideration (MoFu)',
+    'bofu': 'Decision (BoFu)'
+  };
+
+  // PIEZA 42: Get state transition hint
+  function getStateHint(state) {
+    switch (state) {
+      case 'draft':
+        return 'Confirm funnel stage and recording format to proceed to Reviewed';
+      case 'reviewed':
+        return 'Ready to lock when all critical rules pass';
+      case 'locked':
+        return 'Script is locked for recording';
+      default:
+        return '';
+    }
+  }
+
   function renderScript() {
     scriptEmptyState.style.display = 'none';
     scriptContent.style.display = 'block';
     scriptGenerateBtn.style.display = 'none';
+    scriptMeta.style.display = 'block';
 
-    const meta = `${currentScriptData.state}${currentScriptData.state === 'locked' ? ' • Locked' : ''}`;
-    scriptMeta.textContent = meta;
-    scriptAngle.textContent = escapeHtml(currentScriptData.angle || '—');
-    scriptFunnelStage.textContent = escapeHtml(currentScriptData.funnel_stage || '—');
-    scriptDuration.textContent = currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '—';
+    // PIEZA 42: Render state badge and hint
+    const state = currentScriptData.state || 'draft';
+    const stateName = STATE_DISPLAY_NAMES[state] || state;
+    const stateHint = getStateHint(state);
+    const stateColor = state === 'locked' ? '#1B7F4C' : (state === 'reviewed' ? '#B5720B' : '#2B4CD8');
 
-    // Recording format and music (new fields)
-    if (scriptRecordingFormat) {
-      const recordingFormatName = RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || (currentScriptData.recording_format ? currentScriptData.recording_format.replace(/_/g, ' ') : '—');
-      scriptRecordingFormat.textContent = escapeHtml(recordingFormatName);
+    // Build meta panel with state prominently displayed
+    let metaHtml = `
+      <div style="margin-bottom:16px;padding:16px;border:1px solid #E2E8F0;border-radius:8px;background:#FAFAFA">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675">Script State</span>
+          <span style="padding:4px 12px;border-radius:4px;background:${stateColor};color:#fff;font-weight:600;font-size:13px">${escapeHtml(stateName)}</span>
+          ${state === 'locked' ? '<span style="font-size:13px;color:#1B7F4C;font-weight:500">✓ Ready for recording</span>' : ''}
+        </div>
+        <div style="font-size:13px;color:#5C6675;line-height:1.5">
+          ${escapeHtml(stateHint)}
+        </div>
+      </div>
+    `;
+
+    // Add "Review before recording" panel if in draft or reviewed state
+    if (state !== 'locked') {
+      const proposedFunnel = currentScriptData.funnel_stage || 'tofu';
+      const proposedFormat = currentScriptData.recording_format || 'selfie_natural';
+
+      metaHtml += `
+        <div id="Script-ReviewPanel" style="margin-bottom:16px;padding:16px;border:1px solid #2B4CD8;border-radius:8px;background:#F0F7FF">
+          <div style="font-size:14px;font-weight:600;color:#14181F;margin-bottom:12px">Review before recording</div>
+
+          <div style="margin-bottom:12px">
+            <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:6px">Funnel Stage</label>
+            <select id="Review-FunnelStage" style="width:100%;padding:8px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px">
+              <option value="tofu" ${proposedFunnel === 'tofu' ? 'selected' : ''}>Awareness (ToFu)</option>
+              <option value="mofu" ${proposedFunnel === 'mofu' ? 'selected' : ''}>Consideration (MoFu)</option>
+              <option value="bofu" ${proposedFunnel === 'bofu' ? 'selected' : ''}>Decision (BoFu)</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:6px">Recording Format</label>
+            <select id="Review-RecordingFormat" style="width:100%;padding:8px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px">
+              <option value="selfie_natural" ${proposedFormat === 'selfie_natural' ? 'selected' : ''}>Natural selfie</option>
+              <option value="pov" ${proposedFormat === 'pov' ? 'selected' : ''}>POV (Point of view)</option>
+              <option value="dramatization" ${proposedFormat === 'dramatization' ? 'selected' : ''}>Dramatization</option>
+              <option value="teleprompter_clean" ${proposedFormat === 'teleprompter_clean' ? 'selected' : ''}>Teleprompter (clean background)</option>
+              <option value="dynamic" ${proposedFormat === 'dynamic' ? 'selected' : ''}>Dynamic</option>
+            </select>
+          </div>
+
+          <button id="Review-ConfirmBtn" class="btn btn--go" style="width:100%;padding:10px;font-size:13px">Confirm & Move to Reviewed</button>
+          <div style="margin-top:8px;font-size:11px;color:#5C6675;text-align:center">Free — no credits charged</div>
+        </div>
+      `;
     }
-    if (scriptMusicPrompt) {
-      const musicValue = (currentScriptData.music_prompt !== null && currentScriptData.music_prompt !== undefined) ? currentScriptData.music_prompt : '—';
-      scriptMusicPrompt.textContent = escapeHtml(musicValue);
+
+    // Add basic metadata grid
+    metaHtml += `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Angle</div>
+          <div id="Script-Angle" style="font-weight:500;color:#14181F">${escapeHtml(currentScriptData.angle || '—')}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Funnel</div>
+          <div id="Script-FunnelStage" style="font-weight:500;color:#14181F">${escapeHtml(FUNNEL_STAGE_NAMES[currentScriptData.funnel_stage] || currentScriptData.funnel_stage || '—')}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Duration</div>
+          <div id="Script-Duration" style="font-weight:500;color:#14181F">${currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '—'}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Format</div>
+          <div id="Script-RecordingFormat" style="font-weight:500;color:#14181F">${escapeHtml(RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || currentScriptData.recording_format || '—')}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Music</div>
+          <div id="Script-MusicPrompt" style="font-weight:500;color:#14181F;font-size:12px">${escapeHtml(currentScriptData.music_prompt ? currentScriptData.music_prompt : '—')}</div>
+        </div>
+      </div>
+    `;
+
+    scriptMeta.innerHTML = metaHtml;
+
+    // PIEZA 42: Wire up review panel confirm button if present
+    const confirmBtn = document.getElementById('Review-ConfirmBtn');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', handleScriptConfirm);
     }
+
+    // Re-bind DOM references that were replaced
+    scriptAngle = document.getElementById('Script-Angle');
+    scriptFunnelStage = document.getElementById('Script-FunnelStage');
+    scriptDuration = document.getElementById('Script-Duration');
+    scriptRecordingFormat = document.getElementById('Script-RecordingFormat');
+    scriptMusicPrompt = document.getElementById('Script-MusicPrompt');
 
     // Render Frame Zero
     scriptFrameZero.style.display = 'block';
@@ -2856,6 +2969,39 @@ ${htmlContent}
 
     // Update global progress
     initGlobalProgress();
+  }
+
+  // PIEZA 42: Handle script confirmation (PATCH /api/script/{idea_id})
+  async function handleScriptConfirm() {
+    const funnelSelect = document.getElementById('Review-FunnelStage');
+    const formatSelect = document.getElementById('Review-RecordingFormat');
+
+    if (!funnelSelect || !formatSelect) return;
+
+    const funnelStage = funnelSelect.value;
+    const recordingFormat = formatSelect.value;
+
+    try {
+      const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ funnel_stage: funnelStage, recording_format: recordingFormat }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || data.detail || response.statusText || 'Failed to confirm script');
+      }
+
+      const data = await response.json();
+      // PIEZA 42: Update from backend response (source of truth)
+      currentScriptData = data.script || data;
+      renderScript();
+
+    } catch (error) {
+      console.error('Script confirm error:', error);
+      alert(`Failed to confirm script: ${error.message}`);
+    }
   }
 
   function formatTime(seconds) {
@@ -3019,13 +3165,12 @@ ${htmlContent}
       });
     });
 
-    // Regenerate buttons
+    // PIEZA 42: Regenerate buttons — show inline form instead of confirm()
     const regenerateBtns = scriptScenes.querySelectorAll('.script-scene-regenerate');
     regenerateBtns.forEach((btn) => {
       const sceneIdx = parseInt(btn.closest('.script-scene').dataset.sceneIndex);
-      btn.addEventListener('click', async () => {
-        if (!confirm('Regenerate this scene? This costs 2 credits.')) return;
-        await handleScriptRegenerate(sceneIdx);
+      btn.addEventListener('click', () => {
+        showRegenerateForm(sceneIdx, btn);
       });
     });
 
@@ -3066,30 +3211,86 @@ ${htmlContent}
     }
 
     const isLocked = currentScriptData.state === 'locked';
-    scriptLockBtn.textContent = isLocked ? 'Unlock Script' : 'Lock Script';
-    scriptLockBtn.dataset.locked = isLocked.toString();
+    const isReviewed = currentScriptData.state === 'reviewed';
 
-    // Critical rules that must pass to allow locking
-    const criticalRules = ['rule_1', 'rule_4', 'rule_5', 'rule_8', 'rule_9', 'rule_12'];
-    let failedRule = null;
+    // PIEZA 42B: Lock is final - when locked, button shows "Locked" and is disabled
+    if (isLocked) {
+      scriptLockBtn.textContent = 'Locked — ready to record';
+      scriptLockBtn.disabled = true;
+      scriptLockBtn.dataset.locked = 'true';
+      scriptLockBtn.title = 'Script is locked for recording';
+      return;
+    }
+
+    scriptLockBtn.textContent = 'Lock Script';
+    scriptLockBtn.dataset.locked = 'false';
+
+    // PIEZA 42: Can only lock from "reviewed" state
+    if (!isReviewed) {
+      scriptLockBtn.disabled = true;
+      scriptLockBtn.title = 'Confirm funnel stage and recording format before locking';
+      return;
+    }
+
+    // PIEZA 42B: Check critical rules from backend (uses 'critical' field, not hardcoded list)
+    let failedCriticalRule = null;
 
     if (currentScriptData.audit) {
-      for (const rule of criticalRules) {
-        const ruleEntry = currentScriptData.audit.find((a) => a.rule === rule);
-        if (ruleEntry && !ruleEntry.passed) {
-          failedRule = rule;
-          break;
-        }
+      const failedCritical = currentScriptData.audit.find((a) => a.status === 'fail' && a.critical === true);
+      if (failedCritical) {
+        failedCriticalRule = failedCritical.rule;
       }
     }
 
-    if (!isLocked && failedRule) {
+    if (failedCriticalRule) {
       scriptLockBtn.disabled = true;
-      scriptLockBtn.title = `Cannot lock: ${failedRule} must pass`;
+      scriptLockBtn.title = `Cannot lock: ${failedCriticalRule} must pass`;
     } else {
       scriptLockBtn.disabled = false;
       scriptLockBtn.title = '';
     }
+  }
+
+  // PIEZA 42B: Helper to update script UI without rebuilding scenes (preserves text editor focus)
+  function updateScriptUIWithoutRebuildingScenes() {
+    // Update state badge and hint
+    const state = currentScriptData.state || 'draft';
+    const stateName = STATE_DISPLAY_NAMES[state] || state;
+    const stateHint = getStateHint(state);
+    const stateColor = state === 'locked' ? '#1B7F4C' : (state === 'reviewed' ? '#B5720B' : '#2B4CD8');
+
+    // Update only the state badge in meta panel
+    const metaPanel = scriptMeta.querySelector('div');
+    if (metaPanel) {
+      const stateBadge = metaPanel.querySelector('span[style*="background:"]');
+      if (stateBadge) {
+        stateBadge.style.background = stateColor;
+        stateBadge.textContent = stateName;
+      }
+      const hintDiv = metaPanel.querySelector('div:last-child');
+      if (hintDiv) {
+        hintDiv.textContent = stateHint;
+      }
+    }
+
+    // Update metadata grid values (without rebuilding)
+    if (scriptAngle) scriptAngle.textContent = currentScriptData.angle || '—';
+    if (scriptFunnelStage) scriptFunnelStage.textContent = FUNNEL_STAGE_NAMES[currentScriptData.funnel_stage] || currentScriptData.funnel_stage || '—';
+    if (scriptDuration) scriptDuration.textContent = currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '—';
+    if (scriptRecordingFormat) scriptRecordingFormat.textContent = RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || currentScriptData.recording_format || '—';
+    if (scriptMusicPrompt) scriptMusicPrompt.textContent = currentScriptData.music_prompt ? currentScriptData.music_prompt : '—';
+
+    // Update review panel visibility (show/hide based on state)
+    const reviewPanel = document.getElementById('Script-ReviewPanel');
+    if (reviewPanel) {
+      if (state === 'locked') {
+        reviewPanel.style.display = 'none';
+      }
+    }
+
+    // Update audit and lock button
+    renderAudit();
+    updateScriptLockButton();
   }
 
   async function handleScriptSceneEdit(sceneIdx, newContent) {
@@ -3107,22 +3308,27 @@ ${htmlContent}
         throw new Error(data.error || data.detail || response.statusText || 'Failed to save edit');
       }
 
-      // Update local data silently
-      if (currentScriptData.scenes[sceneIdx]) {
-        currentScriptData.scenes[sceneIdx].spoken_text = newContent;
-      }
+      const data = await response.json();
+      // PIEZA 42B: Update from backend response (source of truth)
+      currentScriptData = data.script || data;
+      // PIEZA 42B: Update only UI parts that may have changed (state, audit, button)
+      // Do NOT rebuild scenes - the founder is still typing in the contenteditable
+      updateScriptUIWithoutRebuildingScenes();
     } catch (error) {
       console.error('Scene edit error:', error);
       alert(`Failed to save edit: ${error.message}`);
     }
   }
 
-  async function handleScriptRegenerate(sceneIdx) {
+  // PIEZA 42: Handle script scene regeneration with instruction
+  async function handleScriptRegenerate(sceneIdx, instruction) {
     try {
       // Backend expects scene_n (1-indexed)
       const sceneN = sceneIdx + 1;
       const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/scene/${sceneN}/regenerate`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction: instruction || '' }),
       });
 
       if (response.status === 402) {
@@ -3135,25 +3341,145 @@ ${htmlContent}
         throw new Error(data.error || data.detail || data.message || response.statusText || 'Failed to regenerate scene');
       }
 
-      // Backend returns {"script": {...}, "credits_remaining": N}
+      // PIEZA 42: Update from backend response (source of truth)
       currentScriptData = data.script || data;
       renderScenes();
       renderAudit();
       updateScriptLockButton();
+      renderScript(); // Re-render to update state if it changed
     } catch (error) {
       console.error('Scene regenerate error:', error);
       alert(`Failed to regenerate scene: ${error.message}`);
     }
   }
 
+  // PIEZA 42: Show inline regenerate form for a scene
+  function showRegenerateForm(sceneIdx, buttonEl) {
+    const sceneEl = buttonEl.closest('.script-scene');
+    if (!sceneEl) return;
+
+    // Prevent duplicate forms
+    const existingForm = sceneEl.querySelector('.scene-regenerate-form');
+    if (existingForm) {
+      existingForm.remove();
+      activeRegenerateForms.delete(sceneIdx);
+      return;
+    }
+
+    // Clear any other active forms
+    document.querySelectorAll('.scene-regenerate-form').forEach(f => f.remove());
+    activeRegenerateForms.clear();
+    activeRegenerateForms.add(sceneIdx);
+
+    const formHtml = `
+      <div class="scene-regenerate-form" style="margin:12px 0;padding:16px;border:1px solid #D5DAE4;border-radius:8px;background:#FAFAFA">
+        <div style="font-size:13px;font-weight:500;color:#14181F;margin-bottom:12px">Regenerate Scene — 2 credits</div>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button type="button" class="regenerate-preset" data-preset="Make it shorter and more concise" style="padding:6px 12px;border:1px solid #D5DAE4;border-radius:4px;background:#fff;font-size:12px;cursor:pointer">
+            Shorter
+          </button>
+          <button type="button" class="regenerate-preset" data-preset="Make it punchier and more direct" style="padding:6px 12px;border:1px solid #D5DAE4;border-radius:4px;background:#fff;font-size:12px;cursor:pointer">
+            Punchier
+          </button>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:6px">Custom instruction (optional)</label>
+          <textarea class="regenerate-custom" rows="2" placeholder="e.g., More energy, slower pace..." style="width:100%;padding:8px;border:1px solid #D5DAE4;border-radius:4px;font-family:inherit;font-size:13px;resize:vertical"></textarea>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="regenerate-cancel" style="padding:6px 12px;border:1px solid #D5DAE4;border-radius:4px;background:#fff;font-size:12px;cursor:pointer">Cancel</button>
+          <button type="button" class="regenerate-confirm btn btn--go" style="padding:6px 16px;font-size:12px">Regenerate (2 credits)</button>
+        </div>
+      </div>
+    `;
+
+    // Insert after the button's parent (script-scene-header)
+    const header = buttonEl.closest('.script-scene-header');
+    if (header) {
+      header.insertAdjacentHTML('afterend', formHtml);
+    } else {
+      buttonEl.insertAdjacentHTML('afterend', formHtml);
+    }
+
+    // Wire up form events
+    const form = sceneEl.querySelector('.scene-regenerate-form');
+    const customInput = form.querySelector('.regenerate-custom');
+    const confirmBtn = form.querySelector('.regenerate-confirm');
+    const cancelBtn = form.querySelector('.regenerate-cancel');
+    const presetBtns = form.querySelectorAll('.regenerate-preset');
+
+    let selectedPreset = '';
+
+    presetBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        presetBtns.forEach(b => {
+          b.style.background = '#fff';
+          b.style.borderColor = '#D5DAE4';
+        });
+        btn.style.background = '#F0F7FF';
+        btn.style.borderColor = '#2B4CD8';
+        selectedPreset = btn.dataset.preset;
+        customInput.value = selectedPreset;
+      });
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      form.remove();
+      activeRegenerateForms.delete(sceneIdx);
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+      const instruction = customInput.value.trim();
+      form.remove();
+      activeRegenerateForms.delete(sceneIdx);
+      await handleScriptRegenerate(sceneIdx, instruction);
+    });
+  }
+
+  // PIEZA 42B: Show inline message near the lock button (replaces alert)
+  function showLockMessage(message, isError = false) {
+    // Remove any existing message
+    const existingMsg = document.getElementById('Script-LockMessage');
+    if (existingMsg) {
+      existingMsg.remove();
+    }
+
+    const msgDiv = document.createElement('div');
+    msgDiv.id = 'Script-LockMessage';
+    msgDiv.style.cssText = `
+      margin-top: 12px;
+      padding: 10px 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      ${isError ? 'background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5;' : 'background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7;'}
+    `;
+    msgDiv.textContent = message;
+
+    // Insert after the lock button
+    if (scriptLockBtn && scriptLockBtn.parentNode) {
+      scriptLockBtn.parentNode.insertBefore(msgDiv, scriptLockBtn.nextSibling);
+    }
+
+    // Auto-remove success messages after 5 seconds
+    if (!isError) {
+      setTimeout(() => {
+        msgDiv.remove();
+      }, 5000);
+    }
+  }
+
+  // PIEZA 42B: Handle script locking (lock is final, no unlock)
   async function handleScriptLock() {
-    // Nota: el campo real del objeto script es `state` (ver Script.state en
-    // app/scripting/scripts.py y su uso consistente en líneas ~2747/2850/2972
-    // de este mismo archivo), NO `status` -- verificado con
-    // Script.model_dump(mode="json"). El bug real era de scope: el const
-    // vivía dentro del try y se usaba en el catch (ReferenceError si el
-    // fetch fallaba), no el nombre del campo.
-    const isCurrentlyLocked = currentScriptData?.state === 'locked';
+    // PIEZA 42B: Lock is final - if already locked, this shouldn't be callable
+    // (button is disabled), but guard just in case
+    if (currentScriptData?.state === 'locked') {
+      showLockMessage('Script is already locked.', true);
+      return;
+    }
+
     try {
       const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/lock`, {
         method: 'POST',
@@ -3162,17 +3488,17 @@ ${htmlContent}
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || data.detail || response.statusText || 'Failed to update lock status');
+        throw new Error(data.error || data.detail || response.statusText || 'Failed to lock script');
       }
 
       const data = await response.json();
       // Backend returns {"script": {...}, "status": "locked"}
       currentScriptData = data.script || data;
       renderScript();
-      alert(isCurrentlyLocked ? 'Script unlocked successfully.' : 'Script locked successfully.');
+      showLockMessage('Script locked successfully.', false);
     } catch (error) {
       console.error('Lock script error:', error);
-      alert(`Failed to ${isCurrentlyLocked ? 'unlock' : 'lock'} script: ${error.message}`);
+      showLockMessage(`Failed to lock script: ${error.message}`, true);
     }
   }
 

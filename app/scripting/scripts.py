@@ -127,6 +127,7 @@ class AuditFinding(BaseModel):
     rule: str = Field(..., description="Rule name/number (e.g., 'rule_1', 'rule_7')")
     status: Literal["pass", "fail"] = Field(..., description="Pass or fail")
     detail: str = Field(..., description="Human-readable explanation")
+    critical: bool = Field(default=False, description="Whether this is a critical rule that blocks locking")
 
 
 class Script(BaseModel):
@@ -761,14 +762,15 @@ def audit_script(script: Script) -> list[AuditFinding]:
         rule = rule_def["rule"]
         check_fn = rule_def["check"]
         fail_msg_fn = rule_def["fail_msg"]
+        critical = rule_def.get("critical", False)
 
         try:
             if check_fn(script):
-                findings.append(AuditFinding(rule=rule, status="pass", detail="OK"))
+                findings.append(AuditFinding(rule=rule, status="pass", detail="OK", critical=critical))
             else:
-                findings.append(AuditFinding(rule=rule, status="fail", detail=fail_msg_fn(script)))
+                findings.append(AuditFinding(rule=rule, status="fail", detail=fail_msg_fn(script), critical=critical))
         except (ValueError, KeyError, TypeError, AttributeError) as e:
-            findings.append(AuditFinding(rule=rule, status="fail", detail=f"Error checking: {e}"))
+            findings.append(AuditFinding(rule=rule, status="fail", detail=f"Error checking: {e}", critical=critical))
 
     return findings
 
@@ -1293,7 +1295,7 @@ def confirm_script(
         raise ValueError("No script found. Generate script first.")
 
     if script.state == "locked":
-        raise ValueError("Cannot confirm locked script. Unlock first.")
+        raise ValueError("Locked scripts cannot be changed.")
 
     # Update values
     script.funnel_stage = funnel_stage
@@ -1351,6 +1353,10 @@ def lock_script(session_id: str, idea_id: str) -> Script:
 
     if script.state == "locked":
         return script  # Already locked, no-op
+
+    # PIEZA 42: Lock only from "reviewed" state
+    if script.state != "reviewed":
+        raise ValueError("Confirm funnel stage and recording format before locking")
 
     # Check lock rules - critical rules that must pass
     # Build the set dynamically from AUDIT_RULES to ensure sync

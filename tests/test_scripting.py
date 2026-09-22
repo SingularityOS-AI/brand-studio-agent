@@ -1279,6 +1279,7 @@ def test_lock_fails_when_missing_phase(valid_frame_zero, tmp_path):
             frame_zero=valid_frame_zero,
             scenes=scenes_no_rehook,
             sources=["source"],  # Has sources for rule_9
+            state="reviewed",  # PIEZA 42: Must be reviewed to test lock failures
         )
         _save_script(script)
 
@@ -1327,6 +1328,7 @@ def test_lock_fails_with_not_x_its_y_pattern(valid_frame_zero, tmp_path):
             frame_zero=valid_frame_zero,
             scenes=scenes,
             sources=["source"],
+            state="reviewed",  # PIEZA 42: Must be reviewed to test lock failures
         )
         _save_script(script)
 
@@ -1411,6 +1413,7 @@ def test_lock_script_success(valid_script):
         ]
         script.scenes.extend(additional_scenes)
         script.sources = ["Test source"]  # Pass rule_9
+        script.state = "reviewed"  # PIEZA 42: Must be reviewed to lock
 
         # Mock _check_script to return the valid script
         mock_check.return_value = script
@@ -1469,6 +1472,7 @@ def test_lock_script_fails_missing_cta(valid_frame_zero, tmp_path):
             frame_zero=valid_frame_zero,
             scenes=scenes_no_cta,
             sources=["Test"],  # Pass rule_9
+            state="reviewed",  # PIEZA 42: Must be reviewed to test lock failures
         )
         _save_script(script_no_cta)
 
