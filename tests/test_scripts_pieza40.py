@@ -437,7 +437,8 @@ def test_confirm_script_endpoint_422_invalid_recording_format(api_client):
 # STATE TRANSITION TESTS
 # =============================================================================
 
-def test_edit_scene_returns_to_draft(valid_script, tmp_path):
+@pytest.mark.asyncio
+async def test_edit_scene_returns_to_draft(valid_script, tmp_path):
     """Editing scene text on reviewed script returns to draft."""
     with patch("app.scripting.scripts._get_script_client", return_value=None):
         import os
@@ -449,7 +450,7 @@ def test_edit_scene_returns_to_draft(valid_script, tmp_path):
         _save_script(valid_script)
 
         # Edit a scene
-        updated = update_scene_text(
+        updated = await update_scene_text(
             session_id=valid_script.session_id,
             idea_id=valid_script.idea_id,
             scene_n=1,

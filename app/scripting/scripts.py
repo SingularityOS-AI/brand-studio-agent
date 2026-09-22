@@ -6,12 +6,13 @@ Follows the same persistence pattern as app/catalog/ideas.py.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.catalog.ideas import CatalogIdea
 from app.config import settings
@@ -31,6 +32,19 @@ class ScriptStorageError(Exception):
     """
 
 
+class SceneRegenerationInProgressError(Exception):
+    """
+    Raised when a regeneration for the same (session_id, idea_id, scene_n)
+    is already in flight.
+
+    Audit finding (Block C concurrency, Pieza 43): firing the SAME scene's
+    regeneration twice concurrently used to just queue behind the lock and
+    charge credits twice for what the founder experienced as one click.
+    This is checked and raised BEFORE the lock, before any Gemini call, and
+    before any credit is charged -- the endpoint converts it to 409.
+    """
+
+
 # =============================================================================
 # PYDANTIC MODELS
 # =============================================================================
@@ -42,7 +56,12 @@ class FrameZero(BaseModel):
     Required for stopping the scroll in less than 1 second.
     """
     visual: str = Field(..., description="What we see in the first frame")
-    on_screen_text: str = Field(..., max_length=50, description="Text overlay, max 8 words")
+    # PIEZA 43: removed an invented max_length=50 -- the SIGNED rule is <= 8
+    # words (enforced below in model_post_init), not a character count. An
+    # honest 8-word subtitle can easily run past 50 chars and this was
+    # killing whole generations with a raw Pydantic error for text that was
+    # actually within spec.
+    on_screen_text: str = Field(..., description="Text overlay, max 8 words")
     why_it_stops_the_scroll: str = Field(..., description="Why this catches attention")
 
     def model_post_init(self, __context: Any):
@@ -80,7 +99,9 @@ class Scene(BaseModel):
     spoken_text: str = Field(..., description="What the founder says (natural prose)")
     shot: str = Field(..., description="Camera angle")
     b_roll: str | None = Field(None, description="B-roll overlay")
-    on_screen_text: str = Field(..., max_length=50, description="Subtitle, max 8 words")
+    # PIEZA 43: same invented max_length=50 removed -- see FrameZero above.
+    # The signed rule is <= 8 words, already enforced in model_post_init.
+    on_screen_text: str = Field(..., description="Subtitle, max 8 words")
     acting_note: str = Field(..., description="Acting/direction note")
     sound: str = Field(..., description="Background mood or SFX")
 
@@ -782,6 +803,194 @@ def audit_script(script: Script) -> list[AuditFinding]:
 CREDITS_COST_GENERATE = 10
 CREDITS_COST_REGENERATE_SCENE = 2
 
+# Duration ESTIMATE formula (150 words/minute = 2.5 words/sec), shared by
+# generation, regeneration, AND manual edits (Pieza 43) so timing is
+# computed the exact same way everywhere a scene's spoken_text changes.
+WORDS_PER_SECOND = 2.5
+MIN_SCENE_DURATION = 1.0  # Minimum 1 second per scene, so nothing shows as 0s
+
+
+def _estimate_scene_duration(spoken_text: str) -> float:
+    """
+    Estimate a scene's duration from its spoken_text word count.
+
+    This is a planning ESTIMATE, not a measurement -- actual duration only
+    exists after recording. Used by generate_script, regenerate_scene, AND
+    update_scene_text (Pieza 43: manual edits used to leave stale timing
+    that only a paid regeneration could fix).
+    """
+    words = len((spoken_text or "").split())
+    return max(MIN_SCENE_DURATION, words / WORDS_PER_SECOND)
+
+
+def _reflow_following_scenes(scenes: list[Scene], changed_idx: int) -> None:
+    """
+    Shift start_s/end_s of every scene AFTER changed_idx (0-indexed) so they
+    stay back-to-back with the scene at changed_idx -- no gaps, no overlaps.
+    Each later scene KEEPS its own duration, only its position shifts.
+    """
+    for i in range(changed_idx + 1, len(scenes)):
+        prev_scene = scenes[i - 1]
+        curr_scene = scenes[i]
+        duration = curr_scene.end_s - curr_scene.start_s
+        curr_scene.start_s = prev_scene.end_s
+        curr_scene.end_s = curr_scene.start_s + duration
+
+
+def _recompute_scene_timing_and_reflow(scenes: list[Scene], changed_idx: int) -> None:
+    """
+    Recompute scenes[changed_idx]'s end_s from its (already-updated)
+    spoken_text using the SAME estimate formula as generation, then reflow
+    every later scene to keep the whole timeline consistent.
+
+    Pieza 43 (audit finding): update_scene_text used to change spoken_text
+    without touching start_s/end_s at all, so a manual edit could silently
+    desync the timeline from the words actually being said -- rule_1
+    (duration) could then only be "fixed" by paying for a regeneration.
+    """
+    changed = scenes[changed_idx]
+    changed.end_s = changed.start_s + _estimate_scene_duration(changed.spoken_text)
+    _reflow_following_scenes(scenes, changed_idx)
+
+
+# Gemini sometimes confuses the SCENE-level `b_roll` overlay field with the
+# BLUEPRINT `asset_type` enum and returns "b_roll" (or a close variant)
+# where a valid asset_type is expected. Since a b_roll-style scene is by
+# definition NOT the founder on camera, "stock" is the closest safe valid
+# value -- it still routes the scene to Block D as non-a_roll footage
+# instead of failing validation outright. Anything not in this map is left
+# untouched so validation still catches genuinely unknown values loudly.
+_ASSET_TYPE_NORMALIZATION: dict[str, str] = {
+    "b_roll": "stock",
+    "b-roll": "stock",
+    "broll": "stock",
+}
+
+
+def _normalize_asset_type(value: Any) -> Any:
+    """Normalize obvious, documented model slips in asset_type before validation."""
+    if isinstance(value, str):
+        key = value.strip().lower().replace("-", "_")
+        if key in _ASSET_TYPE_NORMALIZATION:
+            return _ASSET_TYPE_NORMALIZATION[key]
+    return value
+
+
+def _summarize_validation_error(e: Exception) -> str:
+    """
+    Turn a pydantic ValidationError into one short, readable line instead of
+    its default multi-line dump -- a founder should see "on_screen_text:
+    must be at most 8 words, got 10", not a raw Pydantic trace.
+    """
+    if isinstance(e, ValidationError):
+        try:
+            parts = []
+            for err in e.errors():
+                loc = ".".join(str(p) for p in err.get("loc", ())) or "value"
+                parts.append(f"{loc}: {err.get('msg', 'invalid value')}")
+            if parts:
+                return "; ".join(parts)
+        except Exception:
+            pass
+    return str(e)
+
+
+def _build_validated_scene(
+    scene_data: dict[str, Any],
+    *,
+    n: int,
+    phase: str | None,
+    start_s: float,
+    end_s: float,
+    fallback: Scene | None = None,
+) -> Scene:
+    """
+    Build a Scene from raw (LLM) data with FULL validation, BEFORE anything
+    is mutated or saved.
+
+    Audit finding (Pieza 43, critical): Pydantic v2 does NOT validate on
+    attribute assignment by default. The old regenerate_scene() path did
+    `target_scene.spoken_text = new_scene_data["spoken_text"]` directly on
+    the already-loaded, already-valid Scene -- so an invalid Gemini response
+    (e.g. on_screen_text over 8 words, or an unrecognized asset_type) sat on
+    disk looking fine until the NEXT load, when `_row_to_script` hit the
+    same validation error and returned None. The founder saw "no script
+    found", paid again to regenerate, and the upsert wiped the script and
+    every prior iteration. Going through `Scene.model_validate` here forces
+    validation to happen NOW, on a value nothing has touched yet -- a bad
+    response fails loud immediately, with nothing saved and nothing charged.
+
+    `fallback` (existing scene, used for regeneration) supplies blueprint
+    field values (asset_type/stock_query/visual_prompt) the model chose not
+    to return, matching the original "preserve if not returned" behavior.
+
+    Raises:
+        ValueError: with a clean, one-line summary if the data is invalid.
+    """
+    asset_type_raw = scene_data.get(
+        "asset_type", fallback.asset_type if fallback else "a_roll"
+    )
+    asset_type = _normalize_asset_type(asset_type_raw)
+
+    payload = {
+        "n": n,
+        "start_s": start_s,
+        "end_s": end_s,
+        "phase": phase,
+        "spoken_text": scene_data.get("spoken_text"),
+        "shot": scene_data.get("shot"),
+        "b_roll": scene_data.get("b_roll"),
+        "on_screen_text": scene_data.get("on_screen_text"),
+        "acting_note": scene_data.get("acting_note"),
+        "sound": scene_data.get("sound"),
+        "asset_type": asset_type,
+        "stock_query": scene_data.get(
+            "stock_query", fallback.stock_query if fallback else None
+        ),
+        "visual_prompt": scene_data.get(
+            "visual_prompt", fallback.visual_prompt if fallback else None
+        ),
+    }
+    try:
+        return Scene.model_validate(payload)
+    except ValidationError as e:
+        raise ValueError(
+            f"Model returned invalid data for scene {n}: {_summarize_validation_error(e)}"
+        ) from e
+
+
+# =============================================================================
+# CONCURRENCY: per-(session_id, idea_id) locking (Pieza 43)
+# =============================================================================
+# ASSUMPTION (documented per spec, must be revisited if this ever changes):
+# this app runs as a SINGLE Render instance/process. An in-process dict of
+# asyncio.Lock objects only serializes mutations WITHIN one process -- it
+# does NOT protect against multiple instances or worker processes. If this
+# app is ever scaled horizontally, this must move to a shared mechanism
+# (DB-level lock/row version, Redis, etc.) or lost updates return.
+#
+# Locks are created lazily and never evicted -- one Lock object per idea
+# that has ever had a mutation attempted stays in memory for the life of
+# the process. That is a bounded, tiny amount of memory for this app's
+# scale and is not worth the complexity of eviction here.
+
+_script_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+# In-flight regenerations, keyed by (session_id, idea_id, scene_n). Checked
+# and updated with no `await` in between, so it is race-free under asyncio's
+# cooperative scheduling without needing its own lock.
+_in_flight_regenerations: set[tuple[str, str, int]] = set()
+
+
+def _get_script_lock(session_id: str, idea_id: str) -> asyncio.Lock:
+    """Return the (lazily created) lock that serializes mutations for this script."""
+    key = (session_id, idea_id)
+    lock = _script_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _script_locks[key] = lock
+    return lock
+
 
 def _build_generation_prompt(
     brand_context: str,
@@ -988,45 +1197,44 @@ async def generate_script(
             raise ValueError("Failed to parse JSON response from Gemini")
 
     # 7. Build Script object
-    frame_zero = FrameZero(**script_data["frame_zero"])
+    # Pieza 43: FrameZero built via model_validate + a clean error message
+    # instead of a raw Pydantic trace bubbling straight out of Scene(**...).
+    try:
+        frame_zero = FrameZero.model_validate(script_data.get("frame_zero", {}))
+    except ValidationError as e:
+        raise ValueError(
+            f"Model returned invalid frame_zero: {_summarize_validation_error(e)}"
+        ) from e
+
     scenes_data = script_data["scenes"]
 
     # Pieza 39: Calculate timing as ESTIMATE based on spoken text.
     # Formula: words / 2.5 words per second (150 words/minute = 2.5 words/sec)
     # min_duration ensures no scene shows as 0 seconds.
     # IMPORTANT: This is an ESTIMATE for planning — actual duration only exists after recording.
-    WORDS_PER_SECOND = 2.5
-    MIN_SCENE_DURATION = 1.0  # Minimum 1 second per scene
-
     current_time = 0.0
     scenes = []
     for idx, scene_data in enumerate(scenes_data, start=1):
-        phase = scene_data["phase"]
+        phase = scene_data.get("phase")
 
         # Duration is ESTIMATED from spoken_text length, not clamped.
         # We use the word count to give a proportional timeline for planning.
-        spoken_words = len(scene_data.get("spoken_text", "").split())
-        estimated_duration = max(MIN_SCENE_DURATION, spoken_words / WORDS_PER_SECOND)
+        estimated_duration = _estimate_scene_duration(scene_data.get("spoken_text", ""))
 
         start_s = current_time
         end_s = start_s + estimated_duration
         current_time = end_s
 
-        scene = Scene(
+        # Pieza 43: full validation (Scene.model_validate) BEFORE this scene
+        # ever becomes part of the script, with normalization of documented
+        # model slips (e.g. asset_type "b_roll" -> "stock") and a clean,
+        # one-line error on truly invalid output instead of a raw trace.
+        scene = _build_validated_scene(
+            scene_data,
             n=idx,
+            phase=phase,
             start_s=start_s,
             end_s=end_s,
-            phase=phase,
-            spoken_text=scene_data["spoken_text"],
-            shot=scene_data["shot"],
-            b_roll=scene_data.get("b_roll"),
-            on_screen_text=scene_data["on_screen_text"],
-            acting_note=scene_data["acting_note"],
-            sound=scene_data["sound"],
-            # BLUEPRINT fields (Pieza 39) - Block D consumption
-            asset_type=scene_data.get("asset_type", "a_roll"),
-            stock_query=scene_data.get("stock_query"),
-            visual_prompt=scene_data.get("visual_prompt"),
         )
         scenes.append(scene)
 
@@ -1078,30 +1286,64 @@ async def regenerate_scene(
         Updated Script object
 
     Raises:
-        ValueError: If script not found, locked, or scene_n invalid
+        ValueError: If script not found, locked, scene_n invalid, or the
+            regenerated scene fails validation. In every ValueError case
+            NOTHING is saved and NO credit should be charged (the caller in
+            main.py only deducts credits after this returns successfully).
+        SceneRegenerationInProgressError: If this exact scene is already
+            being regenerated concurrently -- caller should surface this as
+            409, not charge, and NOT retry automatically.
         ScriptStorageError: If persistence fails
     """
-    script = _check_script(session_id, idea_id)
-    if not script:
-        raise ValueError("No script found. Generate script first.")
+    lock_key = (session_id, idea_id)
+    in_flight_key = (session_id, idea_id, scene_n)
 
-    if script.state == "locked":
-        raise ValueError("Cannot regenerate locked script.")
+    # Pieza 43 (concurrency fix): reject a duplicate in-flight regeneration
+    # of the SAME scene immediately, before the lock, before any Gemini
+    # call, before any credit is charged. Without this, a double-click or
+    # retry would just queue behind the lock below and run twice, charging
+    # CREDITS_COST_REGENERATE_SCENE twice for what the founder experienced
+    # as one action.
+    if in_flight_key in _in_flight_regenerations:
+        raise SceneRegenerationInProgressError(
+            f"Scene {scene_n} of idea {idea_id} is already being regenerated. "
+            "Wait for it to finish before trying again."
+        )
+    _in_flight_regenerations.add(in_flight_key)
 
-    if scene_n < 1 or scene_n > len(script.scenes):
-        raise ValueError(f"Scene {scene_n} out of range (1-{len(script.scenes)}).")
+    try:
+        lock = _get_script_lock(*lock_key)
+        async with lock:
+            # Pieza 43 (concurrency fix): re-read the LATEST script INSIDE
+            # the lock. Anything read before acquiring the lock (or before
+            # the Gemini await below, which is itself inside the lock) can
+            # be stale by the time we are ready to write -- this is what
+            # makes "two concurrent regenerations of different scenes" and
+            # "a manual PATCH during a regeneration" both safe: whichever
+            # operation gets the lock first sees and writes the freshest
+            # state, and the next one re-reads that fresh state before it
+            # does anything.
+            script = _check_script(session_id, idea_id)
+            if not script:
+                raise ValueError("No script found. Generate script first.")
 
-    target_scene = script.scenes[scene_n - 1]
+            if script.state == "locked":
+                raise ValueError("Cannot regenerate locked script.")
 
-    # Load context for regeneration
-    brand_brain = get_brand_brain(session_id)
-    brand_context = _build_brand_context(brand_brain)
+            if scene_n < 1 or scene_n > len(script.scenes):
+                raise ValueError(f"Scene {scene_n} out of range (1-{len(script.scenes)}).")
 
-    # Pieza 39: Use neutral instruction if None/empty to avoid "None" literal in prompt
-    effective_instruction = instruction if instruction else "improve this scene"
+            target_scene = script.scenes[scene_n - 1]
 
-    # Build regeneration prompt with BLUEPRINT fields (Pieza 39)
-    prompt = f"""You are regenerating a single scene of a B2B short-form video script.
+            # Load context for regeneration
+            brand_brain = get_brand_brain(session_id)
+            brand_context = _build_brand_context(brand_brain)
+
+            # Pieza 39: Use neutral instruction if None/empty to avoid "None" literal in prompt
+            effective_instruction = instruction if instruction else "improve this scene"
+
+            # Build regeneration prompt with BLUEPRINT fields (Pieza 39)
+            prompt = f"""You are regenerating a single scene of a B2B short-form video script.
 
 CONTEXT:
 Brand: {brand_context}
@@ -1140,71 +1382,68 @@ OUTPUT schema (INCLUDE BLUEPRINT FIELDS for Block D):
 Return ONLY valid JSON.
 """
 
-    from vertexai.generative_models import GenerativeModel
-    model = GenerativeModel(settings.vertex_ai_model)
-    response = await model.generate_content_async(
-        prompt,
-        generation_config={
-            "temperature": 0.7,
-            "max_output_tokens": 1024,
-            "response_mime_type": "application/json",
-        },
-    )
+            from vertexai.generative_models import GenerativeModel
+            model = GenerativeModel(settings.vertex_ai_model)
+            response = await model.generate_content_async(
+                prompt,
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 1024,
+                    "response_mime_type": "application/json",
+                },
+            )
 
-    try:
-        new_scene_data = json.loads(response.text)
-    except json.JSONDecodeError:
-        import re
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", response.text, re.DOTALL)
-        if json_match:
-            new_scene_data = json.loads(json_match.group(1))
-        else:
-            raise ValueError("Failed to parse JSON from Gemini")
+            try:
+                new_scene_data = json.loads(response.text)
+            except json.JSONDecodeError:
+                import re
+                json_match = re.search(r"```json\s*(\{.*?\})\s*```", response.text, re.DOTALL)
+                if json_match:
+                    new_scene_data = json.loads(json_match.group(1))
+                else:
+                    raise ValueError("Failed to parse JSON from Gemini")
 
-    # Update the scene (Pieza 39: include BLUEPRINT fields)
-    target_scene.spoken_text = new_scene_data["spoken_text"]
-    target_scene.shot = new_scene_data["shot"]
-    target_scene.b_roll = new_scene_data.get("b_roll")
-    target_scene.on_screen_text = new_scene_data["on_screen_text"]
-    target_scene.acting_note = new_scene_data["acting_note"]
-    target_scene.sound = new_scene_data["sound"]
-    # BLUEPRINT fields (Pieza 39) - preserve if not returned by model
-    target_scene.asset_type = new_scene_data.get("asset_type", target_scene.asset_type)
-    target_scene.stock_query = new_scene_data.get("stock_query", target_scene.stock_query)
-    target_scene.visual_prompt = new_scene_data.get("visual_prompt", target_scene.visual_prompt)
+            # Pieza 43 (critical fix): build + FULLY VALIDATE the regenerated
+            # scene BEFORE mutating or saving anything. This is what fixes
+            # "regeneration persists unvalidated output and the script
+            # vanishes on next load" -- if this raises, target_scene and
+            # script.scenes are untouched, _save_script is never called, and
+            # main.py's caller never reaches the credit deduction line.
+            new_duration = _estimate_scene_duration(new_scene_data.get("spoken_text", ""))
+            new_scene = _build_validated_scene(
+                new_scene_data,
+                n=target_scene.n,
+                phase=target_scene.phase,  # RULE: phase never changes on regeneration
+                start_s=target_scene.start_s,
+                end_s=target_scene.start_s + new_duration,
+                fallback=target_scene,
+            )
 
-    # Recalculate duration estimate based on new spoken_text (Pieza 39)
-    # Words / 2.5 words per second, min 1 second
-    spoken_words = len(target_scene.spoken_text.split())
-    new_duration = max(1.0, spoken_words / 2.5)
-    target_scene.end_s = target_scene.start_s + new_duration
+            # Only now, with a fully validated scene in hand, do we touch
+            # the script.
+            script.scenes[scene_n - 1] = new_scene
+            _recompute_scene_timing_and_reflow(script.scenes, scene_n - 1)
 
-    # Update subsequent scene timings (shift start/end)
-    for i in range(scene_n, len(script.scenes)):
-        prev_scene = script.scenes[i - 1]
-        curr_scene = script.scenes[i]
-        duration = curr_scene.end_s - curr_scene.start_s
-        curr_scene.start_s = prev_scene.end_s
-        curr_scene.end_s = curr_scene.start_s + duration
+            # PIEZA 40: If script was "reviewed", content change invalidates review
+            # Return to "draft" so founder must confirm again
+            if script.state == "reviewed":
+                script.state = "draft"
 
-    # PIEZA 40: If script was "reviewed", content change invalidates review
-    # Return to "draft" so founder must confirm again
-    if script.state == "reviewed":
-        script.state = "draft"
+            # Re-run audit
+            script.audit = audit_script(script)
 
-    # Re-run audit
-    script.audit = audit_script(script)
-
-    # Save and return
-    _save_script(script)
-    return script
+            # Save and return
+            _save_script(script)
+            return script
+    finally:
+        _in_flight_regenerations.discard(in_flight_key)
 
 
 # =============================================================================
 # UPDATE SCENE TEXT (manual edit)
 # =============================================================================
 
-def update_scene_text(
+async def update_scene_text(
     session_id: str,
     idea_id: str,
     scene_n: int,
@@ -1216,6 +1455,17 @@ def update_scene_text(
     PIEZA 40: If script was "reviewed", editing content invalidates the review
     and returns to "draft" state. The founder confirmed THAT version of the
     script; if content changes, they must review again.
+
+    PIEZA 43 (concurrency + timing fixes):
+    - Now async and shares the per-(session, idea) lock with
+      regenerate_scene. Without this, a manual edit landing while a
+      regeneration is awaiting Gemini (holding stale in-memory scenes) could
+      be silently overwritten when the regeneration finally saves its own
+      copy back. See `_get_script_lock` docstring for the single-instance
+      assumption this relies on.
+    - Recomputes this scene's estimated duration (same words/2.5 formula as
+      generation/regeneration) and reflows every later scene's start/end, so
+      a manual edit can no longer leave the timeline (and rule_1) stale.
 
     Args:
         session_id: Session token
@@ -1230,30 +1480,38 @@ def update_scene_text(
         ValueError: If script not found, locked, or scene_n invalid
         ScriptStorageError: If persistence fails
     """
-    script = _check_script(session_id, idea_id)
-    if not script:
-        raise ValueError("No script found. Generate script first.")
+    lock = _get_script_lock(session_id, idea_id)
+    async with lock:
+        # Re-read the latest script INSIDE the lock -- see regenerate_scene
+        # for why this matters.
+        script = _check_script(session_id, idea_id)
+        if not script:
+            raise ValueError("No script found. Generate script first.")
 
-    if script.state == "locked":
-        raise ValueError("Cannot edit locked script.")
+        if script.state == "locked":
+            raise ValueError("Cannot edit locked script.")
 
-    if scene_n < 1 or scene_n > len(script.scenes):
-        raise ValueError(f"Scene {scene_n} out of range (1-{len(script.scenes)}).")
+        if scene_n < 1 or scene_n > len(script.scenes):
+            raise ValueError(f"Scene {scene_n} out of range (1-{len(script.scenes)}).")
 
-    # Update text
-    script.scenes[scene_n - 1].spoken_text = spoken_text
+        # Update text
+        script.scenes[scene_n - 1].spoken_text = spoken_text
 
-    # PIEZA 40: If script was "reviewed", content change invalidates review
-    # Return to "draft" so founder must confirm again
-    if script.state == "reviewed":
-        script.state = "draft"
+        # PIEZA 43: recompute this scene's duration estimate and reflow every
+        # later scene's start/end, same formula used in generation/regen.
+        _recompute_scene_timing_and_reflow(script.scenes, scene_n - 1)
 
-    # Re-run audit
-    script.audit = audit_script(script)
+        # PIEZA 40: If script was "reviewed", content change invalidates review
+        # Return to "draft" so founder must confirm again
+        if script.state == "reviewed":
+            script.state = "draft"
 
-    # Save and return
-    _save_script(script)
-    return script
+        # Re-run audit
+        script.audit = audit_script(script)
+
+        # Save and return
+        _save_script(script)
+        return script
 
 
 # =============================================================================

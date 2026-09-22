@@ -1485,14 +1485,15 @@ def test_lock_script_fails_missing_cta(valid_frame_zero, tmp_path):
 # UPDATE SCENE TEXT TESTS
 # =============================================================================
 
-def test_update_scene_text_success(valid_script, tmp_path):
+@pytest.mark.asyncio
+async def test_update_scene_text_success(valid_script, tmp_path):
     """Update scene text successfully."""
     with patch("app.scripting.scripts._get_script_client", return_value=None):
         import os
         os.chdir(tmp_path)
         _save_script(valid_script)
 
-        updated = update_scene_text(
+        updated = await update_scene_text(
             session_id=valid_script.session_id,
             idea_id=valid_script.idea_id,
             scene_n=1,
@@ -1502,7 +1503,8 @@ def test_update_scene_text_success(valid_script, tmp_path):
         assert updated.scenes[0].spoken_text == "Updated spoken text"
 
 
-def test_update_scene_text_locked_script_rejected(valid_script, tmp_path):
+@pytest.mark.asyncio
+async def test_update_scene_text_locked_script_rejected(valid_script, tmp_path):
     """Update scene text rejected if script is locked."""
     with patch("app.scripting.scripts._get_script_client", return_value=None):
         valid_script_copy = valid_script.model_copy(update={"state": "locked"})
@@ -1511,7 +1513,7 @@ def test_update_scene_text_locked_script_rejected(valid_script, tmp_path):
         _save_script(valid_script_copy)
 
         with pytest.raises(ValueError) as exc:
-            update_scene_text(
+            await update_scene_text(
                 session_id=valid_script.session_id,
                 idea_id=valid_script.idea_id,
                 scene_n=1,
@@ -1520,7 +1522,8 @@ def test_update_scene_text_locked_script_rejected(valid_script, tmp_path):
         assert "locked" in str(exc.value).lower()
 
 
-def test_update_scene_text_invalid_scene_number(valid_script, tmp_path):
+@pytest.mark.asyncio
+async def test_update_scene_text_invalid_scene_number(valid_script, tmp_path):
     """Update scene text fails with invalid scene number."""
     with patch("app.scripting.scripts._get_script_client", return_value=None):
         import os
@@ -1528,7 +1531,7 @@ def test_update_scene_text_invalid_scene_number(valid_script, tmp_path):
         _save_script(valid_script)
 
         with pytest.raises(ValueError) as exc:
-            update_scene_text(
+            await update_scene_text(
                 session_id=valid_script.session_id,
                 idea_id=valid_script.idea_id,
                 scene_n=99,

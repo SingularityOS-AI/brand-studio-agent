@@ -547,6 +547,7 @@ from app.scripting.scripts import (
     lock_script,
     confirm_script,
     ScriptStorageError,
+    SceneRegenerationInProgressError,
     CREDITS_COST_GENERATE,
     CREDITS_COST_REGENERATE_SCENE,
 )
@@ -792,7 +793,16 @@ async def regenerate_scene_endpoint(
             scene_n=scene_n,
             instruction=instruction,
         )
+    # PIEZA 43: a duplicate in-flight regeneration of the SAME scene is
+    # rejected before any Gemini call or credit charge -- surfaced as 409,
+    # never charged (checked BEFORE the generic ValueError below, since
+    # this is not a ValueError subclass and callers should retry later,
+    # not treat it as a validation error).
+    except SceneRegenerationInProgressError as e:
+        return JSONResponse(status_code=409, content={"error": str(e)})
     except ValueError as e:
+        # Validation error (incl. an invalid Gemini response) -- NO CREDIT
+        # DEDUCTION. Nothing was saved (see regenerate_scene docstring).
         return JSONResponse(status_code=400, content={"error": str(e)})
     except ScriptStorageError as e:
         return JSONResponse(status_code=503, content={"error": str(e)})
@@ -857,7 +867,9 @@ async def update_scene_text_endpoint(
         )
 
     try:
-        script = update_scene_text(
+        # PIEZA 43: update_scene_text is now async (shares the per-idea lock
+        # with regenerate_scene so a manual edit can't be lost mid-regen).
+        script = await update_scene_text(
             session_id=session_token,
             idea_id=idea_id,
             scene_n=scene_n,
