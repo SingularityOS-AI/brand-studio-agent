@@ -457,24 +457,39 @@ def _derive_script_kind(idea: CatalogIdea) -> str:
 
 
 # =============================================================================
-# AUDIT RULES (12 deterministic rules, no LLM)
+# AUDIT RULES (13 deterministic rules, no LLM)
 # =============================================================================
+# CRITICAL RULES (must pass for locking):
+# - rule_1:  Duration 45-90 seconds (estimated)
+# - rule_3:  Has all 6 phases
+# - rule_4:  Exactly 2 key points (body_1 and body_2)
+# - rule_5:  FrameZero stops scroll (why_it_stops_the_scroll not empty)
+# - rule_7:  No "not X, it's Y" patterns
+# - rule_8:  No AI counterexamples
+# - rule_9:  All numbers have citations (has sources)
+# - rule_12: Has CTA (close_cta phase exists)
+#
+# NON-CRITICAL RULES (informational, don't block locking):
+# - rule_2:  Hook acting note is concrete
+# - rule_6:  Has rehook before second point
+# - rule_10: On-screen text ≤ 8 words
+# - rule_11: Max one rhetorical question and one list of three
+# - rule_13: No AI blacklist words
 
 AUDIT_RULES: list[dict[str, Any]] = [
     {
         "rule": "rule_1",
-        "name": "Duration: 45-90 seconds",
+        "name": "Duration: 45-90 seconds (estimated)",
         "check": lambda s: 45 <= s.actual_seconds <= 90,
-        "fail_msg": lambda s: f"Duration is {s.actual_seconds:.1f}s (must be 45-90s)",
+        "fail_msg": lambda s: f"Duration is {s.actual_seconds:.1f}s estimated (must be 45-90s)",
+        "critical": True,
     },
     {
         "rule": "rule_2",
-        "name": "Hook duration: max 3 seconds",
-        "check": lambda s: all(
-            sc.phase != "hook" or sc.duration_s <= 3.0
-            for sc in s.scenes
-        ),
-        "fail_msg": lambda s: "Hook scene exceeds 3 seconds",
+        "name": "Hook acting note is concrete (not generic)",
+        "check": lambda s: _check_hook_acting_note_concrete(s),
+        "fail_msg": lambda s: "Hook acting note is too generic (min ~6 words, specific direction)",
+        "critical": False,
     },
     {
         "rule": "rule_3",
@@ -483,6 +498,7 @@ AUDIT_RULES: list[dict[str, Any]] = [
             "hook", "lock_in", "body_1", "rehook", "body_2", "close_cta"
         }.issubset({sc.phase for sc in s.scenes}),
         "fail_msg": lambda s: "Missing one or more required phases",
+        "critical": True,
     },
     {
         "rule": "rule_4",
@@ -492,44 +508,42 @@ AUDIT_RULES: list[dict[str, Any]] = [
             and len([sc for sc in s.scenes if sc.phase == "body_2"]) == 1
         ),
         "fail_msg": lambda s: "Must have exactly one body_1 and one body_2 scene",
+        "critical": True,
     },
     {
         "rule": "rule_5",
         "name": "FrameZero stops scroll",
         "check": lambda s: bool(s.frame_zero.why_it_stops_the_scroll.strip()),
         "fail_msg": lambda s: "FrameZero must explain why it stops the scroll",
+        "critical": True,
     },
     {
         "rule": "rule_6",
         "name": "Has rehook before second point",
         "check": lambda s: any(sc.phase == "rehook" for sc in s.scenes),
         "fail_msg": lambda s: "Missing rehook before second key point",
+        "critical": False,
     },
     {
         "rule": "rule_7",
         "name": "No 'not X, it's Y' patterns",
-        "check": lambda s: all(
-            " is not " not in sc.spoken_text.lower()
-            and " it's not " not in sc.spoken_text.lower()
-            for sc in s.scenes
-        ),
+        "check": lambda s: _check_no_not_x_its_y(s),
         "fail_msg": lambda s: "Contains forbidden 'not X, it's Y' pattern",
+        "critical": True,
     },
     {
         "rule": "rule_8",
         "name": "No AI counterexamples",
-        "check": lambda s: all(
-            not ("unlike" in sc.spoken_text.lower() and "ai" in sc.spoken_text.lower())
-            and "not like" not in sc.spoken_text.lower()
-            for sc in s.scenes
-        ),
+        "check": lambda s: _check_no_ai_counterexamples(s),
         "fail_msg": lambda s: "Contains AI counterexample pattern",
+        "critical": True,
     },
     {
         "rule": "rule_9",
         "name": "All numbers have citations",
         "check": lambda s: len(s.sources) > 0,
         "fail_msg": lambda s: "Script must cite at least one source",
+        "critical": True,
     },
     {
         "rule": "rule_10",
@@ -539,25 +553,201 @@ AUDIT_RULES: list[dict[str, Any]] = [
             for sc in s.scenes
         ),
         "fail_msg": lambda s: "On-screen text exceeds 8 words in some scene",
+        "critical": False,
     },
     {
         "rule": "rule_11",
-        "name": "Each scene 3-7 seconds",
-        "check": lambda s: all(3.0 <= sc.duration_s <= 7.0 for sc in s.scenes),
-        "fail_msg": lambda s: "Some scene outside 3-7 second range",
+        "name": "Max one rhetorical question and one list of three",
+        "check": lambda s: _check_rhetorical_devices(s),
+        "fail_msg": lambda s: _get_rhetorical_fail_message(s),
+        "critical": False,
     },
     {
         "rule": "rule_12",
         "name": "Has CTA",
         "check": lambda s: any(sc.phase == "close_cta" for sc in s.scenes),
         "fail_msg": lambda s: "Missing CTA (close_cta) scene",
+        "critical": True,
+    },
+    {
+        "rule": "rule_13",
+        "name": "No AI blacklist words",
+        "check": lambda s: _check_no_ai_blacklist(s),
+        "fail_msg": lambda s: _get_blacklist_fail_message(s),
+        "critical": False,
     },
 ]
 
 
+# =============================================================================
+# AUDIT RULE HELPER FUNCTIONS
+# =============================================================================
+
+def _check_no_not_x_its_y(script: Script) -> bool:
+    """Check for forbidden 'not X, it's Y' patterns."""
+    forbidden_patterns = [
+        " is not ",
+        " it's not ",
+        "it's not ",
+        "not just a ",
+        "not just an ",
+        "not just ",
+        "not only a ",
+        "not only an ",
+        "not only ",
+    ]
+    for scene in script.scenes:
+        text_lower = scene.spoken_text.lower()
+        for pattern in forbidden_patterns:
+            if pattern in text_lower:
+                return False
+    return True
+
+
+def _check_no_ai_counterexamples(script: Script) -> bool:
+    """Check for AI counterexample patterns."""
+    for scene in script.scenes:
+        text_lower = scene.spoken_text.lower()
+        # Check for "unlike" + "ai" pattern
+        if "unlike" in text_lower and "ai" in text_lower:
+            return False
+        # Check for "not like" pattern
+        if "not like" in text_lower:
+            return False
+        # Check for other comparison patterns
+        if any(phrase in text_lower for phrase in ["other ai", "most ai", "typical ai"]):
+            return False
+    return True
+
+
+# AI word blacklist from humanization guide
+# Sources: 01_INVESTIGACION/Humanización de Guiones IA B2B.md, línea 184
+AI_BLACKLIST = frozenset([
+    "delve", "delves",
+    "crucial",
+    "tapestry",
+    "landscape",
+    "ever-evolving", "ever evolving",
+    "unlock the potential", "unlocking the potential",
+    "revolutionary",
+    "vital",
+    "in conclusion",
+    "in summary",
+    "discover how",
+    "optimize", "optimise",
+])
+
+
+def _check_no_ai_blacklist(script: Script) -> bool:
+    """Check for AI blacklist words in spoken_text (case-insensitive)."""
+    for scene in script.scenes:
+        text_lower = scene.spoken_text.lower()
+        for word in AI_BLACKLIST:
+            if word in text_lower:
+                return False
+    return True
+
+
+def _get_blacklist_fail_message(script: Script) -> str:
+    """Get specific fail message for blacklist violations."""
+    violations = []
+    for scene in script.scenes:
+        text_lower = scene.spoken_text.lower()
+        for word in AI_BLACKLIST:
+            if word in text_lower:
+                # Find the actual case in the text
+                start_idx = text_lower.find(word)
+                actual_word = scene.spoken_text[start_idx:start_idx + len(word)]
+                violations.append(f"Scene {scene.n}: '{actual_word}'")
+                break
+    if violations:
+        return f"AI blacklist words found: {'; '.join(violations[:3])}"
+    return "AI blacklist words found"
+
+
+def _check_hook_acting_note_concrete(script: Script) -> bool:
+    """
+    Check if hook's acting_note is concrete (not generic).
+    
+    Heuristic: Must be at least ~6 words (concrete direction has rhythm,
+    emphasis, pauses, gaze - generic is "say it confidently").
+    """
+    for scene in script.scenes:
+        if scene.phase == "hook":
+            word_count = len(scene.acting_note.split())
+            # Concrete notes have specific direction (min ~6 words)
+            # Generic is "say it confidently" (~3 words)
+            return word_count >= 6
+    return True  # No hook scene found, pass (other rules catch this)
+
+
+def _check_rhetorical_devices(script: Script) -> bool:
+    """
+    Check rhetorical devices: max one rhetorical question and one list of three.
+    
+    HEURISTIC (documented limitations):
+    - Rhetorical questions: sentences ending with "?"
+    - Lists of three: patterns like "A, B and C" or "A, B, or C"
+    
+    Cases this heuristic misses:
+    - Indirect questions: "People wonder why they fail" (no "?")
+    - Lists with different conjunctions: "A, B, plus C"
+    - Lists in separate sentences: "We have speed. We have power. We have reliability."
+    """
+    import re
+    
+    rhetorical_count = 0
+    list_of_three_count = 0
+    
+    for scene in script.scenes:
+        text = scene.spoken_text
+        
+        # Count questions (sentences ending with ?)
+        # Split by sentence boundaries and count ?
+        sentences = re.split(r'[.!?]+', text)
+        for sentence in sentences:
+            if sentence.strip().endswith('?'):
+                rhetorical_count += 1
+        # Also count ? directly in case splitting missed something
+        rhetorical_count = max(rhetorical_count, text.count('?'))
+        
+        # Count lists of three: patterns like "word, word and word" or "word, word, and word"
+        # Oxford comma: "A, B, and C" or regular: "A, B and C"
+        list_three_pattern = r'\w+[^,]{0,20},\s*\w+[^,]{0,20},?(\s+and|\s+or)\s+\w+'
+        matches = re.findall(list_three_pattern, text, re.IGNORECASE)
+        list_of_three_count += len(matches)
+    
+    # Max one rhetorical question AND max one list of three
+    return rhetorical_count <= 1 and list_of_three_count <= 1
+
+
+def _get_rhetorical_fail_message(script: Script) -> str:
+    """Get specific fail message for rhetorical device violations."""
+    import re
+    
+    rhetorical_count = 0
+    list_of_three_count = 0
+    
+    for scene in script.scenes:
+        text = scene.spoken_text
+        rhetorical_count += text.count('?')
+        list_three_pattern = r'\w+[^,]{0,20},\s*\w+[^,]{0,20},?(\s+and|\s+or)\s+\w+'
+        list_of_three_count += len(re.findall(list_three_pattern, text, re.IGNORECASE))
+    
+    issues = []
+    if rhetorical_count > 1:
+        issues.append(f"{rhetorical_count} rhetorical questions (max 1)")
+    if list_of_three_count > 1:
+        issues.append(f"{list_of_three_count} lists of three (max 1)")
+    
+    if issues:
+        return f"Rhetorical devices exceeded: {', '.join(issues)}"
+    return "Rhetorical devices exceeded"
+
+
 def audit_script(script: Script) -> list[AuditFinding]:
     """
-    Run all 12 audit rules on a script (deterministic, no LLM).
+    Run all 13 audit rules on a script (deterministic, no LLM).
 
     Args:
         script: Script to audit
@@ -995,6 +1185,11 @@ Return ONLY valid JSON.
         curr_scene.start_s = prev_scene.end_s
         curr_scene.end_s = curr_scene.start_s + duration
 
+    # PIEZA 40: If script was "reviewed", content change invalidates review
+    # Return to "draft" so founder must confirm again
+    if script.state == "reviewed":
+        script.state = "draft"
+
     # Re-run audit
     script.audit = audit_script(script)
 
@@ -1015,6 +1210,10 @@ def update_scene_text(
 ) -> Script:
     """
     Manually update spoken text for a scene.
+
+    PIEZA 40: If script was "reviewed", editing content invalidates the review
+    and returns to "draft" state. The founder confirmed THAT version of the
+    script; if content changes, they must review again.
 
     Args:
         session_id: Session token
@@ -1042,7 +1241,70 @@ def update_scene_text(
     # Update text
     script.scenes[scene_n - 1].spoken_text = spoken_text
 
+    # PIEZA 40: If script was "reviewed", content change invalidates review
+    # Return to "draft" so founder must confirm again
+    if script.state == "reviewed":
+        script.state = "draft"
+
     # Re-run audit
+    script.audit = audit_script(script)
+
+    # Save and return
+    _save_script(script)
+    return script
+
+
+# =============================================================================
+# CONFIRM SCRIPT (Pieza 40)
+# =============================================================================
+
+def confirm_script(
+    session_id: str,
+    idea_id: str,
+    funnel_stage: Literal["tofu", "mofu", "bofu"],
+    recording_format: Literal["selfie_natural", "pov", "dramatization", "teleprompter_clean", "dynamic"],
+) -> Script:
+    """
+    Confirm a script: set funnel_stage and recording_format, move to "reviewed" state.
+
+    PIEZA 40: This implements the "revisado" state that was defined but never assigned.
+    The founder confirms what the system proposed for funnel_stage (decision D5)
+    and recording_format (decision E3). No credits charged.
+
+    If the script is "locked", confirmation is not allowed (returns error).
+    If the script is already "reviewed", values are updated and stays reviewed.
+    If the script is "draft", it moves to "reviewed".
+
+    Args:
+        session_id: Session token
+        idea_id: Catalog idea ID
+        funnel_stage: Confirmed funnel stage (tofu, mofu, bofu)
+        recording_format: Confirmed recording format (one of 5 options)
+
+    Returns:
+        Updated Script object in "reviewed" state
+
+    Raises:
+        ValueError: If script not found, locked, or invalid values
+        ScriptStorageError: If persistence fails
+    """
+    script = _check_script(session_id, idea_id)
+    if not script:
+        raise ValueError("No script found. Generate script first.")
+
+    if script.state == "locked":
+        raise ValueError("Cannot confirm locked script. Unlock first.")
+
+    # Update values
+    script.funnel_stage = funnel_stage
+    script.recording_format = recording_format
+
+    # Move to reviewed state (or stay reviewed if already there)
+    if script.state == "draft":
+        script.state = "reviewed"
+    # If already "reviewed", stays "reviewed"
+
+    # Re-run audit (in case rules check these values)
     script.audit = audit_script(script)
 
     # Save and return
@@ -1059,16 +1321,18 @@ def lock_script(session_id: str, idea_id: str) -> Script:
     Lock a script (final state, no further edits allowed).
 
     Rules:
-    - No critical audit failures (rule_1, rule_4, rule_5, rule_8, rule_9, rule_12)
+    - No critical audit failures (8 rules must pass)
     - Once locked, ALL edits rejected with ValueError
 
-    Critical rules check:
-    - rule_1: Duration 45-90s
-    - rule_4: All 6 phases in order (last must be close_cta)
-    - rule_5: Exactly one body_1 and one body_2
-    - rule_8: No "not X, it's Y" patterns
-    - rule_9: No numbers without citations
-    - rule_12: FrameZero not empty
+    Critical rules (read from AUDIT_RULES["critical"] field):
+    - rule_1:  Duration 45-90s (estimated)
+    - rule_3:  Has all 6 phases
+    - rule_4:  Exactly 2 key points (body_1 and body_2)
+    - rule_5:  FrameZero stops scroll
+    - rule_7:  No "not X, it's Y" patterns
+    - rule_8:  No AI counterexamples
+    - rule_9:  All numbers have citations (has sources)
+    - rule_12: Has CTA (close_cta phase)
 
     Args:
         session_id: Session token
@@ -1089,7 +1353,11 @@ def lock_script(session_id: str, idea_id: str) -> Script:
         return script  # Already locked, no-op
 
     # Check lock rules - critical rules that must pass
-    critical_rules = {"rule_1", "rule_4", "rule_5", "rule_8", "rule_9", "rule_12"}
+    # Build the set dynamically from AUDIT_RULES to ensure sync
+    critical_rules = {
+        r["rule"] for r in AUDIT_RULES
+        if r.get("critical", False)
+    }
     failed_critical = [
         f for f in script.audit
         if f.status == "fail" and f.rule in critical_rules

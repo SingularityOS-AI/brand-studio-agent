@@ -545,6 +545,7 @@ from app.scripting.scripts import (
     regenerate_scene,
     update_scene_text,
     lock_script,
+    confirm_script,
     ScriptStorageError,
     CREDITS_COST_GENERATE,
     CREDITS_COST_REGENERATE_SCENE,
@@ -902,6 +903,75 @@ async def lock_script_endpoint(request: Request, idea_id: str):
     return JSONResponse(content={
         "script": script.model_dump(mode="json"),
         "status": "locked"
+    })
+
+
+class ScriptConfirmRequest(BaseModel):
+    """Request model for confirming/reviewing a script (Pieza 40)."""
+    funnel_stage: Literal["tofu", "mofu", "bofu"]
+    recording_format: Literal["selfie_natural", "pov", "dramatization", "teleprompter_clean", "dynamic"]
+
+
+@app.patch("/api/script/{idea_id}", response_class=JSONResponse)
+async def confirm_script_endpoint(
+    request: Request,
+    idea_id: str,
+    body: dict | None = Body(default=None),
+):
+    """
+    Confirm funnel_stage and recording_format for a script (review state).
+
+    PIEZA 40: This endpoint implements the "reviewed" state that was defined
+    but never assigned. The founder confirms:
+    - funnel_stage (implements decision D5: "Brandy propone, founder confirma")
+    - recording_format (implements decision E3: "sistema propone, founder confirma")
+
+    This endpoint:
+    1. Validates JWT authentication (401 without token)
+    2. Validates request body (422 if invalid values)
+    3. Checks if script exists and is not locked
+    4. Sets funnel_stage and recording_format
+    5. Moves script to "reviewed" state (if draft) or stays reviewed
+    6. Returns updated script
+
+    No cost - confirmation is free.
+    Requires JWT authentication.
+    """
+    # BUG 2 (Capitán): JWT primero -- sin token debe dar 401, nunca 400.
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    # Validate body with Pydantic model (422 if invalid)
+    try:
+        parsed_body = ScriptConfirmRequest(**(body or {}))
+    except ValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid request body: {e}"}
+        )
+
+    from app.scripting.scripts import confirm_script, ScriptStorageError
+
+    try:
+        script = confirm_script(
+            session_id=session_token,
+            idea_id=idea_id,
+            funnel_stage=parsed_body.funnel_stage,
+            recording_format=parsed_body.recording_format,
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    return JSONResponse(content={
+        "script": script.model_dump(mode="json"),
+        "status": "reviewed",
+        "credits_remaining": guard.get_remaining_credits(session_token),
     })
 
 

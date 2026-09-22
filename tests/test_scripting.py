@@ -427,18 +427,18 @@ def test_audit_rule_1_duration_too_short(valid_script):
     assert rule_1.status == "fail"
 
 
-def test_audit_rule_2_hook_duration_max_3s(valid_frame_zero):
-    """Rule 2: Hook scene max 3 seconds."""
+def test_audit_rule_2_hook_acting_note_concrete(valid_frame_zero):
+    """Rule 2 (Pieza 40): Hook acting note must be concrete (min ~6 words)."""
     valid_scenes = [
         Scene(
             n=1,
             start_s=0.0,
-            end_s=2.5,  # Hook < 3s - PASS
+            end_s=3.0,
             phase="hook",
             spoken_text="Hook text",
             shot="medium",
             on_screen_text="Hook",
-            acting_note="test",
+            acting_note="Lean forward with energy emphasizing the first word pause then breathe",  # 9 words - PASS
             sound="test"
         ),
         Scene(
@@ -515,8 +515,8 @@ def test_audit_rule_2_hook_duration_max_3s(valid_frame_zero):
     assert rule_2.status == "pass"
 
 
-def test_audit_rule_2_hook_duration_too_long(valid_frame_zero):
-    """Rule 2 fails if hook > 3 seconds."""
+def test_audit_rule_2_hook_acting_note_too_generic(valid_frame_zero):
+    """Rule 2 (Pieza 40) fails if hook acting note is generic (under 6 words)."""
     # Create scenes using plain objects to bypass Pydantic validators
     class FakeScene:
         def __init__(self, n, start_s, end_s, phase, spoken_text, shot, on_screen_text, acting_note, sound):
@@ -979,44 +979,95 @@ def test_audit_rule_10_on_screen_text_too_long(valid_frame_zero):
     assert rule_10.status == "pass"  # 6 words < 8
 
 
-def test_audit_rule_11_each_scene_3_7s(valid_script):
-    """Rule 11: Each scene 3-7 seconds."""
-    findings = audit_script(valid_script)
-    rule_11 = next((f for f in findings if f.rule == "rule_11"), None)
-    assert rule_11 is not None
-    assert rule_11.status == "pass"
-
-
-def test_audit_rule_11_scene_outside_range(valid_frame_zero):
-    """Rule 11 fails if scene outside 3-7s range."""
-    invalid_scenes = [
-        Scene(n=1, start_s=0.0, end_s=2.0, phase="hook",  # Too short
-              spoken_text="Test", shot="medium", on_screen_text="Test",
-              acting_note="test", sound="test"),
+def test_audit_rule_11_rhetorical_devices_pass(valid_frame_zero):
+    """Rule 11 (Pieza 40): Max one question and one list of three - pass case."""
+    # One question, one list of three - should pass
+    scenes = [
+        Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+              spoken_text="Tired of manual work, speed, and errors?",  # 1 question, 1 list of 3 - OK
+              shot="medium", on_screen_text="Hook", acting_note="test", sound="test"),
         Scene(n=2, start_s=3.0, end_s=6.0, phase="lock_in",
-              spoken_text="Test", shot="medium", on_screen_text="T", acting_note="test", sound="test"),
+              spoken_text="Test", shot="medium", on_screen_text="L", acting_note="test", sound="test"),
         Scene(n=3, start_s=6.0, end_s=9.0, phase="body_1",
-              spoken_text="Test", shot="medium", on_screen_text="T", acting_note="test", sound="test"),
+              spoken_text="Test", shot="medium", on_screen_text="B1", acting_note="test", sound="test"),
         Scene(n=4, start_s=9.0, end_s=12.0, phase="rehook",
-              spoken_text="Test", shot="medium", on_screen_text="T", acting_note="test", sound="test"),
+              spoken_text="Test", shot="medium", on_screen_text="R", acting_note="test", sound="test"),
         Scene(n=5, start_s=12.0, end_s=15.0, phase="body_2",
-              spoken_text="Test", shot="medium", on_screen_text="T", acting_note="test", sound="test"),
+              spoken_text="Test", shot="medium", on_screen_text="B2", acting_note="test", sound="test"),
         Scene(n=6, start_s=15.0, end_s=18.0, phase="close_cta",
-              spoken_text="Test", shot="medium", on_screen_text="T", acting_note="test", sound="test"),
+              spoken_text="Test", shot="medium", on_screen_text="CTA", acting_note="test", sound="test"),
     ]
 
     script = Script(
         session_id="test", idea_id="idea_123", title="Test", angle="test",
         funnel_stage="tofu", target_seconds=60, frame_zero=valid_frame_zero,
-        scenes=[Scene(n=1, start_s=0.0, end_s=2.5, phase="hook",
-                     spoken_text="Test", shot="medium", on_screen_text="Test",
-                     acting_note="test", sound="test")] + invalid_scenes,
+        scenes=scenes,
     )
 
     findings = audit_script(script)
     rule_11 = next((f for f in findings if f.rule == "rule_11"), None)
     assert rule_11 is not None
-    assert rule_11.status == "fail"  # First two scenes are < 3s
+    assert rule_11.status == "pass"
+
+
+def test_audit_rule_11_too_many_questions_fail(valid_frame_zero):
+    """Rule 11 (Pieza 40) fails with more than one rhetorical question."""
+    scenes = [
+        Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+              spoken_text="Tired of work? Want a fix?",  # 2 questions - FAIL
+              shot="medium", on_screen_text="Hook", acting_note="test", sound="test"),
+        Scene(n=2, start_s=3.0, end_s=6.0, phase="lock_in",
+              spoken_text="Test", shot="medium", on_screen_text="L", acting_note="test", sound="test"),
+        Scene(n=3, start_s=6.0, end_s=9.0, phase="body_1",
+              spoken_text="Test", shot="medium", on_screen_text="B1", acting_note="test", sound="test"),
+        Scene(n=4, start_s=9.0, end_s=12.0, phase="rehook",
+              spoken_text="Test", shot="medium", on_screen_text="R", acting_note="test", sound="test"),
+        Scene(n=5, start_s=12.0, end_s=15.0, phase="body_2",
+              spoken_text="Test", shot="medium", on_screen_text="B2", acting_note="test", sound="test"),
+        Scene(n=6, start_s=15.0, end_s=18.0, phase="close_cta",
+              spoken_text="Test", shot="medium", on_screen_text="CTA", acting_note="test", sound="test"),
+    ]
+
+    script = Script(
+        session_id="test", idea_id="idea_123", title="Test", angle="test",
+        funnel_stage="tofu", target_seconds=60, frame_zero=valid_frame_zero,
+        scenes=scenes,
+    )
+
+    findings = audit_script(script)
+    rule_11 = next((f for f in findings if f.rule == "rule_11"), None)
+    assert rule_11 is not None
+    assert rule_11.status == "fail"
+
+
+def test_audit_rule_11_too_many_lists_fail(valid_frame_zero):
+    """Rule 11 (Pieza 40) fails with more than one list of three."""
+    scenes = [
+        Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+              spoken_text="Tired of A, B, and C. Also D, E, and F.",  # 2 lists of 3 - FAIL
+              shot="medium", on_screen_text="Hook", acting_note="test", sound="test"),
+        Scene(n=2, start_s=3.0, end_s=6.0, phase="lock_in",
+              spoken_text="Test", shot="medium", on_screen_text="L", acting_note="test", sound="test"),
+        Scene(n=3, start_s=6.0, end_s=9.0, phase="body_1",
+              spoken_text="Test", shot="medium", on_screen_text="B1", acting_note="test", sound="test"),
+        Scene(n=4, start_s=9.0, end_s=12.0, phase="rehook",
+              spoken_text="Test", shot="medium", on_screen_text="R", acting_note="test", sound="test"),
+        Scene(n=5, start_s=12.0, end_s=15.0, phase="body_2",
+              spoken_text="Test", shot="medium", on_screen_text="B2", acting_note="test", sound="test"),
+        Scene(n=6, start_s=15.0, end_s=18.0, phase="close_cta",
+              spoken_text="Test", shot="medium", on_screen_text="CTA", acting_note="test", sound="test"),
+    ]
+
+    script = Script(
+        session_id="test", idea_id="idea_123", title="Test", angle="test",
+        funnel_stage="tofu", target_seconds=60, frame_zero=valid_frame_zero,
+        scenes=scenes,
+    )
+
+    findings = audit_script(script)
+    rule_11 = next((f for f in findings if f.rule == "rule_11"), None)
+    assert rule_11 is not None
+    assert rule_11.status == "fail"
 
 
 def test_audit_rule_12_has_cta(valid_frame_zero):
@@ -1064,13 +1115,234 @@ def test_audit_rule_12_missing_cta(valid_frame_zero):
 
 
 # =============================================================================
-# AP AUDIT ALL 12 RULES RUN
+# RULE 13 TESTS (AI Blacklist)
 # =============================================================================
 
-def test_audit_returns_12_findings(valid_script):
-    """Audit returns exactly 12 findings (one per rule)."""
+def test_audit_rule_13_no_blacklist_words(valid_frame_zero):
+    """Rule 13 (Pieza 40): No AI blacklist words - pass case."""
+    scenes = [
+        Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+              spoken_text="Clean text without AI patterns",  # No blacklist words
+              shot="medium", on_screen_text="Hook", acting_note="test", sound="test"),
+        Scene(n=2, start_s=3.0, end_s=6.0, phase="lock_in",
+              spoken_text="Test", shot="medium", on_screen_text="L", acting_note="test", sound="test"),
+        Scene(n=3, start_s=6.0, end_s=9.0, phase="body_1",
+              spoken_text="Test", shot="medium", on_screen_text="B1", acting_note="test", sound="test"),
+        Scene(n=4, start_s=9.0, end_s=12.0, phase="rehook",
+              spoken_text="Test", shot="medium", on_screen_text="R", acting_note="test", sound="test"),
+        Scene(n=5, start_s=12.0, end_s=15.0, phase="body_2",
+              spoken_text="Test", shot="medium", on_screen_text="B2", acting_note="test", sound="test"),
+        Scene(n=6, start_s=15.0, end_s=18.0, phase="close_cta",
+              spoken_text="Test", shot="medium", on_screen_text="CTA", acting_note="test", sound="test"),
+    ]
+
+    script = Script(
+        session_id="test", idea_id="idea_123", title="Test", angle="test",
+        funnel_stage="tofu", target_seconds=60, frame_zero=valid_frame_zero,
+        scenes=scenes,
+    )
+
+    findings = audit_script(script)
+    rule_13 = next((f for f in findings if f.rule == "rule_13"), None)
+    assert rule_13 is not None
+    assert rule_13.status == "pass"
+
+
+def test_audit_rule_13_blacklist_words_fail(valid_frame_zero):
+    """Rule 13 (Pieza 40) fails if AI blacklist words found."""
+    scenes = [
+        Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+              spoken_text="Let's delve into this crucial topic",  # "delve" and "crucial" are blacklisted
+              shot="medium", on_screen_text="Hook", acting_note="test", sound="test"),
+        Scene(n=2, start_s=3.0, end_s=6.0, phase="lock_in",
+              spoken_text="Test", shot="medium", on_screen_text="L", acting_note="test", sound="test"),
+        Scene(n=3, start_s=6.0, end_s=9.0, phase="body_1",
+              spoken_text="Test", shot="medium", on_screen_text="B1", acting_note="test", sound="test"),
+        Scene(n=4, start_s=9.0, end_s=12.0, phase="rehook",
+              spoken_text="Test", shot="medium", on_screen_text="R", acting_note="test", sound="test"),
+        Scene(n=5, start_s=12.0, end_s=15.0, phase="body_2",
+              spoken_text="Test", shot="medium", on_screen_text="B2", acting_note="test", sound="test"),
+        Scene(n=6, start_s=15.0, end_s=18.0, phase="close_cta",
+              spoken_text="Test", shot="medium", on_screen_text="CTA", acting_note="test", sound="test"),
+    ]
+
+    script = Script(
+        session_id="test", idea_id="idea_123", title="Test", angle="test",
+        funnel_stage="tofu", target_seconds=60, frame_zero=valid_frame_zero,
+        scenes=scenes,
+    )
+
+    findings = audit_script(script)
+    rule_13 = next((f for f in findings if f.rule == "rule_13"), None)
+    assert rule_13 is not None
+    assert rule_13.status == "fail"
+
+
+def test_audit_rule_13_blacklist_case_insensitive(valid_frame_zero):
+    """Rule 13 (Pieza 40) is case-insensitive."""
+    scenes = [
+        Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+              spoken_text="Let us DELVE into this",  # Uppercase - should still fail
+              shot="medium", on_screen_text="Hook", acting_note="test", sound="test"),
+        Scene(n=2, start_s=3.0, end_s=6.0, phase="lock_in",
+              spoken_text="Test", shot="medium", on_screen_text="L", acting_note="test", sound="test"),
+        Scene(n=3, start_s=6.0, end_s=9.0, phase="body_1",
+              spoken_text="Test", shot="medium", on_screen_text="B1", acting_note="test", sound="test"),
+        Scene(n=4, start_s=9.0, end_s=12.0, phase="rehook",
+              spoken_text="Test", shot="medium", on_screen_text="R", acting_note="test", sound="test"),
+        Scene(n=5, start_s=12.0, end_s=15.0, phase="body_2",
+              spoken_text="Test", shot="medium", on_screen_text="B2", acting_note="test", sound="test"),
+        Scene(n=6, start_s=15.0, end_s=18.0, phase="close_cta",
+              spoken_text="Test", shot="medium", on_screen_text="CTA", acting_note="test", sound="test"),
+    ]
+
+    script = Script(
+        session_id="test", idea_id="idea_123", title="Test", angle="test",
+        funnel_stage="tofu", target_seconds=60, frame_zero=valid_frame_zero,
+        scenes=scenes,
+    )
+
+    findings = audit_script(script)
+    rule_13 = next((f for f in findings if f.rule == "rule_13"), None)
+    assert rule_13 is not None
+    assert rule_13.status == "fail"
+
+
+# =============================================================================
+# CRITICAL RULES TESTS (Pieza 40)
+# =============================================================================
+
+def test_critical_rules_from_audit_rules():
+    """
+    PIEZA 40: Verify critical rules are correctly defined in AUDIT_RULES.
+    Tests that critical rules are exactly the 8 expected ones by name.
+    """
+    from app.scripting.scripts import AUDIT_RULES
+
+    critical_rules = [r for r in AUDIT_RULES if r.get("critical", False)]
+    critical_names = {r["name"] for r in critical_rules}
+
+    # Expected critical rules
+    expected_names = {
+        "Duration: 45-90 seconds (estimated)",
+        "Has all 6 phases",
+        "Exactly 2 key points (body_1 and body_2)",
+        "FrameZero stops scroll",
+        "No 'not X, it's Y' patterns",
+        "No AI counterexamples",
+        "All numbers have citations",
+        "Has CTA",
+    }
+
+    assert critical_names == expected_names, f"Critical rules mismatch. Got: {critical_names}"
+
+    # Verify 8 critical rules
+    assert len(critical_rules) == 8, f"Expected 8 critical rules, got {len(critical_rules)}"
+
+
+def test_lock_fails_when_missing_phase(valid_frame_zero, tmp_path):
+    """
+    PIEZA 40: Script with missing phase cannot be locked.
+    rule_3 (Has all 6 phases) is now critical.
+    """
+    with patch("app.scripting.scripts._get_script_client", return_value=None):
+        import os
+        os.chdir(tmp_path)
+
+        # Script missing "rehook" phase
+        scenes_no_rehook = [
+            Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+                  spoken_text="Hook", shot="medium", on_screen_text="H",
+                  acting_note="test", sound="test"),
+            Scene(n=2, start_s=3.0, end_s=8.0, phase="lock_in",
+                  spoken_text="Lock", shot="medium", on_screen_text="L",
+                  acting_note="test", sound="test"),
+            Scene(n=3, start_s=8.0, end_s=13.0, phase="body_1",
+                  spoken_text="Body 1 has citation", shot="medium", on_screen_text="B1",
+                  acting_note="test", sound="test"),
+            # Missing rehook!
+            Scene(n=4, start_s=13.0, end_s=18.0, phase="body_2",
+                  spoken_text="Body 2", shot="medium", on_screen_text="B2",
+                  acting_note="test", sound="test"),
+            Scene(n=5, start_s=18.0, end_s=23.0, phase="close_cta",
+                  spoken_text="CTA", shot="medium", on_screen_text="CTA",
+                  acting_note="test", sound="test"),
+        ]
+
+        script = Script(
+            session_id="test_session",
+            idea_id="idea_123",
+            title="Test",
+            angle="test",
+            funnel_stage="tofu",
+            target_seconds=60,
+            frame_zero=valid_frame_zero,
+            scenes=scenes_no_rehook,
+            sources=["source"],  # Has sources for rule_9
+        )
+        _save_script(script)
+
+        with pytest.raises(ValueError) as exc:
+            lock_script(script.session_id, script.idea_id)
+        assert "rule_3" in str(exc.value).lower()
+
+
+def test_lock_fails_with_not_x_its_y_pattern(valid_frame_zero, tmp_path):
+    """
+    PIEZA 40: Script with "not X, it's Y" pattern cannot be locked.
+    rule_7 (No 'not X, it's Y' patterns) is now critical.
+    """
+    with patch("app.scripting.scripts._get_script_client", return_value=None):
+        import os
+        os.chdir(tmp_path)
+
+        scenes = [
+            Scene(n=1, start_s=0.0, end_s=3.0, phase="hook",
+                  spoken_text="It's not just a tool, it's a partner",  # FAILS rule_7
+                  shot="medium", on_screen_text="H", acting_note="test", sound="test"),
+            Scene(n=2, start_s=3.0, end_s=8.0, phase="lock_in",
+                  spoken_text="Clean text", shot="medium", on_screen_text="L",
+                  acting_note="test", sound="test"),
+            Scene(n=3, start_s=8.0, end_s=13.0, phase="body_1",
+                  spoken_text="Body 1", shot="medium", on_screen_text="B1",
+                  acting_note="test", sound="test"),
+            Scene(n=4, start_s=13.0, end_s=18.0, phase="rehook",
+                  spoken_text="Rehook", shot="medium", on_screen_text="R",
+                  acting_note="test", sound="test"),
+            Scene(n=5, start_s=18.0, end_s=23.0, phase="body_2",
+                  spoken_text="Body 2", shot="medium", on_screen_text="B2",
+                  acting_note="test", sound="test"),
+            Scene(n=6, start_s=23.0, end_s=28.0, phase="close_cta",
+                  spoken_text="CTA", shot="medium", on_screen_text="CTA",
+                  acting_note="test", sound="test"),
+        ]
+
+        script = Script(
+            session_id="test_session",
+            idea_id="idea_123",
+            title="Test",
+            angle="test",
+            funnel_stage="tofu",
+            target_seconds=60,
+            frame_zero=valid_frame_zero,
+            scenes=scenes,
+            sources=["source"],
+        )
+        _save_script(script)
+
+        with pytest.raises(ValueError) as exc:
+            lock_script(script.session_id, script.idea_id)
+        assert "rule_7" in str(exc.value).lower()
+
+
+# =============================================================================
+# AP AUDIT ALL 13 RULES RUN
+# =============================================================================
+
+def test_audit_returns_13_findings(valid_script):
+    """Audit returns exactly 13 findings (one per rule)."""
     findings = audit_script(valid_script)
-    assert len(findings) == 12
+    assert len(findings) == 13
     assert all(f.rule.startswith("rule_") for f in findings)
 
 
@@ -1495,7 +1767,7 @@ async def test_generate_script_success(mock_brand_brain, mock_catalog, tmp_path)
         assert result.session_id == "test_session"
         assert result.idea_id == "idea_123"
         assert len(result.scenes) == 6
-        assert len(result.audit) == 12
+        assert len(result.audit) == 13  # PIEZA 40: now 13 rules
         assert result.sources == ["CEO said: save 10 hours"]
 
 
