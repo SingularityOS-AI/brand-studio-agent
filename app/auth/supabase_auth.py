@@ -175,11 +175,8 @@ class SupabaseAuth:
         return email
 
 
-# Singleton instance
-# Use HS256 in test mode to avoid network calls, otherwise ES256 via JWKS
-_test_mode = os.environ.get("TEST_MODE") == "true"
-_supabase_auth_jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
-supabase_auth = SupabaseAuth(jwt_secret=_supabase_auth_jwt_secret if _test_mode else None)
+# Singleton instance (production mode: uses ES256 via JWKS)
+supabase_auth = SupabaseAuth()
 
 
 def get_current_user_id(authorization: str) -> str:

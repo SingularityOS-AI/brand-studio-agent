@@ -14,7 +14,7 @@ os.environ["TEST_MODE"] = "true"
 import time
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 from app.main import app
 from app.guard import guard
@@ -32,6 +32,48 @@ def mock_assemblyai():
                     mock_instance.on = Mock()
                     mock_client.return_value = mock_instance
                     yield mock_client
+
+
+# Mock httpx.AsyncClient to block real HTTP calls to AssemblyAI token endpoint
+@pytest.fixture(autouse=True)
+def mock_httpx_client():
+    """
+    Mocks httpx.AsyncClient to prevent real HTTP calls to AssemblyAI.
+    
+    The /api/token endpoint in app/main.py uses httpx.AsyncClient directly
+    to call https://agents.assemblyai.com/v1/token. This fixture mocks
+    that call to return a fake token response.
+    
+    Tests discovered by this mock:
+    - test_normal_request_pass_and_deduct
+    - test_rate_limit_excess_returns_429
+    - test_budget_exhausted_returns_402
+    """
+    # Create a mock response that looks like AssemblyAI's token response
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "token": "test_fake_assemblyai_token_12345",
+        "expires_in": 300
+    }
+    mock_response.text = '{"token": "test_fake_assemblyai_token_12345", "expires_in": 300}'
+    
+    # Create mock client with async context manager support
+    mock_client_instance = Mock()
+    mock_client_instance.get = AsyncMock(return_value=mock_response)
+    
+    # Mock the async context manager
+    async def mock_aenter(*args, **kwargs):
+        return mock_client_instance
+    
+    async def mock_aexit(*args, **kwargs):
+        pass
+    
+    mock_client_instance.__aenter__ = mock_aenter
+    mock_client_instance.__aexit__ = mock_aexit
+    
+    with patch("httpx.AsyncClient", return_value=mock_client_instance):
+        yield
 
 
 @pytest.fixture
@@ -120,7 +162,6 @@ def test_rate_limit_excess_returns_429(client_with_auth):
         assert response.status_code == 402
 
 
-@pytest.mark.slow
 def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
     """
     Path 3: Session exhausting budget gets 402 with configurable payment URL.
