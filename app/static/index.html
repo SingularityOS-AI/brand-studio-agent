@@ -28,7 +28,7 @@
     background:var(--surface);
   }
   .voz{width:420px;flex:none;background:var(--surface-alt);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto}
-  .doc{flex:1;min-width:0;background:var(--surface);display:flex;flex-direction:column;overflow-y:auto;scroll-behavior:smooth}
+  .doc{flex:1;min-width:0;background:var(--surface);display:flex;flex-direction:column;overflow-y:auto;scroll-behavior:smooth;position:relative}
   .prod{width:380px;flex:none;background:var(--surface-alt);border-left:1px solid var(--line);display:flex;flex-direction:column}
 
   /* Resizers */
@@ -591,6 +591,75 @@
     box-shadow: 0 0 0 2px rgba(43,76,216,0.2) !important;
     background: #FAFBFF !important;
   }
+
+  /* Pieza 49: Light Doc Loading Indicator & Audiovisual Timeline Nav */
+  .doc-loading-indicator {
+    position: absolute;
+    top: 56px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(1.5px);
+    z-index: 40;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 48px;
+    pointer-events: none;
+  }
+  .doc-loading-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .doc-loading-spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: docSpinAnim 0.6s linear infinite;
+  }
+  @keyframes docSpinAnim {
+    to { transform: rotate(360deg); }
+  }
+  .av-timeline-nav-btn {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    transition: all 0.15s ease;
+    user-select: none;
+    padding: 0;
+  }
+  .av-timeline-nav-btn:hover:not(:disabled) {
+    background: var(--surface-alt);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .av-timeline-nav-btn:disabled {
+    opacity: 0.3 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+  }
   </style>
 </head>
 <body>
@@ -752,8 +821,17 @@
       </div>
     </nav>
 
+    <!-- Light Doc Loading Indicator (Pieza 49) -->
+    <div id="Doc-LoadingIndicator" class="doc-loading-indicator" style="display:none">
+      <div class="doc-loading-content">
+        <div class="doc-loading-spinner"></div>
+        <span class="doc-loading-text">Loading…</span>
+      </div>
+    </div>
+
     <div id="BlockA-View">
       <div class="docbody">
+        <div id="BrandSoul-ActionBar-Container"></div>
         <div class="ghost"><span class="gnum mono">01</span><span class="gname">Where you stand</span><span class="gline" style="width:130px"></span></div>
         <div class="ghost"><span class="gnum mono">02</span><span class="gname">Brand Journey</span><span class="gline" style="width:110px"></span></div>
         <div class="ghost"><span class="gnum mono">03</span><span class="gname">The pond</span><span class="gline" style="width:80px"></span></div>

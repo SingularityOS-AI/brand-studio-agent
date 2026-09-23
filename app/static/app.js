@@ -1116,22 +1116,21 @@ Always respond in English. Keep your responses conversational and engaging.`;
   function renderModoASections(sections) {
     const docBody = document.querySelector('.docbody');
     if (!docBody) return;
+    currentModoASections = sections || [];
 
     // Clear existing ghost sections and replace with live sections
     docBody.innerHTML = '';
 
-    // PIEZA 46: Line above the list
-    const unlockNotice = document.createElement('div');
-    unlockNotice.className = 'brand-soul-unlock-notice';
-    unlockNotice.style.cssText = 'margin: 0 0 16px; padding: 10px 14px; background: rgba(43, 76, 216, 0.05); border: 1px solid rgba(43, 76, 216, 0.15); border-radius: 6px; font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 8px; font-weight: 500;';
-    unlockNotice.innerHTML = `
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-      </svg>
-      <span>Your full Brand Soul is unlocked in the Brand Soul document.</span>
-    `;
-    docBody.appendChild(unlockNotice);
+    // PIEZA 49: Action bar container and actions above sections
+    let actionBarContainer = document.getElementById('BrandSoul-ActionBar-Container');
+    if (!actionBarContainer) {
+      actionBarContainer = document.createElement('div');
+      actionBarContainer.id = 'BrandSoul-ActionBar-Container';
+      docBody.appendChild(actionBarContainer);
+    }
+    if (typeof renderBrandSoulActionBar === 'function') {
+      renderBrandSoulActionBar(currentModoASections);
+    }
 
     const sectionOrder = ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet'];
     const labels = {
@@ -1685,11 +1684,18 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
   async function loadExistingBrain() {
     try {
+      if (typeof checkBrandSoulStatus === 'function') {
+        await checkBrandSoulStatus();
+      }
       const brain = await loadBrandBrain();
       if (brain && brain.sections && brain.sections.length) {
         appendExtractedSections(brain.sections);
         updateBrandSoulButton(brain.sections);
         updateCatalogButton(brain.sections);
+      } else {
+        if (typeof renderBrandSoulActionBar === 'function') {
+          renderBrandSoulActionBar([]);
+        }
       }
       // Pieza 44B: Si Brand Soul está completo, pedir en silencio el catálogo para no mentir en el riel
       const sections = (brain && brain.sections) || (cachedBrain && cachedBrain.sections);
@@ -1808,11 +1814,154 @@ Always respond in English. Keep your responses conversational and engaging.`;
   const brandSoulDownloadBtn = document.getElementById('BrandSoul-DownloadBtn');
   const brandSoulRegenerateBtn = document.getElementById('BrandSoul-RegenerateBtn');
 
+  // PIEZA 49: Brand Soul door state & action bar
+  let brandSoulExists = false;
+  let currentModoASections = [];
+
+  // Silent check of GET /api/soul (free, no credits)
+  async function checkBrandSoulStatus() {
+    try {
+      const response = await authenticatedFetch('/api/soul', { method: 'GET' });
+      if (response.ok) {
+        brandSoulExists = true;
+      } else {
+        brandSoulExists = false;
+      }
+    } catch (e) {
+      console.warn('[Brand Soul] Silent check error:', e);
+      brandSoulExists = false;
+    }
+    return brandSoulExists;
+  }
+
+  // Free view of cached Brand Soul document in overlay
+  async function openBrandSoulViewer() {
+    if (!brandSoulOverlay) return;
+    brandSoulOverlay.style.display = 'flex';
+    if (brandSoulContent) {
+      brandSoulContent.style.display = 'none';
+      brandSoulContent.innerHTML = '';
+    }
+    if (brandSoulLoading) {
+      brandSoulLoading.style.display = 'flex';
+    }
+
+    try {
+      const response = await authenticatedFetch('/api/soul', { method: 'GET' });
+      if (response.ok) {
+        const data = await response.json();
+        if (brandSoulLoading) brandSoulLoading.style.display = 'none';
+        if (brandSoulContent) {
+          brandSoulContent.style.display = 'block';
+          brandSoulContent.innerHTML = data.html;
+        }
+        if (brandSoulRegenerateBtn) {
+          brandSoulRegenerateBtn.style.display = 'flex';
+        }
+        brandSoulExists = true;
+        renderBrandSoulActionBar(currentModoASections);
+        console.log('[Brand Soul] Viewed cached document - 0 credits charged');
+      } else {
+        if (brandSoulLoading) brandSoulLoading.style.display = 'none';
+        brandSoulOverlay.style.display = 'none';
+        alert('Brand Soul not found. Generate it first.');
+      }
+    } catch (e) {
+      console.error('[Brand Soul] View error:', e);
+      if (brandSoulLoading) brandSoulLoading.style.display = 'none';
+      brandSoulOverlay.style.display = 'none';
+      alert('Failed to load Brand Soul: ' + e.message);
+    }
+  }
+
+  // Render the Brand Soul Action Bar according to piece 49 specs
+  function renderBrandSoulActionBar(sections) {
+    let container = document.getElementById('BrandSoul-ActionBar-Container');
+    if (!container) {
+      const docBody = document.querySelector('.docbody');
+      if (docBody) {
+        container = document.createElement('div');
+        container.id = 'BrandSoul-ActionBar-Container';
+        docBody.insertBefore(container, docBody.firstChild);
+      } else {
+        return;
+      }
+    }
+
+    const sectionsList = sections || currentModoASections || (cachedBrain && cachedBrain.sections) || [];
+    const confirmedCount = getReadySectionsCount(sectionsList);
+
+    let actionButtonsHtml = '';
+    if (brandSoulExists) {
+      actionButtonsHtml = `
+        <button type="button" id="BrandSoul-ViewBtn" class="btn btn--primary" style="padding:8px 16px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:var(--accent);color:#fff;border:none;border-radius:6px;">
+          📖 View your Brand Soul
+        </button>
+        <button type="button" id="BrandSoul-ActionRegenerateBtn" class="btn btn--secondary" style="padding:8px 14px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;">
+          ⟳ Regenerate · 20 credits
+        </button>
+      `;
+    } else if (confirmedCount >= 9) {
+      actionButtonsHtml = `
+        <button type="button" id="BrandSoul-GenerateActionBtn" class="btn btn--go" style="padding:8px 16px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px;cursor:pointer;border-radius:6px;">
+          ✨ Generate your Brand Soul · 20 credits
+        </button>
+      `;
+    } else {
+      actionButtonsHtml = `
+        <button type="button" id="BrandSoul-DisabledActionBtn" class="btn" disabled style="padding:8px 16px;font-size:13px;opacity:0.65;cursor:not-allowed;background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--line);border-radius:6px;">
+          Finish your interview with Brandy to generate your Brand Soul (${confirmedCount} of 9)
+        </button>
+      `;
+    }
+
+    const isClickable = Boolean(brandSoulExists);
+    const noticeStyle = 'margin:0 0 12px;padding:10px 14px;background:rgba(43,76,216,0.05);border:1px solid rgba(43,76,216,0.15);border-radius:6px;font-size:13px;color:var(--accent);display:flex;align-items:center;gap:8px;font-weight:500;' + (isClickable ? 'cursor:pointer;transition:all 0.15s ease;' : '');
+    const noticeTitle = isClickable ? 'title="Click to view your Brand Soul"' : '';
+    const noticeHint = isClickable ? '<span style="font-size:11px;font-weight:600;text-decoration:underline;margin-left:auto;">Click to view →</span>' : '';
+
+    container.innerHTML = `
+      <div id="BrandSoul-UnlockNotice" class="brand-soul-unlock-notice" style="${noticeStyle}" ${noticeTitle}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span>Your full Brand Soul is unlocked in the Brand Soul document.</span>
+        ${noticeHint}
+      </div>
+      <div class="brand-soul-action-buttons" style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+        ${actionButtonsHtml}
+      </div>
+    `;
+
+    // Wire clicks
+    const unlockNoticeEl = container.querySelector('#BrandSoul-UnlockNotice');
+    if (unlockNoticeEl && isClickable) {
+      unlockNoticeEl.addEventListener('click', openBrandSoulViewer);
+    }
+
+    const viewBtn = container.querySelector('#BrandSoul-ViewBtn');
+    if (viewBtn) {
+      viewBtn.addEventListener('click', openBrandSoulViewer);
+    }
+
+    const regenBtn = container.querySelector('#BrandSoul-ActionRegenerateBtn');
+    if (regenBtn) {
+      regenBtn.addEventListener('click', regenerateBrandSoul);
+    }
+
+    const genBtn = container.querySelector('#BrandSoul-GenerateActionBtn');
+    if (genBtn) {
+      genBtn.addEventListener('click', generateBrandSoul);
+    }
+  }
+
   // Update Brand Soul state
   function updateBrandSoulButton(sections) {
     if (typeof initGlobalProgress === 'function') {
       initGlobalProgress();
     }
+    renderBrandSoulActionBar(sections);
   }
 
   // Generate Brand Soul document
@@ -1841,6 +1990,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
         if (brandSoulRegenerateBtn) {
           brandSoulRegenerateBtn.style.display = 'flex';
         }
+
+        brandSoulExists = true;
+        renderBrandSoulActionBar(currentModoASections);
         
         console.log('[Brand Soul] Loaded from cache - no credits charged');
         return;
@@ -1901,6 +2053,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
         if (brandSoulRegenerateBtn) {
           brandSoulRegenerateBtn.style.display = 'flex';
         }
+
+        brandSoulExists = true;
+        renderBrandSoulActionBar(currentModoASections);
 
         console.log('[Brand Soul] Document generated successfully');
         return;
@@ -2019,6 +2174,9 @@ ${htmlContent}
       if (data.credits_remaining !== undefined) {
         updateCreditsUI(data.credits_remaining, initialSessionCredits);
       }
+
+      brandSoulExists = true;
+      renderBrandSoulActionBar(currentModoASections);
 
       console.log('[Brand Soul] Document regenerated successfully - 20 credits charged');
 
@@ -2839,7 +2997,7 @@ ${htmlContent}
   let currentOpenView = 'brain';
 
   // Show BlockA view (brand soul)
-  function showBlockAView() {
+  async function showBlockAView() {
     currentOpenView = 'brain';
     if (blockAView) blockAView.style.display = 'block';
     if (blockBView) blockBView.style.display = 'none';
@@ -2847,6 +3005,20 @@ ${htmlContent}
     if (audiovisualView) audiovisualView.style.display = 'none';
     if (typeof renderPipelineRail === 'function') {
       renderPipelineRail();
+    }
+    // Pieza 49: Silent check on view load
+    if (typeof checkBrandSoulStatus === 'function') {
+      await checkBrandSoulStatus();
+    }
+    const sectionsToRender = (cachedBrain && cachedBrain.sections && cachedBrain.sections.length)
+      ? cachedBrain.sections
+      : currentModoASections;
+    if (sectionsToRender && sectionsToRender.length) {
+      renderModoASections(sectionsToRender);
+    } else {
+      if (typeof renderBrandSoulActionBar === 'function') {
+        renderBrandSoulActionBar([]);
+      }
     }
   }
 
@@ -3221,11 +3393,15 @@ ${htmlContent}
           </span>
         </div>
 
-        <!-- Horizontal strip: scroll ONLY inside the strip -->
-        <div class="av-timeline-strip-wrapper">
-          <div class="av-timeline-strip" style="display:inline-flex;gap:14px;min-width:100%;padding:4px 2px;">
-            ${timelineCardsHtml}
+        <!-- Horizontal strip carousel: scroll ONLY inside the strip with small ‹ › arrows -->
+        <div class="av-timeline-carousel" style="display:flex;align-items:center;gap:8px;position:relative;margin-bottom:6px;">
+          <button type="button" id="AV-Timeline-PrevBtn" class="av-timeline-nav-btn" aria-label="Previous scene" title="Previous scene">‹</button>
+          <div class="av-timeline-strip-wrapper" style="flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;scroll-behavior:smooth;">
+            <div class="av-timeline-strip" style="display:inline-flex;gap:14px;min-width:100%;padding:4px 2px;">
+              ${timelineCardsHtml}
+            </div>
           </div>
+          <button type="button" id="AV-Timeline-NextBtn" class="av-timeline-nav-btn" aria-label="Next scene" title="Next scene">›</button>
         </div>
 
         <!-- Detail panel expanded on click -->
@@ -3253,67 +3429,134 @@ ${htmlContent}
       </div>
     `;
 
-    // Wire timeline card clicks
+    const prevBtn = container.querySelector('#AV-Timeline-PrevBtn');
+    const nextBtn = container.querySelector('#AV-Timeline-NextBtn');
+
+    function updateTimelineArrows(currentIdx, totalScenes) {
+      if (prevBtn) {
+        prevBtn.disabled = currentIdx <= 0;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = currentIdx >= totalScenes - 1;
+      }
+    }
+
+    function selectScene(idx, shouldScroll = true) {
+      if (idx < 0 || idx >= scenes.length) return;
+      renderSelectedSceneDetail(idx);
+      updateTimelineArrows(idx, scenes.length);
+
+      if (shouldScroll) {
+        const targetCard = container.querySelector(`.av-card[data-scene-index="${idx}"]`);
+        if (targetCard) {
+          targetCard.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+      }
+    }
+
+    // Wire timeline card clicks: open inspector and scroll so next card is visible on right
     const cardEls = container.querySelectorAll('.av-card');
     cardEls.forEach((cardEl) => {
       cardEl.addEventListener('click', () => {
         const idx = parseInt(cardEl.dataset.sceneIndex, 10);
-        renderSelectedSceneDetail(idx);
+        selectScene(idx, true);
       });
     });
 
+    // Wire ‹ › navigation arrows
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => {
+        const currentIdx = selectedTimelineSceneIdx !== null ? selectedTimelineSceneIdx : 0;
+        if (currentIdx > 0) {
+          selectScene(currentIdx - 1, true);
+        }
+      });
+    }
+
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        const currentIdx = selectedTimelineSceneIdx !== null ? selectedTimelineSceneIdx : 0;
+        if (currentIdx < scenes.length - 1) {
+          selectScene(currentIdx + 1, true);
+        }
+      });
+    }
+
     // Default select first scene
     if (scenes.length > 0) {
-      renderSelectedSceneDetail(0);
+      selectScene(0, false);
     }
+  }
+
+  // =============================================================================
+  // PIEZA 49: LIGHT DOC NAVIGATION LOADING INDICATOR
+  // =============================================================================
+  function showDocLoading(text = 'Loading…') {
+    const el = document.getElementById('Doc-LoadingIndicator');
+    if (!el) return;
+    const textEl = el.querySelector('.doc-loading-text');
+    if (textEl) textEl.textContent = text;
+    el.style.display = 'flex';
+  }
+
+  function hideDocLoading() {
+    const el = document.getElementById('Doc-LoadingIndicator');
+    if (!el) return;
+    el.style.display = 'none';
   }
 
   // Show Audiovisual view (Pieza 46)
   function showAudiovisualView() {
-    currentOpenView = 'audiovisual';
-    if (blockAView) blockAView.style.display = 'none';
-    if (blockBView) blockBView.style.display = 'none';
-    if (blockCView) blockCView.style.display = 'none';
-    if (audiovisualView) audiovisualView.style.display = 'block';
+    showDocLoading('Loading audiovisual studio…');
+    try {
+      currentOpenView = 'audiovisual';
+      if (blockAView) blockAView.style.display = 'none';
+      if (blockBView) blockBView.style.display = 'none';
+      if (blockCView) blockCView.style.display = 'none';
+      if (audiovisualView) audiovisualView.style.display = 'block';
 
-    const guardEl = document.getElementById('Audiovisual-Guard');
-    const contentEl = document.getElementById('Audiovisual-Content');
+      const guardEl = document.getElementById('Audiovisual-Guard');
+      const contentEl = document.getElementById('Audiovisual-Content');
 
-    // Guard: currentScriptData must exist and state must be 'locked'
-    if (!currentScriptData || currentScriptData.state !== 'locked') {
-      if (contentEl) contentEl.style.display = 'none';
-      if (guardEl) {
-        guardEl.style.display = 'block';
-        const goScriptBtn = document.getElementById('Audiovisual-Guard-GoScriptBtn');
-        if (goScriptBtn) {
-          goScriptBtn.onclick = () => {
-            if (currentScriptIdeaId) {
-              showBlockCView(currentScriptIdeaId);
-            } else {
-              loadCatalogCache().then(() => showBlockBView());
-            }
-          };
+      // Guard: currentScriptData must exist and state must be 'locked'
+      if (!currentScriptData || currentScriptData.state !== 'locked') {
+        if (contentEl) contentEl.style.display = 'none';
+        if (guardEl) {
+          guardEl.style.display = 'block';
+          const goScriptBtn = document.getElementById('Audiovisual-Guard-GoScriptBtn');
+          if (goScriptBtn) {
+            goScriptBtn.onclick = () => {
+              if (currentScriptIdeaId) {
+                showBlockCView(currentScriptIdeaId);
+              } else {
+                loadCatalogCache().then(() => showBlockBView());
+              }
+            };
+          }
         }
+        if (typeof renderPipelineRail === 'function') {
+          renderPipelineRail();
+        }
+        return;
       }
+
+      if (guardEl) guardEl.style.display = 'none';
+      if (contentEl) {
+        contentEl.style.display = 'block';
+        renderAudiovisualView();
+      }
+
       if (typeof renderPipelineRail === 'function') {
         renderPipelineRail();
       }
-      return;
-    }
-
-    if (guardEl) guardEl.style.display = 'none';
-    if (contentEl) {
-      contentEl.style.display = 'block';
-      renderAudiovisualView();
-    }
-
-    if (typeof renderPipelineRail === 'function') {
-      renderPipelineRail();
+    } finally {
+      hideDocLoading();
     }
   }
 
   // Block C: Load script data for an idea
   async function loadScriptData(ideaId) {
+    showDocLoading('Loading script…');
     try {
       const response = await authenticatedFetch(`/api/script/${ideaId}`, {
         method: 'GET'
@@ -3342,6 +3585,8 @@ ${htmlContent}
       alert(`Failed to load script: ${error.message}`);
       showScriptEmptyState();
       initGlobalProgress();
+    } finally {
+      hideDocLoading();
     }
   }
 
@@ -4571,6 +4816,7 @@ ${htmlContent}
 
   // Load cache and show catalog
   async function loadCatalogCache() {
+    showDocLoading('Loading catalog…');
     try {
       catalogProgress.textContent = 'Loading...';
 
@@ -4595,6 +4841,8 @@ ${htmlContent}
     } catch (error) {
       console.error('[Catalog] Cache load error:', error);
       catalogProgress.textContent = 'Error';
+    } finally {
+      hideDocLoading();
     }
   }
 

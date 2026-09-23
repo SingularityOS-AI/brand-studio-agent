@@ -182,3 +182,54 @@ def test_responsive_layout_css_contract():
     # .doc or main.doc must have min-height: 70vh and overflow-y: visible
     assert "min-height: 70vh" in media_css
     assert "overflow-y: visible" in media_css
+
+
+def test_brand_soul_door_and_action_bar_contract():
+    """
+    PIEZA 49: Contract tests for Brand Soul Door & Action Bar, Audiovisual Carousel, and Doc Loading.
+    1. Verifies that BrandSoul-Overlay exists in index.html.
+    2. Verifies that openBrandSoulViewer exists in app.js and opens brandSoulOverlay without charging credits.
+    3. Verifies that the Brand Soul action bar (renderBrandSoulActionBar / BrandSoul-ActionBar-Container)
+       renders the primary view button '📖 View your Brand Soul' (BrandSoul-ViewBtn) and clickable notice
+       wired to openBrandSoulViewer.
+    4. Verifies silent check of GET /api/soul (checkBrandSoulStatus) on view load.
+    5. Verifies timeline strip has ‹ › navigation buttons and smooth centering scrollIntoView.
+    6. Verifies Doc-LoadingIndicator exists in index.html and app.js manages showDocLoading/hideDocLoading.
+    """
+    assert APP_JS_PATH.exists(), f"app.js not found at {APP_JS_PATH}"
+    assert INDEX_HTML_PATH.exists(), f"index.html not found at {INDEX_HTML_PATH}"
+
+    js_content = APP_JS_PATH.read_text(encoding="utf-8")
+    stripped_js = re.sub(r"/\*.*?\*/", "", js_content, flags=re.DOTALL)
+    html_content = INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+    # 1. Overlay exists in index.html
+    assert 'id="BrandSoul-Overlay"' in html_content
+    assert 'id="BrandSoul-ActionBar-Container"' in html_content
+
+    # 2. openBrandSoulViewer exists and opens overlay
+    assert "function openBrandSoulViewer" in stripped_js
+    assert "brandSoulOverlay.style.display = 'flex'" in stripped_js
+
+    # 3. Primary view button & clickable unlock notice
+    assert "BrandSoul-ViewBtn" in stripped_js
+    assert "📖 View your Brand Soul" in stripped_js
+    assert "BrandSoul-ActionRegenerateBtn" in stripped_js
+    assert "BrandSoul-GenerateActionBtn" in stripped_js
+    assert "BrandSoul-UnlockNotice" in stripped_js
+    assert "openBrandSoulViewer" in stripped_js
+
+    # 4. Silent check of GET /api/soul
+    assert "function checkBrandSoulStatus" in stripped_js
+    assert "brandSoulExists" in stripped_js
+
+    # 5. Timeline carousel & smooth centering scroll
+    assert "AV-Timeline-PrevBtn" in stripped_js
+    assert "AV-Timeline-NextBtn" in stripped_js
+    assert "scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })" in stripped_js
+
+    # 6. Doc loading indicator
+    assert 'id="Doc-LoadingIndicator"' in html_content
+    assert "function showDocLoading" in stripped_js
+    assert "function hideDocLoading" in stripped_js
+
