@@ -74,10 +74,9 @@
   }
   .voz.collapsed .brandbar,
   .voz.collapsed .orbwrap,
-  .voz.collapsed .brand-soul-section,
+  .voz.collapsed .credits-section,
   .prod.collapsed .prodhead,
-  .prod.collapsed .empty,
-  .prod.collapsed .credits-section{
+  .prod.collapsed .empty{
     display:none
   }
   .voz.collapsed::after,
@@ -194,6 +193,288 @@
   .creditnum{font-size:19px;font-weight:500;color:var(--ink)}
   .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
 
+  /* Pipeline Rail (Pieza 44) */
+  .pipeline-rail {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 24px 12px;
+    box-sizing: border-box;
+    width: 100%;
+    container-type: inline-size;
+  }
+  .rail-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .rail-eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .rail-pct {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .rail-track {
+    position: relative;
+    width: 100%;
+    padding: 4px 0;
+  }
+  .rail-line-bg {
+    position: absolute;
+    top: 17px;
+    left: 24px;
+    right: 24px;
+    height: 2px;
+    background: var(--line);
+    z-index: 1;
+  }
+  .rail-line-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .rail-nodes {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+    z-index: 2;
+  }
+  .rail-step-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: none;
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: center;
+    position: relative;
+    max-width: 130px;
+    transition: all 0.2s ease;
+  }
+  .rail-node-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    border: 2px solid var(--line);
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+    transition: all 0.25s ease;
+    box-sizing: border-box;
+  }
+  /* Hecho / Done */
+  .rail-step-btn.is-done .rail-node-icon {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #FFFFFF;
+  }
+  /* En curso / In Progress */
+  .rail-step-btn.is-in-progress .rail-node-icon {
+    background: var(--surface);
+    border-color: var(--line);
+  }
+  .rail-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(43,76,216,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: railSpinner 0.9s linear infinite;
+  }
+  @keyframes railSpinner {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  /* Bloqueado / Blocked */
+  .rail-step-btn.is-blocked {
+    cursor: pointer;
+  }
+  .rail-step-btn.is-blocked .rail-node-icon {
+    background: var(--surface-alt);
+    border-color: var(--line);
+    color: var(--ink-soft);
+    opacity: 0.7;
+  }
+  .rail-step-btn.is-blocked .rail-step-name {
+    color: var(--ink-soft);
+    opacity: 0.7;
+  }
+  /* Active / Currently Open View Highlight */
+  .rail-step-btn.is-current .rail-node-icon {
+    box-shadow: 0 0 0 3px rgba(43,76,216,0.2);
+  }
+  .rail-step-btn.is-current .rail-step-name {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .rail-step-btn.is-current::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .rail-step-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .rail-step-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    transition: color 0.2s ease;
+  }
+  .rail-step-sub {
+    font-size: 11px;
+    color: var(--ink-soft);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    line-height: 1.3;
+  }
+  /* Rail Notice / Toast */
+  .rail-notice {
+    margin-top: 10px;
+    padding: 8px 14px;
+    background: #FFF6E5;
+    border: 1px solid var(--warn, #F59E0B);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: #854D0E;
+    animation: fadeIn 0.2s ease;
+  }
+  .rail-notice-text {
+    font-weight: 500;
+  }
+  .rail-notice-btn {
+    margin-left: auto;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 4px;
+    background: var(--accent);
+    color: #FFFFFF;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s ease;
+  }
+  .rail-notice-btn:hover {
+    background: var(--accent-soft, #4263EB);
+  }
+  .rail-notice-close {
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: #854D0E;
+    cursor: pointer;
+    padding: 2px 6px;
+    opacity: 0.7;
+  }
+  .rail-notice-close:hover {
+    opacity: 1;
+  }
+  /* Responsive: Pipeline Rail based on rail width (Pieza 44B) */
+  @container (min-width: 480px) and (max-width: 700px) {
+    .rail-step-name {
+      font-size: 11px;
+      white-space: nowrap;
+      word-break: normal;
+    }
+    .rail-step-sub {
+      font-size: 10px;
+      max-width: 85px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .rail-line-bg {
+      left: 20px;
+      right: 20px;
+    }
+    .rail-step-btn {
+      padding: 4px 4px;
+    }
+  }
+
+  @container (max-width: 479px) {
+    .rail-step-name, .rail-step-sub {
+      display: none !important;
+    }
+    .rail-line-bg {
+      left: 16px;
+      right: 16px;
+    }
+    .rail-step-btn {
+      padding: 4px 6px;
+    }
+  }
+
+  /* Fallback/explicit classes based on rail width (ResizeObserver) */
+  .pipeline-rail.is-mid {
+    padding: 12px 20px 10px;
+  }
+  .pipeline-rail.is-mid .rail-step-name {
+    font-size: 11px;
+    white-space: nowrap;
+    word-break: normal;
+  }
+  .pipeline-rail.is-mid .rail-step-sub {
+    font-size: 10px;
+    max-width: 85px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pipeline-rail.is-mid .rail-line-bg {
+    left: 20px;
+    right: 20px;
+  }
+  .pipeline-rail.is-mid .rail-step-btn {
+    padding: 4px 4px;
+  }
+
+  .pipeline-rail.is-compact {
+    padding: 10px 16px;
+  }
+  .pipeline-rail.is-compact .rail-step-name,
+  .pipeline-rail.is-compact .rail-step-sub {
+    display: none !important;
+  }
+  .pipeline-rail.is-compact .rail-line-bg {
+    left: 16px;
+    right: 16px;
+  }
+  .pipeline-rail.is-compact .rail-step-btn {
+    padding: 4px 6px;
+  }
+
   /* Brand brain sections (Modo A) */
   .brain-section{transition:border-color 0.2s ease,background-color 0.2s ease}
   .brain-section:hover{border-color:var(--accent-soft)}
@@ -305,7 +586,6 @@
       <span class="brandmark"></span>
       <span class="disp" style="font-size:14px;font-weight:600;letter-spacing:-.01em">Brand Studio</span>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <button id="logoutBtn" class="mono" style="font-size:11px;color:#5C6675;background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.2s ease" title="Log out">Log out</button>
         <span class="mono" style="font-size:11px;color:#5C6675;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.2s ease" title="Start fresh">new session</span>
       </div>
     </div>
@@ -333,6 +613,23 @@
       </button>
       <span class="michint">Talk whenever you want</span>
     </div>
+
+    <!-- Credits & Logout Footer (Pieza 44) -->
+    <div class="credits credits-section" style="margin-top:auto;border-top:1px solid var(--line);padding:14px 24px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span class="mono" id="Credits-Label" style="font-size:13px;font-weight:600;color:var(--ink)">— credits</span>
+        <button id="logoutBtn" style="background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);border-radius:4px;transition:all 0.2s ease" title="Log out" aria-label="Log out">
+          <svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="bar" style="height:3px;background:var(--line);border-radius:2px;overflow:hidden">
+        <span style="display:block;height:100%;width:100%;background:#2B4CD8;transition:width 0.4s ease, background 0.4s ease" id="Credits-Bar"></span>
+      </div>
+    </div>
   </aside>
 
   <!-- Resizer 1: voz ↔ doc -->
@@ -342,6 +639,72 @@
 
   <!-- Zone 2中间: Document (9 sections / Catalog) -->
   <main class="doc">
+    <!-- Pipeline Rail: Top Progress & Navigation Track (Pieza 44) -->
+    <nav id="Pipeline-Rail" class="pipeline-rail" aria-label="Pipeline Steps">
+      <div class="rail-top">
+        <span class="rail-eyebrow">PIPELINE</span>
+        <span id="Rail-OverallPct" class="rail-pct mono">0%</span>
+      </div>
+      <div class="rail-track">
+        <div class="rail-line-bg">
+          <div id="Rail-Connector-Fill" class="rail-line-fill"></div>
+        </div>
+        <div class="rail-nodes">
+          <button type="button" class="rail-step-btn is-in-progress is-current" data-step="brain" title="Brand Soul">
+            <span class="rail-node-icon">
+              <div class="rail-spinner"></div>
+            </span>
+            <span class="rail-step-info">
+              <span class="rail-step-name">Brand Soul</span>
+              <span class="rail-step-sub"></span>
+            </span>
+          </button>
+          <button type="button" class="rail-step-btn is-blocked" data-step="catalog" title="Catalog">
+            <span class="rail-node-icon">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </span>
+            <span class="rail-step-info">
+              <span class="rail-step-name">Catalog</span>
+              <span class="rail-step-sub"></span>
+            </span>
+          </button>
+          <button type="button" class="rail-step-btn is-blocked" data-step="script" title="Script">
+            <span class="rail-node-icon">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </span>
+            <span class="rail-step-info">
+              <span class="rail-step-name">Script</span>
+              <span class="rail-step-sub"></span>
+            </span>
+          </button>
+          <button type="button" class="rail-step-btn is-blocked" data-step="audiovisual" title="Audiovisual">
+            <span class="rail-node-icon">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </span>
+            <span class="rail-step-info">
+              <span class="rail-step-name">Audiovisual</span>
+              <span class="rail-step-sub"></span>
+            </span>
+          </button>
+          <button type="button" class="rail-step-btn is-blocked" data-step="editing" title="Editing">
+            <span class="rail-node-icon">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </span>
+            <span class="rail-step-info">
+              <span class="rail-step-name">Editing</span>
+              <span class="rail-step-sub"></span>
+            </span>
+          </button>
+        </div>
+      </div>
+      <div id="Rail-Notice" class="rail-notice" style="display:none">
+        <span class="rail-notice-icon">⚠️</span>
+        <span id="Rail-Notice-Text" class="rail-notice-text"></span>
+        <button type="button" id="Rail-Notice-Btn" class="rail-notice-btn"></button>
+        <button type="button" id="Rail-Notice-Close" class="rail-notice-close" title="Dismiss" aria-label="Dismiss">✕</button>
+      </div>
+    </nav>
+
     <div id="BlockA-View">
       <div class="docbody">
         <div class="ghost"><span class="gnum mono">01</span><span class="gname">Where you stand</span><span class="gline" style="width:130px"></span></div>
@@ -357,12 +720,8 @@
     </div>
     <div id="BlockB-View" style="display:none">
       <div class="dochead" style="display:flex;align-items:start;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:12px">
-          <button id="Catalog-BackBtn" style="background:none;border:none;cursor:pointer;font-size:13px;color:#5C6675;padding:0;font-family:inherit">← Back</button>
-          <div>
-            <div class="eyebrow">Block B</div>
-            <h1 class="disp" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">The catalog</h1>
-          </div>
+        <div>
+          <h1 class="disp" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">The catalog</h1>
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <span class="mono" id="Catalog-Progress" style="font-size:12px;color:#5C6675"></span>
@@ -411,12 +770,8 @@
     <!-- BlockC-View: Scripting Block -->
     <div id="BlockC-View" style="display:none">
       <div class="dochead" style="display:flex;align-items:start;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:12px">
-          <button id="Script-BackBtn" style="background:none;border:none;cursor:pointer;font-size:13px;color:#5C6675;padding:0;font-family:inherit">← Back</button>
-          <div>
-            <div class="eyebrow">Block C</div>
-            <h1 class="disp" id="Script-IdeaTitle" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">Script</h1>
-          </div>
+        <div>
+          <h1 class="disp" id="Script-IdeaTitle" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">Script</h1>
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <button class="btn btn--go" id="Script-LockBtn" disabled style="padding:6px 14px;font-size:12px">Lock Script</button>
@@ -492,6 +847,25 @@
         <div id="Script-Audit" style="display:none;margin-top:24px;padding:16px;border:1px solid #E2E8E0;border-radius:6px;background:#FAF9F6"></div>
       </div>
     </div>
+
+    <!-- Audiovisual Studio View (Placeholder - Pieza 44) -->
+    <div id="Audiovisual-View" style="display:none">
+      <div class="dochead" style="display:flex;align-items:start;justify-content:space-between">
+        <div>
+          <h1 class="disp" style="margin:6px 0 0;font-size:27px;font-weight:600;letter-spacing:-.02em">Audiovisual studio</h1>
+        </div>
+      </div>
+      <div style="margin:40px auto;max-width:520px;text-align:center;padding:48px 32px;border:1px dashed var(--line);border-radius:8px;background:var(--surface-alt)">
+        <div style="width:48px;height:48px;margin:0 auto 16px;border-radius:50%;background:rgba(43,76,216,0.08);display:flex;align-items:center;justify-content:center;color:var(--accent)">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+          </svg>
+        </div>
+        <h3 style="font-size:18px;font-weight:600;color:var(--ink);margin:0 0 8px">Audiovisual studio — being built</h3>
+        <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0">Your locked script is ready for it.</p>
+      </div>
+    </div>
   </main>
 
   <!-- Resizer 2: doc ↔ prod -->
@@ -524,65 +898,6 @@
     </div>
 
     <div class="jobs" id="Prod-Jobs" style="display:none"></div>
-
-    <div class="credits">
-      <div class="creditrow">
-        <span class="eyebrow">Credits</span>
-        <span class="creditnum mono" id="Credits-Label">— <span style="font-size:12px;color:#5C6675">/ —</span></span>
-      </div>
-      <div class="bar"><span style="display:block;height:100%;width:100%;background:#2B4CD8" id="Credits-Bar"></span></div>
-    </div>
-
-    <div class="brand-soul-section" style="padding: 16px 24px 18px; border-top: 1px solid var(--line);">
-      <div class="bar" style="margin-bottom:12px"><span style="display:block;height:100%;width:0%;background:#2B4CD8" id="BrandSoul-Bar"></span></div>
-      <button class="brand-soul-btn" id="BrandSoul-Btn" disabled>
-        <svg style="width:18px;height:18px;margin-right:8px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
-        </svg>
-        <span id="BrandSoul-Label">Brand Soul — 0 of 9 sections ready</span>
-      </button>
-      <button class="brand-soul-btn" id="Catalog-Btn" disabled style="margin-top: 8px;">
-        <svg style="width:18px;height:18px;margin-right:8px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"></rect>
-          <rect x="14" y="3" width="7" height="7"></rect>
-          <rect x="14" y="14" width="7" height="7"></rect>
-          <rect x="3" y="14" width="7" height="7"></rect>
-        </svg>
-        <span id="Catalog-Label">Catalog — 0 of 9 sections ready</span>
-      </button>
-    </div>
-
-    <!-- Global Progress Indicator -->
-    <div class="global-progress" style="padding:16px 24px 18px;border-top:1px solid var(--line)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <span style="font-size:11px;font-weight:600;color:#5C6675;text-transform:uppercase;letter-spacing:0.05em">Progress</span>
-        <span id="Progress-OverallPct" style="font-size:11px;font-weight:600;color:#2B4CD8">0%</span>
-      </div>
-      <div style="display:flex;gap:8px;padding:4px 0">
-        <div class="progress-step" data-step="brain" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
-          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
-        </div>
-        <div class="progress-step" data-step="catalog" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
-          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
-        </div>
-        <div class="progress-step" data-step="script" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
-          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#2B4CD8;border-radius:3px;transition:width 0.3s ease"></div>
-        </div>
-        <div class="progress-step" data-step="video" style="flex:1;height:6px;background:#F0F0F0;border-radius:3px;position:relative">
-          <div class="progress-fill" style="display:block;height:100%;width:0%;background:#F0F0F0;border-radius:3px;transition:width 0.3s ease"></div>
-        </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px">
-        <span style="font-size:11px;color:#5C6675">Brand Soul</span>
-        <span style="font-size:11px;color:#5C6675">Catalog</span>
-        <span style="font-size:11px;color:#5C6675">Script</span>
-        <span style="font-size:11px;color:#5C6675">Video</span>
-      </div>
-    </div>
   </aside>
 
 </div>
@@ -1095,10 +1410,9 @@
   .prod.collapsed{width:100% !important;min-width:100% !important}
   .voz.collapsed .brandbar{display:flex}
   .voz.collapsed .orbwrap{display:flex}
-  .voz.collapsed .brand-soul-section{display:block}
+  .voz.collapsed .credits-section{display:block}
   .prod.collapsed .prodhead{display:block}
   .prod.collapsed .empty{display:flex}
-  .prod.collapsed .credits-section{display:block}
 }
 
 /* Catalog Design CSS (approved design) */

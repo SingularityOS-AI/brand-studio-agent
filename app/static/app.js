@@ -1358,7 +1358,8 @@ Always respond in English. Keep your responses conversational and engaging.`;
     const creditsBar = document.getElementById('Credits-Bar');
 
     if (creditsLabel) {
-      creditsLabel.innerHTML = `${remaining} <span style="font-size:12px;color:#5C6675">/ ${initial}</span>`;
+      const num = Number(remaining) || 0;
+      creditsLabel.textContent = `${num.toLocaleString('en-US')} credits`;
     }
 
     // percentage se calcula FUERA del if: abajo se usa en el log, y declararla
@@ -1514,6 +1515,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
         updateBrandSoulButton(brain.sections);
         updateCatalogButton(brain.sections);
       }
+      // Pieza 44B: Si Brand Soul está completo, pedir en silencio el catálogo para no mentir en el riel
+      const sections = (brain && brain.sections) || (cachedBrain && cachedBrain.sections);
+      const brainCount = getReadySectionsCount(sections);
+      if (brainCount >= 9) {
+        await refreshCatalogStatusSilently();
+      }
+      return brain;
     } catch (e) {
       console.error('[Brain] No se pudo cargar el cerebro existente:', e);
     }
@@ -1522,9 +1530,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
   function showMainApp() {
     loginOverlay.style.display = 'none';
     mainApp.style.display = 'flex';
-    loadConfig().then(() => {
+    loadConfig().then(async () => {
       updateCreditsDisplay();
-      loadExistingBrain();
+      await loadExistingBrain();
     });
   }
 
@@ -1617,8 +1625,6 @@ Always respond in English. Keep your responses conversational and engaging.`;
   // BRAND SOUL GENERATION BUTTON
   // =============================================================================
 
-  const brandSoulBtn = document.getElementById('BrandSoul-Btn');
-  const brandSoulLabel = document.getElementById('BrandSoul-Label');
   const brandSoulOverlay = document.getElementById('BrandSoul-Overlay');
   const brandSoulContent = document.getElementById('BrandSoul-Content');
   const brandSoulLoading = document.getElementById('BrandSoul-Loading');
@@ -1626,46 +1632,16 @@ Always respond in English. Keep your responses conversational and engaging.`;
   const brandSoulDownloadBtn = document.getElementById('BrandSoul-DownloadBtn');
   const brandSoulRegenerateBtn = document.getElementById('BrandSoul-RegenerateBtn');
 
-  // Update Brand Soul button state based on confirmed sections count
+  // Update Brand Soul state
   function updateBrandSoulButton(sections) {
-    if (!brandSoulBtn || !brandSoulLabel) return;
-
-    const confirmedCount = typeof getReadySectionsCount === 'function' 
-      ? getReadySectionsCount(sections) 
-      : (sections || []).filter(s => {
-          const st = (s.status || '').toLowerCase();
-          const hasContent = s.content && Object.keys(s.content).length > 0;
-          return (st === 'confirmado' || st === 'completado' || st === 'confirmed') && hasContent;
-        }).length;
-
-    brandSoulLabel.textContent = `Brand Soul — ${confirmedCount} of 9 sections ready`;
-
-    // Update progress bar width
-    const brandSoulBar = document.getElementById('BrandSoul-Bar');
-    if (brandSoulBar) {
-      const progress = (confirmedCount / 9) * 100;
-      brandSoulBar.style.width = `${progress}%`;
-    }
-
-    if (confirmedCount >= 9) {
-      brandSoulBtn.disabled = false;
-    } else {
-      brandSoulBtn.disabled = true;
-    }
-
-    if (typeof updateCatalogButton === 'function') {
-      updateCatalogButton(sections);
+    if (typeof initGlobalProgress === 'function') {
+      initGlobalProgress();
     }
   }
 
   // Generate Brand Soul document
   async function generateBrandSoul() {
-    if (!brandSoulBtn || brandSoulBtn.disabled) return;
-
     try {
-      // Show loading state on button
-      brandSoulBtn.classList.add('loading');
-      brandSoulBtn.disabled = true;
 
       // Show overlay with loading spinner
       brandSoulOverlay.style.display = 'flex';
@@ -1764,13 +1740,8 @@ Always respond in English. Keep your responses conversational and engaging.`;
       alert('Failed to load Brand Soul: ' + error.message);
       brandSoulOverlay.style.display = 'none';
     } finally {
-      // Remove loading state from button and restore state
-      brandSoulBtn.classList.remove('loading');
-      if (cachedBrain && cachedBrain.sections) {
-        const confirmedCount = cachedBrain.sections.filter(s => s.status === 'confirmado').length;
-        brandSoulBtn.disabled = confirmedCount < 9;
-      } else {
-        brandSoulBtn.disabled = true;
+      if (typeof initGlobalProgress === 'function') {
+        initGlobalProgress();
       }
     }
   }
@@ -1907,11 +1878,10 @@ ${htmlContent}
   // =============================================================================
 
   // Catalog DOM elements
-  const catalogBtn = document.getElementById('Catalog-Btn');
-  const catalogLabel = document.getElementById('Catalog-Label');
   const blockAView = document.getElementById('BlockA-View');
   const blockBView = document.getElementById('BlockB-View');
   const blockCView = document.getElementById('BlockC-View');
+  const audiovisualView = document.getElementById('Audiovisual-View');
   const catalogCategories = document.getElementById('Catalog-Categories');
   const catalogGate = document.getElementById('Catalog-Gate');
   const catalogGateTitle = document.getElementById('Catalog-GateTitle');
@@ -1924,7 +1894,6 @@ ${htmlContent}
   const gateBalanceAfter = document.getElementById('Gate-BalanceAfter');
 
   // Script (BlockC) DOM elements
-  const scriptBackBtn = document.getElementById('Script-BackBtn');
   const scriptIdeaTitle = document.getElementById('Script-IdeaTitle');
   const scriptMeta = document.getElementById('Script-Meta');
   let scriptAngle = document.getElementById('Script-Angle');
@@ -2231,17 +2200,10 @@ ${htmlContent}
     }).length;
   }
 
-  // Update Catalog button state based on confirmed sections count
+  // Update Catalog state
   function updateCatalogButton(sections) {
-    if (!catalogBtn || !catalogLabel) return;
-
-    const confirmedCount = getReadySectionsCount(sections);
-    catalogLabel.textContent = `Catalog — ${confirmedCount} of 9 sections ready`;
-
-    if (confirmedCount >= 9) {
-      catalogBtn.disabled = false;
-    } else {
-      catalogBtn.disabled = true;
+    if (typeof initGlobalProgress === 'function') {
+      initGlobalProgress();
     }
   }
 
@@ -2656,24 +2618,38 @@ ${htmlContent}
     }
   }
 
-  // Show BlockA view (original ghost sections)
+  // Current active view tracking for Pipeline Rail ('brain' | 'catalog' | 'script' | 'audiovisual')
+  let currentOpenView = 'brain';
+
+  // Show BlockA view (brand soul)
   function showBlockAView() {
-    blockAView.style.display = 'block';
-    blockBView.style.display = 'none';
-    blockCView.style.display = 'none';
+    currentOpenView = 'brain';
+    if (blockAView) blockAView.style.display = 'block';
+    if (blockBView) blockBView.style.display = 'none';
+    if (blockCView) blockCView.style.display = 'none';
+    if (audiovisualView) audiovisualView.style.display = 'none';
+    if (typeof renderPipelineRail === 'function') {
+      renderPipelineRail();
+    }
   }
 
   // Show BlockB view (catalog)
   function showBlockBView() {
-    blockAView.style.display = 'none';
-    blockBView.style.display = 'block';
-    blockCView.style.display = 'none';
+    currentOpenView = 'catalog';
+    if (blockAView) blockAView.style.display = 'none';
+    if (blockBView) blockBView.style.display = 'block';
+    if (blockCView) blockCView.style.display = 'none';
+    if (audiovisualView) audiovisualView.style.display = 'none';
+    if (typeof renderPipelineRail === 'function') {
+      renderPipelineRail();
+    }
   }
 
   // Show BlockC view (script) with empty state for interview mode
   function showBlockCView(ideaId) {
     // Track current idea ID
     currentScriptIdeaId = ideaId;
+    currentOpenView = 'script';
 
     // Find the idea data from current catalog
     const idea = currentCatalog?.ideas?.find(i => i.id === ideaId);
@@ -2683,15 +2659,32 @@ ${htmlContent}
     }
 
     // Switch view
-    blockAView.style.display = 'none';
-    blockBView.style.display = 'none';
-    blockCView.style.display = 'block';
+    if (blockAView) blockAView.style.display = 'none';
+    if (blockBView) blockBView.style.display = 'none';
+    if (blockCView) blockCView.style.display = 'block';
+    if (audiovisualView) audiovisualView.style.display = 'none';
 
     // Set idea title
-    scriptIdeaTitle.textContent = idea.title;
+    if (scriptIdeaTitle) scriptIdeaTitle.textContent = idea.title;
 
     // Check if script already exists for this idea
     loadScriptData(ideaId);
+
+    if (typeof renderPipelineRail === 'function') {
+      renderPipelineRail();
+    }
+  }
+
+  // Show Audiovisual view (placeholder)
+  function showAudiovisualView() {
+    currentOpenView = 'audiovisual';
+    if (blockAView) blockAView.style.display = 'none';
+    if (blockBView) blockBView.style.display = 'none';
+    if (blockCView) blockCView.style.display = 'none';
+    if (audiovisualView) audiovisualView.style.display = 'block';
+    if (typeof renderPipelineRail === 'function') {
+      renderPipelineRail();
+    }
   }
 
   // Block C: Load script data for an idea
@@ -3646,48 +3639,292 @@ ${htmlContent}
   }
 
   // Global progress indicator
-  function initGlobalProgress() {
-    // Find progress steps by data-step attribute
-    const progressSteps = document.querySelectorAll('.progress-step');
+  // =============================================================================
+  // PIPELINE RAIL (Pieza 44)
+  // =============================================================================
 
-    // Track confirmed brand brain sections. The backend sends
-    // brand_brain.sections as an ARRAY of {id, label, status, content} --
-    // not a flat object with section_* keys -- so this reuses the same
-    // helper the Catalog button uses to count them.
-    const brainSectionsCount = getReadySectionsCount(cachedBrain && cachedBrain.sections);
+  let railNoticeTimeout = null;
 
-    // Brain step: complete if all 9 sections are confirmed
-    const brainComplete = brainSectionsCount >= 9;
-    updateProgressStep('brain', brainComplete);
+  function showRailNotice(text, buttonText, buttonAction) {
+    const noticeEl = document.getElementById('Rail-Notice');
+    const textEl = document.getElementById('Rail-Notice-Text');
+    const btnEl = document.getElementById('Rail-Notice-Btn');
+    if (!noticeEl || !textEl || !btnEl) return;
 
-    // Catalog step: complete if catalog exists and is locked
-    const catalogComplete = Boolean(currentCatalog && currentCatalog.catalog_locked);
-    updateProgressStep('catalog', catalogComplete);
+    textEl.textContent = text;
 
-    // Script step: complete if current script exists and is locked
-    const scriptComplete = Boolean(currentScriptData && currentScriptData.state === 'locked');
-    updateProgressStep('script', scriptComplete);
+    if (buttonText && typeof buttonAction === 'function') {
+      btnEl.textContent = buttonText;
+      btnEl.style.display = 'inline-block';
+      btnEl.onclick = (e) => {
+        e.preventDefault();
+        buttonAction();
+      };
+    } else {
+      btnEl.style.display = 'none';
+      btnEl.onclick = null;
+    }
 
-    // Video step: always pending -- video production isn't built yet
-    const videoComplete = false;
-    updateProgressStep('video', videoComplete);
+    noticeEl.style.display = 'flex';
 
-    // Overall completion across the four steps (Brain, Catalog, Script, Video)
-    const overallEl = document.getElementById('Progress-OverallPct');
-    if (overallEl) {
-      const completeCount = [brainComplete, catalogComplete, scriptComplete, videoComplete].filter(Boolean).length;
-      const overallPct = Math.round((completeCount / 4) * 100);
-      overallEl.textContent = `${overallPct}%`;
+    if (railNoticeTimeout) clearTimeout(railNoticeTimeout);
+    railNoticeTimeout = setTimeout(() => {
+      hideRailNotice();
+    }, 8000);
+  }
+
+  function hideRailNotice() {
+    const noticeEl = document.getElementById('Rail-Notice');
+    if (noticeEl) {
+      noticeEl.style.display = 'none';
+    }
+    if (railNoticeTimeout) {
+      clearTimeout(railNoticeTimeout);
+      railNoticeTimeout = null;
     }
   }
 
-  function updateProgressStep(step, isComplete) {
-    const progressStep = document.querySelector(`.progress-step[data-step="${step}"]`);
-    if (!progressStep) return;
+  function handleRailStepClick(stepId) {
+    const brainCount = getReadySectionsCount(cachedBrain && cachedBrain.sections);
+    const brainComplete = brainCount >= 9;
+    const catalogComplete = Boolean(currentCatalog && currentCatalog.catalog_locked);
+    const scriptComplete = Boolean(currentScriptData && currentScriptData.state === 'locked');
 
-    const progressFill = progressStep.querySelector('.progress-fill');
-    if (progressFill) {
-      progressFill.style.width = isComplete ? '100%' : '0%';
+    if (stepId === 'brain') {
+      hideRailNotice();
+      showBlockAView();
+    } else if (stepId === 'catalog') {
+      if (brainComplete) {
+        hideRailNotice();
+        loadCatalogCache().then(() => showBlockBView());
+      } else {
+        showRailNotice('Finish your Brand Soul first', 'Go to Brand Soul', () => {
+          hideRailNotice();
+          showBlockAView();
+        });
+      }
+    } else if (stepId === 'script') {
+      if (catalogComplete) {
+        hideRailNotice();
+        if (currentScriptIdeaId) {
+          showBlockCView(currentScriptIdeaId);
+        } else {
+          loadCatalogCache().then(() => showBlockBView());
+        }
+      } else {
+        showRailNotice('Lock your catalog first', 'Go to Catalog', () => {
+          hideRailNotice();
+          loadCatalogCache().then(() => showBlockBView());
+        });
+      }
+    } else if (stepId === 'audiovisual') {
+      if (scriptComplete) {
+        hideRailNotice();
+        showAudiovisualView();
+      } else {
+        showRailNotice('Lock your script first', 'Go to Script', () => {
+          hideRailNotice();
+          if (currentScriptIdeaId) {
+            showBlockCView(currentScriptIdeaId);
+          } else {
+            loadCatalogCache().then(() => showBlockBView());
+          }
+        });
+      }
+    } else if (stepId === 'editing') {
+      showRailNotice('Editing — coming soon', null, null);
+    }
+  }
+
+  function renderPipelineRail() {
+    const rail = document.getElementById('Pipeline-Rail');
+    if (!rail) return;
+
+    // 1. Completion criteria
+    const brainCount = getReadySectionsCount(cachedBrain && cachedBrain.sections);
+    const brainComplete = brainCount >= 9;
+    const catalogComplete = Boolean(currentCatalog && currentCatalog.catalog_locked);
+    const scriptComplete = Boolean(currentScriptData && currentScriptData.state === 'locked');
+    const audiovisualComplete = false;
+    const editingComplete = false;
+
+    const completed = [brainComplete, catalogComplete, scriptComplete, audiovisualComplete, editingComplete];
+    const completedCount = completed.filter(Boolean).length;
+    const overallPct = Math.round((completedCount / 5) * 100);
+
+    const pctEl = document.getElementById('Rail-OverallPct');
+    if (pctEl) {
+      pctEl.textContent = `${overallPct}%`;
+    }
+
+    // 2. Connector fill: fills up to the last completed step (4 segments between 5 nodes)
+    const fillEl = document.getElementById('Rail-Connector-Fill');
+    if (fillEl) {
+      const fillPct = Math.min(100, Math.round((completedCount / 4) * 100));
+      fillEl.style.width = `${fillPct}%`;
+    }
+
+    // 3. States for 5 nodes: exactly one of 'done', 'in_progress', 'blocked'
+    const steps = [
+      { id: 'brain', name: 'Brand Soul', complete: brainComplete, prevComplete: true },
+      { id: 'catalog', name: 'Catalog', complete: catalogComplete, prevComplete: brainComplete },
+      { id: 'script', name: 'Script', complete: scriptComplete, prevComplete: catalogComplete },
+      { id: 'audiovisual', name: 'Audiovisual', complete: audiovisualComplete, prevComplete: scriptComplete },
+      { id: 'editing', name: 'Editing', complete: editingComplete, prevComplete: false }
+    ];
+
+    let frontierFound = false;
+    steps.forEach((s) => {
+      if (s.complete) {
+        s.state = 'done';
+      } else if (!frontierFound && s.prevComplete) {
+        s.state = 'in_progress';
+        frontierFound = true;
+      } else {
+        s.state = 'blocked';
+      }
+    });
+
+    // 4. Update DOM for each node
+    steps.forEach((s) => {
+      const btn = rail.querySelector(`.rail-step-btn[data-step="${s.id}"]`);
+      if (!btn) return;
+
+      btn.classList.remove('is-done', 'is-in-progress', 'is-blocked', 'is-current');
+      btn.classList.add(`is-${s.state.replace('_', '-')}`);
+      if (currentOpenView === s.id) {
+        btn.classList.add('is-current');
+      }
+
+      // Update icon container
+      const iconWrap = btn.querySelector('.rail-node-icon');
+      if (iconWrap) {
+        if (s.state === 'done') {
+          iconWrap.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        } else if (s.state === 'in_progress') {
+          iconWrap.innerHTML = '<div class="rail-spinner"></div>';
+        } else {
+          iconWrap.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
+        }
+      }
+
+      // Sub-state line for open view
+      const subEl = btn.querySelector('.rail-step-sub');
+      if (subEl) {
+        if (currentOpenView === s.id) {
+          subEl.style.display = 'block';
+          if (s.id === 'brain') {
+            subEl.textContent = `${brainCount} of 9 sections`;
+          } else if (s.id === 'catalog') {
+            const catProg = catalogProgress ? catalogProgress.textContent.trim() : '';
+            const isLocked = Boolean(currentCatalog && currentCatalog.catalog_locked);
+            if (isLocked) {
+              subEl.textContent = catProg && catProg !== 'Cached' ? `${catProg} · Locked ✓` : 'Locked ✓';
+            } else {
+              subEl.textContent = catProg || 'In progress';
+            }
+          } else if (s.id === 'script' || s.id === 'audiovisual') {
+            const activeIdea = currentCatalog?.ideas?.find(i => i.id === currentScriptIdeaId);
+            const scriptState = currentScriptData?.state || 'draft';
+            if (activeIdea && activeIdea.title) {
+              const shortTitle = activeIdea.title.length > 18
+                ? activeIdea.title.slice(0, 16) + '…'
+                : activeIdea.title;
+              subEl.textContent = `${shortTitle} · ${scriptState}`;
+            } else {
+              subEl.textContent = s.id === 'script' ? 'No idea selected' : 'Ready for script';
+            }
+          } else if (s.id === 'editing') {
+            subEl.textContent = 'Coming soon';
+          }
+        } else {
+          subEl.textContent = '';
+          subEl.style.display = 'none';
+        }
+      }
+    });
+  }
+
+  function initPipelineRail() {
+    const rail = document.getElementById('Pipeline-Rail');
+    if (!rail) return;
+
+    rail.querySelectorAll('.rail-step-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const step = btn.dataset.step;
+        if (step) {
+          handleRailStepClick(step);
+        }
+      });
+    });
+
+    const closeBtn = document.getElementById('Rail-Notice-Close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        hideRailNotice();
+      });
+    }
+
+    // Responsive compact/mid rail states (Pieza 44B)
+    function applyRailResponsive(width) {
+      if (width < 480) {
+        rail.classList.add('is-compact');
+        rail.classList.remove('is-mid');
+      } else if (width <= 700) {
+        rail.classList.remove('is-compact');
+        rail.classList.add('is-mid');
+      } else {
+        rail.classList.remove('is-compact', 'is-mid');
+      }
+    }
+
+    if (rail.offsetWidth > 0) {
+      applyRailResponsive(rail.offsetWidth);
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          applyRailResponsive(entry.contentRect.width);
+        }
+      });
+      ro.observe(rail);
+    }
+
+    renderPipelineRail();
+  }
+
+  // Global progress indicator (migrated to Pipeline Rail)
+  function initGlobalProgress() {
+    renderPipelineRail();
+  }
+
+  // Refresh catalog status silently on app startup without opening modals or panels (Pieza 44B)
+  async function refreshCatalogStatusSilently() {
+    try {
+      const response = await authenticatedFetch('/api/catalog', {
+        method: 'GET'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.catalog) {
+          currentCatalog = data.catalog;
+        }
+      } else if (response.status === 404) {
+        // Silencioso: si responde 404, NO abrir modal de créditos, NO cambiar de vista, NO renderizar catálogo
+      } else {
+        console.warn('[Catalog] Silent catalog status check returned status:', response.status);
+      }
+    } catch (err) {
+      console.warn('[Catalog] Silent catalog status check network error:', err);
+    } finally {
+      if (typeof initGlobalProgress === 'function') {
+        initGlobalProgress();
+      } else if (typeof renderPipelineRail === 'function') {
+        renderPipelineRail();
+      }
     }
   }
 
@@ -3720,14 +3957,6 @@ ${htmlContent}
     }
   }
 
-  // Wire up Catalog button to toggle views
-  if (catalogBtn) {
-    catalogBtn.addEventListener('click', async () => {
-      await loadCatalogCache();
-      showBlockBView();
-    });
-  }
-
   // Wire up credit gate cancel
   if (gateCancelBtn) {
     gateCancelBtn.addEventListener('click', closeCreditGateModal);
@@ -3741,17 +3970,6 @@ ${htmlContent}
   // Wire up gate button to open modal
   if (catalogGate) {
     catalogGate.addEventListener('click', openCreditGateModal);
-  }
-
-  // Wire up back button from BlockB to BlockA
-  const catalogBackBtn = document.getElementById('Catalog-BackBtn');
-  if (catalogBackBtn) {
-    catalogBackBtn.addEventListener('click', showBlockAView);
-  }
-
-  // Wire up Block C back button
-  if (scriptBackBtn) {
-    scriptBackBtn.addEventListener('click', showBlockBView);
   }
 
   // Wire up Block C generate button
@@ -3864,10 +4082,7 @@ ${htmlContent}
     }
   });
 
-  // Wire up Brand Soul button and overlay controls
-  if (brandSoulBtn) {
-    brandSoulBtn.addEventListener('click', generateBrandSoul);
-  }
+  // Wire up Brand Soul overlay controls
 
   if (brandSoulDownloadBtn) {
     brandSoulDownloadBtn.addEventListener('click', downloadBrandSoul);
@@ -4185,6 +4400,9 @@ ${htmlContent}
     if (logoutBtn) {
       logoutBtn.addEventListener('click', logout);
     }
+
+    // Initialize pipeline rail
+    initPipelineRail();
   });
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');
