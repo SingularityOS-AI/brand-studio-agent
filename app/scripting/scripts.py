@@ -929,6 +929,48 @@ def _normalize_asset_type(value: Any) -> Any:
     return value
 
 
+def _normalize_b_roll(value: Any) -> str | None:
+    """
+    Normalize b_roll field from LLM response before Scene validation (Pieza 48).
+
+    - None / "" -> None
+    - str -> tal cual (strip)
+    - dict -> primer valor de texto útil entre description, text, visual, query;
+              si no hay, los valores de texto unidos con " — "
+    - list -> elementos de texto unidos con "; "
+    - cualquier otro tipo -> str(value)
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else None
+    if isinstance(value, dict):
+        for key in ("description", "text", "visual", "query"):
+            val = value.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        text_vals = [
+            v.strip()
+            for v in value.values()
+            if isinstance(v, str) and v.strip()
+        ]
+        if text_vals:
+            return " — ".join(text_vals)
+        return None
+    if isinstance(value, list):
+        items = [
+            x.strip()
+            for x in value
+            if isinstance(x, str) and x.strip()
+        ]
+        if items:
+            return "; ".join(items)
+        return None
+    cleaned = str(value).strip()
+    return cleaned if cleaned else None
+
+
 def _summarize_validation_error(e: Exception) -> str:
     """
     Turn a pydantic ValidationError into one short, readable line instead of
@@ -984,6 +1026,7 @@ def _build_validated_scene(
         "asset_type", fallback.asset_type if fallback else "a_roll"
     )
     asset_type = _normalize_asset_type(asset_type_raw)
+    b_roll = _normalize_b_roll(scene_data.get("b_roll"))
 
     payload = {
         "n": n,
@@ -992,7 +1035,7 @@ def _build_validated_scene(
         "phase": phase,
         "spoken_text": scene_data.get("spoken_text"),
         "shot": scene_data.get("shot"),
-        "b_roll": scene_data.get("b_roll"),
+        "b_roll": b_roll,
         "on_screen_text": scene_data.get("on_screen_text"),
         "acting_note": scene_data.get("acting_note"),
         "sound": scene_data.get("sound"),
@@ -1165,7 +1208,7 @@ OUTPUT: Valid JSON with this exact schema:
       "phase": "hook|lock_in|body_1|rehook|body_2|close_cta",
       "spoken_text": "what the founder says",
       "shot": "camera angle",
-      "b_roll": "what overlays (or null)",
+      "b_roll": "plain text string describing the overlay, or null — never an object",
       "on_screen_text": "subtitle max 8 words",
       "acting_note": "specific direction: rhythm, emphasis, pauses, gaze",
       "sound": "mood or SFX",
@@ -1303,6 +1346,26 @@ Return ONLY the complete corrected script as valid JSON adhering to the exact sc
 """
 
 
+def _build_validation_retry_prompt(
+    base_prompt: str,
+    previous_output: str,
+    error_message: str,
+) -> str:
+    """Build retry prompt when the model's first attempt fails validation / JSON parsing (Pieza 48)."""
+    return f"""{base_prompt}
+
+CRITICAL REVISION REQUIRED:
+your previous output was invalid: {error_message}. Return valid JSON matching the schema; b_roll must be a string or null.
+
+PREVIOUS OUTPUT:
+{previous_output}
+
+INSTRUCTIONS FOR REVISION:
+Fix the validation error above. Ensure the response is valid JSON matching the schema exactly; b_roll must be a plain text string or null, never an object.
+Return ONLY valid JSON.
+"""
+
+
 async def generate_script(
     session_id: str,
     idea_id: str,
@@ -1374,8 +1437,29 @@ async def generate_script(
         },
     )
 
-    # 6. Parse and build Script object
-    script, script_data = _parse_and_build_script(session_id, idea_id, response.text)
+    # 6. Parse and build Script object (Pieza 48: single retry covers validation errors too)
+    validation_retried = False
+    try:
+        script, script_data = _parse_and_build_script(session_id, idea_id, response.text)
+    except ValueError as e:
+        validation_error_msg = str(e)
+        retry_prompt = _build_validation_retry_prompt(
+            prompt, getattr(response, "text", "") or "", validation_error_msg
+        )
+        retry_response = await model.generate_content_async(
+            retry_prompt,
+            generation_config={
+                "temperature": 0.7,
+                "max_output_tokens": 8192,
+                "response_mime_type": "application/json",
+            },
+        )
+        # If the retry also fails validation / json parsing, let ValueError propagate
+        # to caller (0 credits charged, no third attempt).
+        script, script_data = _parse_and_build_script(
+            session_id, idea_id, retry_response.text
+        )
+        validation_retried = True
 
     # 7. Check critical audit rules
     critical_rules = {
@@ -1388,7 +1472,8 @@ async def generate_script(
     ]
 
     # 8. Single automatic retry if any critical rule fails (Pieza 45)
-    if failed_critical:
+    # Only if we haven't already used our single retry on a validation error (Pieza 48)
+    if failed_critical and not validation_retried:
         failure_messages = _format_critical_audit_failures(script, failed_critical)
         retry_prompt = _build_retry_generation_prompt(prompt, script_data, failure_messages)
         try:
