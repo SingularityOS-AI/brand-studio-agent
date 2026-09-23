@@ -1153,8 +1153,11 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
                 },
             )
 
+    from app.audiovisual.sfx import pick_sfx
+
     # 4. Candado de idempotencia con job-ancla (music)
     # Orden: 1) crear primero un job-ancla del lanzamiento (music)
+    est_duration = float(script.target_seconds or (script.scenes[-1].end_s if script.scenes else 45.0))
     music_job, music_created = create_job(
         session_token=session_token,
         idea_id=idea_id,
@@ -1162,7 +1165,14 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
         kind="music",
         credits=0,
         cost_usd=0.0,
-        input={"music_prompt": script.music_prompt},
+        input={
+            "music_prompt": script.music_prompt,
+            "angle": script.angle,
+            "phases": [sc.phase for sc in script.scenes],
+            "recording_format": script.recording_format,
+            "target_seconds": script.target_seconds,
+            "duration_s": est_duration,
+        },
         idempotency_key=music_idempotency_key,
         return_created=True,
     )
@@ -1207,6 +1217,29 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
                 idempotency_key=scene_key,
             )
             created_jobs.append(job)
+
+        # Check for SFX on this scene (Pieza 52)
+        chosen_sfx = pick_sfx(sc)
+        if chosen_sfx:
+            sfx_key = f"{session_token}:{idea_id}:{version_tag}:{sc.n}:sfx"
+            sfx_job = create_job(
+                session_token=session_token,
+                idea_id=idea_id,
+                scene_n=sc.n,
+                kind="sfx",
+                credits=0,
+                cost_usd=0.0,
+                input={
+                    "scene_n": sc.n,
+                    "phase": sc.phase,
+                    "sound": sc.sound,
+                    "sfx_file": chosen_sfx.get("file"),
+                    "tag": chosen_sfx.get("tag"),
+                    "storage_path": chosen_sfx.get("storage_path"),
+                },
+                idempotency_key=sfx_key,
+            )
+            created_jobs.append(sfx_job)
 
     created_jobs.append(music_job)
 

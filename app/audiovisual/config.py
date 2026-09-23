@@ -14,3 +14,6 @@ AV_MAX_AI_VIDEO: int = int(os.getenv("AV_MAX_AI_VIDEO", "1"))
 
 # Private storage bucket for binary assets
 AV_STORAGE_BUCKET: str = os.getenv("AV_STORAGE_BUCKET", "brand-assets")
+
+# Lyria fallback flag for music generation (Pieza 52 - default false)
+AV_ALLOW_LYRIA: bool = os.getenv("AV_ALLOW_LYRIA", "false").lower() in ("true", "1", "yes")

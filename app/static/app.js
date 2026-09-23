@@ -3158,8 +3158,8 @@ ${htmlContent}
       const jobs = await loadAudiovisualJobs(ideaId);
       renderAudiovisualView();
 
-      const hasActiveTranscript = (jobs || []).some(j => j.kind === 'transcript' && (j.status === 'pending' || j.status === 'running'));
-      if (!hasActiveTranscript) {
+      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'stock' || j.kind === 'music' || j.kind === 'sfx') && (j.status === 'pending' || j.status === 'running'));
+      if (!hasActiveJobs) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
       }
@@ -3200,12 +3200,16 @@ ${htmlContent}
     const badgeInfo = ASSET_ORIGIN_CONFIG[assetType] || ASSET_ORIGIN_CONFIG.a_roll;
 
     const isARoll = assetType === 'a_roll';
+    const isStock = assetType === 'stock';
     const takeJob = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
     const transcriptJob = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
+    const stockJob = isStock ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'stock' && j.status === 'done') : null;
 
     let badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;">Pending</span>';
     if (isARoll && takeJob) {
       badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">Recorded ✓</span>';
+    } else if (isStock && stockJob) {
+      badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">Stock ✓</span>';
     }
 
     let spokenTextSectionHtml = `
@@ -3244,6 +3248,14 @@ ${htmlContent}
         <div style="margin-top:12px;">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">Recorded Take Preview</div>
           <video src="${escapeHtml(takeJob.signed_url)}" controls playsinline style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
+        </div>
+      `;
+    } else if (isStock && stockJob && stockJob.output?.video_url) {
+      videoPreviewHtml = `
+        <div style="margin-top:12px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">Stock Video Preview</div>
+          <video src="${escapeHtml(stockJob.output.video_url)}" controls playsinline style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
+          <div id="AV-InspectorStockAttribution" style="font-size:11px;color:var(--ink-soft);margin-top:4px;"></div>
         </div>
       `;
     }
@@ -3302,6 +3314,19 @@ ${htmlContent}
         const scN = parseInt(recordBtnInDetail.dataset.sceneN, 10);
         openRecordingStudio(scN);
       });
+    }
+
+    if (isStock && stockJob && stockJob.output) {
+      const inspectorAttrEl = detailPanel.querySelector('#AV-InspectorStockAttribution');
+      if (inspectorAttrEl) {
+        if (stockJob.output.attribution_text) {
+          inspectorAttrEl.textContent = stockJob.output.attribution_text;
+        } else {
+          const prov = stockJob.output.provider === 'pixabay' ? 'Pixabay' : 'Pexels';
+          const aut = stockJob.output.author || 'Unknown';
+          inspectorAttrEl.textContent = `Video by ${aut} on ${prov}`;
+        }
+      }
     }
   }
 
@@ -3414,8 +3439,10 @@ ${htmlContent}
       const iconSvg = getAssetTypeIcon(assetType);
 
       const isARoll = assetType === 'a_roll';
+      const isStock = assetType === 'stock';
       const aRollTake = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
       const aRollTranscript = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
+      const stockJob = isStock ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'stock' && j.status === 'done') : null;
 
       let cardBadgeHtml = `
         <div style="margin-top:10px;padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;letter-spacing:0.04em;">
@@ -3443,6 +3470,18 @@ ${htmlContent}
             <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
           `;
         }
+      } else if (isStock && stockJob && stockJob.output) {
+        cardBadgeHtml = `
+          <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
+            Stock ✓
+          </div>
+        `;
+        if (stockJob.output.preview_url) {
+          visualContentHtml = `
+            <img src="${escapeHtml(stockJob.output.preview_url)}" alt="Stock preview" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;">
+            <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
+          `;
+        }
       }
 
       let queryLabel = 'Prompt';
@@ -3465,6 +3504,16 @@ ${htmlContent}
         fullQuery = scene.visual_prompt || scene.on_screen_text || 'Motion graphic';
       }
 
+      let stockAttributionHtml = '';
+      if (isStock && stockJob && stockJob.output) {
+        const prov = stockJob.output.provider === 'pixabay' ? 'Pixabay' : 'Pexels';
+        const aut = stockJob.output.author || 'Unknown';
+        const attrText = stockJob.output.attribution_text || '';
+        stockAttributionHtml = `
+          <div class="av-stock-attribution-tag" data-author="${escapeHtml(aut)}" data-provider="${escapeHtml(prov)}" data-attribution="${escapeHtml(attrText)}" style="font-size:9.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;"></div>
+        `;
+      }
+
       timelineCardsHtml += `
         <div class="av-card" data-scene-index="${idx}" style="flex:0 0 160px;width:160px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:8px;user-select:none;box-sizing:border-box;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px;">
@@ -3480,6 +3529,7 @@ ${htmlContent}
           <div style="font-size:11px;color:var(--ink-soft);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 0;" title="${escapeHtml(fullQuery)}">
             <span style="font-weight:600;color:var(--ink);">${escapeHtml(queryLabel)}:</span> ${escapeHtml(fullQuery)}
           </div>
+          ${stockAttributionHtml}
         </div>
       `;
     });
@@ -3578,6 +3628,11 @@ ${htmlContent}
           <button type="button" id="AV-Timeline-NextBtn" class="av-timeline-nav-btn" aria-label="Next scene" title="Next scene">›</button>
         </div>
 
+        <!-- Music status line (Pieza 52) -->
+        <div id="AV-MusicStatusLine" style="margin-top:10px;font-size:12.5px;color:var(--ink);display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;">
+          <span id="AV-MusicStatusText" style="font-weight:500;"></span>
+        </div>
+
         <!-- Detail panel expanded on click -->
         <div id="AV-DetailPanel" style="margin-top:12px;padding:16px 20px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt);display:none;"></div>
       </div>
@@ -3602,6 +3657,36 @@ ${htmlContent}
         </div>
       </div>
     `;
+
+    // Populate stock card attribution text using textContent
+    container.querySelectorAll('.av-stock-attribution-tag').forEach((el) => {
+      if (el.dataset.attribution) {
+        el.textContent = el.dataset.attribution;
+      } else {
+        const author = el.dataset.author || 'Unknown';
+        const provider = el.dataset.provider || 'Pexels';
+        el.textContent = `Video by ${author} on ${provider}`;
+      }
+    });
+
+    // Populate music status line using textContent (Pieza 52)
+    const musicJob = (currentAudiovisualJobs || []).find(j => j.kind === 'music' && j.status === 'done');
+    const musicStatusEl = container.querySelector('#AV-MusicStatusText');
+    if (musicStatusEl) {
+      if (musicJob && musicJob.output) {
+        if (musicJob.output.use_music) {
+          const volPct = Math.round((Number(musicJob.output.volume) || 0.15) * 100);
+          const mood = musicJob.output.mood || 'calm';
+          const reason = musicJob.output.reason ? ` — ${musicJob.output.reason}` : '';
+          musicStatusEl.textContent = `🎵 ${mood} · ${volPct}% volume${reason}`;
+        } else {
+          const reason = musicJob.output.reason ? ` — ${musicJob.output.reason}` : '';
+          musicStatusEl.textContent = `No music${reason}`;
+        }
+      } else {
+        musicStatusEl.textContent = '🎵 Background music: awaiting generation…';
+      }
+    }
 
     const prevBtn = container.querySelector('#AV-Timeline-PrevBtn');
     const nextBtn = container.querySelector('#AV-Timeline-NextBtn');

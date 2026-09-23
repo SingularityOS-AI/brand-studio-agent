@@ -43,7 +43,8 @@ def reset_jobs_and_resolvers():
     """Ensure clean jobs storage, mock script client, sessions, and resolvers before and after every test."""
     _reset_local_jobs()
     RESOLVERS.clear()
-    register_default_resolvers()
+    from app.audiovisual.worker import resolve_transcript
+    RESOLVERS["transcript"] = resolve_transcript
     guard._sessions.clear()
     with patch("app.scripting.scripts._get_script_client", return_value=None):
         yield
