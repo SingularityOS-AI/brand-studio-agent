@@ -12,6 +12,7 @@ Main FastAPI application with:
 
 import os
 import asyncio
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -1237,7 +1238,7 @@ async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
     # Augment completed jobs with signed_url
     for j in jobs:
         if j.get("status") == "done":
-            storage_path = j.get("output", {}).get("storage_path")
+            storage_path = j.get("output", {}).get("storage_path") or j.get("input", {}).get("storage_path")
             if storage_path:
                 try:
                     j["signed_url"] = signed_url(storage_path)
@@ -1245,6 +1246,215 @@ async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
                     logger.warning(f"Could not generate signed_url for job {j.get('id')}: {e}")
 
     return JSONResponse(content={"jobs": jobs})
+
+
+@app.post("/api/audiovisual/{idea_id}/takes/{scene_n}/upload-url", response_class=JSONResponse)
+async def get_take_upload_url_endpoint(request: Request, idea_id: str, scene_n: int):
+    """
+    Returns signed upload URL for an A-roll scene take.
+    - Validates that the script exists and is locked (409 if unlocked, 404 if not found).
+    - Validates that the scene exists and is an a_roll scene (404 if not found, 400 if not a_roll).
+    - Returns {storage_path, signed_upload_url, token}.
+    - Charges 0 credits.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    from app.scripting.scripts import _check_script, ScriptStorageError
+    from app.audiovisual.storage import create_signed_upload_url
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(status_code=404, content={"error": f"Script not found for idea {idea_id}"})
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked to record takes"},
+        )
+
+    scene = next((s for s in script.scenes if s.n == scene_n), None)
+    if not scene:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Scene {scene_n} not found in script"},
+        )
+
+    if scene.asset_type != "a_roll":
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Scene {scene_n} is not an A-roll scene (asset_type is {scene.asset_type})"},
+        )
+
+    ext = "webm"
+    if request.query_params.get("ext"):
+        ext = request.query_params.get("ext")
+    elif request.query_params.get("mime"):
+        ext = request.query_params.get("mime")
+
+    try:
+        upload_data = create_signed_upload_url(
+            session_token=session_token,
+            idea_id=idea_id,
+            scene_n=scene_n,
+            ext=ext,
+        )
+    except Exception as e:
+        logger.error(f"[upload-url] Failed to create signed upload URL: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    return JSONResponse(content=upload_data)
+
+
+@app.post("/api/audiovisual/{idea_id}/takes/{scene_n}/commit", response_class=JSONResponse)
+async def commit_take_endpoint(request: Request, idea_id: str, scene_n: int):
+    """
+    Commits an uploaded A-roll take for a scene:
+    - Verifies that storage_path belongs to this founder/idea/scene (403 if invalid).
+    - Validates script is locked and scene is a_roll.
+    - Cancels any previous take/transcript jobs for this scene.
+    - Creates job 'a_roll_take' with status 'done' (0 credits).
+    - Enqueues job 'transcript' with status 'pending' (0 credits).
+    - Returns {take_job: ..., transcript_job: ...}.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    storage_path = body.get("storage_path")
+    if not storage_path or not isinstance(storage_path, str):
+        return JSONResponse(status_code=400, content={"error": "storage_path is required"})
+
+    mime = body.get("mime", "video/webm")
+    duration_s = body.get("duration_s")
+
+    # Security check: verify storage_path prefix belongs to this session_token, idea_id, scene_n
+    token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()[:16]
+    expected_prefix = f"{token_hash}/{idea_id}/{scene_n}/"
+    if not storage_path.startswith(expected_prefix):
+        return JSONResponse(
+            status_code=403,
+            content={"error": "storage_path does not belong to this user, idea, or scene"},
+        )
+
+    from app.scripting.scripts import _check_script, ScriptStorageError
+    from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled, mark_done
+    from app.audiovisual.storage import signed_url
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(status_code=404, content={"error": f"Script not found for idea {idea_id}"})
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked to commit takes"},
+        )
+
+    scene = next((s for s in script.scenes if s.n == scene_n), None)
+    if not scene:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Scene {scene_n} not found in script"},
+        )
+
+    if scene.asset_type != "a_roll":
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Scene {scene_n} is not an A-roll scene"},
+        )
+
+    # Cancel previous take & transcript jobs for this scene
+    existing_jobs = list_jobs(session_token, idea_id)
+    for j in existing_jobs:
+        if j.get("scene_n") == scene_n and j.get("kind") in ("a_roll_take", "transcript"):
+            if j.get("status") not in ("cancelled", "failed"):
+                mark_cancelled(j["id"], error="Replaced by new take")
+
+    # Create a_roll_take in 'done' (0 credits)
+    take_job = create_job(
+        session_token=session_token,
+        idea_id=idea_id,
+        scene_n=scene_n,
+        kind="a_roll_take",
+        credits=0,
+        cost_usd=0.0,
+        input={
+            "storage_path": storage_path,
+            "mime": mime,
+            "duration_s": duration_s,
+        },
+    )
+
+    take_job = mark_done(
+        job_id_or_job=take_job["id"],
+        output={
+            "storage_path": storage_path,
+            "mime": mime,
+            "duration_s": duration_s,
+        },
+        cost_usd=0.0,
+        charged=False,
+    )
+    try:
+        take_job["signed_url"] = signed_url(storage_path)
+    except Exception as e:
+        logger.warning(f"Could not generate signed_url for take: {e}")
+
+    # Enqueue transcript job (0 credits)
+    transcript_job = create_job(
+        session_token=session_token,
+        idea_id=idea_id,
+        scene_n=scene_n,
+        kind="transcript",
+        credits=0,
+        cost_usd=0.0,
+        input={
+            "storage_path": storage_path,
+            "take_job_id": take_job["id"],
+            "mime": mime,
+            "duration_s": duration_s,
+        },
+    )
+
+    return JSONResponse(content={
+        "take_job": take_job,
+        "transcript_job": transcript_job,
+        "take_job_id": take_job["id"],
+        "transcript_job_id": transcript_job["id"],
+    })
 
 
 @app.get("/api/catalog", response_class=JSONResponse)

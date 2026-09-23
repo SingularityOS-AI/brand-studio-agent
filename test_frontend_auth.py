@@ -1,5 +1,7 @@
+import pytest
 from playwright.sync_api import sync_playwright
 
+@pytest.mark.e2e
 def test_test_mode_bypass():
     """
     Test that in TEST_MODE, the frontend bypasses authentication

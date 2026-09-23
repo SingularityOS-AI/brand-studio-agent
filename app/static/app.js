@@ -3122,6 +3122,50 @@ ${htmlContent}
     return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>`;
   }
 
+  // Pieza 51: Teleprompter & Recording Studio state
+  let currentAudiovisualJobs = [];
+  let audiovisualPollInterval = null;
+
+  async function loadAudiovisualJobs(ideaId) {
+    if (!ideaId) return [];
+    try {
+      const res = await fetchWithAuth(`/api/audiovisual/${ideaId}/jobs`);
+      if (res.ok) {
+        const data = await res.json();
+        currentAudiovisualJobs = data.jobs || [];
+        return currentAudiovisualJobs;
+      }
+    } catch (err) {
+      console.warn('[Audiovisual] Failed to load jobs:', err);
+    }
+    return [];
+  }
+
+  function pollAudiovisualJobs(ideaId) {
+    if (audiovisualPollInterval) {
+      clearInterval(audiovisualPollInterval);
+      audiovisualPollInterval = null;
+    }
+    if (!ideaId) return;
+
+    audiovisualPollInterval = setInterval(async () => {
+      if (currentOpenView !== 'audiovisual' || !currentScriptData || currentScriptData.idea_id !== ideaId) {
+        clearInterval(audiovisualPollInterval);
+        audiovisualPollInterval = null;
+        return;
+      }
+
+      const jobs = await loadAudiovisualJobs(ideaId);
+      renderAudiovisualView();
+
+      const hasActiveTranscript = (jobs || []).some(j => j.kind === 'transcript' && (j.status === 'pending' || j.status === 'running'));
+      if (!hasActiveTranscript) {
+        clearInterval(audiovisualPollInterval);
+        audiovisualPollInterval = null;
+      }
+    }, 2500);
+  }
+
   let selectedTimelineSceneIdx = null;
 
   function renderSelectedSceneDetail(sceneIdx) {
@@ -3155,11 +3199,60 @@ ${htmlContent}
     const assetType = scene.asset_type || 'a_roll';
     const badgeInfo = ASSET_ORIGIN_CONFIG[assetType] || ASSET_ORIGIN_CONFIG.a_roll;
 
+    const isARoll = assetType === 'a_roll';
+    const takeJob = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
+    const transcriptJob = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
+
+    let badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;">Pending</span>';
+    if (isARoll && takeJob) {
+      badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">Recorded ✓</span>';
+    }
+
+    let spokenTextSectionHtml = `
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Spoken Text (Founder Voice)</div>
+        <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
+          ${escapeHtml(scene.spoken_text || '—')}
+        </div>
+      </div>
+    `;
+
+    if (isARoll && transcriptJob && transcriptJob.status === 'done' && transcriptJob.output?.text) {
+      spokenTextSectionHtml = `
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Original Guide Script</div>
+          <div style="color:var(--ink-soft);background:var(--surface);padding:8px 12px;border-radius:6px;border:1px solid var(--line);font-size:12px;margin-bottom:8px;">
+            ${escapeHtml(scene.spoken_text || '—')}
+          </div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#15803D;font-weight:700;margin-bottom:4px;">Real Spoken Subtitles (AssemblyAI)</div>
+          <div style="color:#166534;background:#F0FDF4;padding:10px 12px;border-radius:6px;border:1px solid #BBF7D0;font-weight:500;">
+            "${escapeHtml(transcriptJob.output.text)}"
+          </div>
+        </div>
+      `;
+    }
+
+    let takeActionBtn = '';
+    if (isARoll) {
+      const label = takeJob ? '🎥 Retake (free)' : '🎥 Record Scene';
+      takeActionBtn = `<button type="button" class="btn btn--secondary btn-aroll-record" data-scene-n="${scene.n || (sceneIdx + 1)}" style="padding:4px 10px;font-size:11px;">${label}</button>`;
+    }
+
+    let videoPreviewHtml = '';
+    if (isARoll && takeJob && takeJob.signed_url) {
+      videoPreviewHtml = `
+        <div style="margin-top:12px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">Recorded Take Preview</div>
+          <video src="${escapeHtml(takeJob.signed_url)}" controls playsinline style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
+        </div>
+      `;
+    }
+
     detailPanel.style.display = 'block';
     detailPanel.innerHTML = `
       <div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div>
-          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);">Scene Inspector (Read-only)</div>
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);">Scene Inspector</div>
           <div style="font-size:16px;font-weight:700;color:var(--ink);margin-top:2px;">
             Scene #${scene.n || (sceneIdx + 1)} · ${escapeHtml(phaseName)}
             <span style="font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:8px;">${escapeHtml(timeRange)} est.</span>
@@ -3167,17 +3260,13 @@ ${htmlContent}
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="padding:3px 8px;border-radius:4px;font-size:10px;${badgeInfo.style}">${badgeInfo.label}</span>
-          <span style="padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;">Pending</span>
+          ${badgeStatusHtml}
+          ${takeActionBtn}
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.5;">
-        <div>
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Spoken Text (Founder Voice)</div>
-          <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
-            ${escapeHtml(scene.spoken_text || '—')}
-          </div>
-        </div>
+        ${spokenTextSectionHtml}
         <div>
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">On-Screen Text (Subtitle)</div>
           <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
@@ -3185,6 +3274,8 @@ ${htmlContent}
           </div>
         </div>
       </div>
+
+      ${videoPreviewHtml}
 
       <div style="margin-top:12px;font-size:13px;line-height:1.5;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Prompt & Direction Details</div>
@@ -3199,9 +3290,19 @@ ${htmlContent}
 
       <div style="margin-top:12px;font-size:11.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-        <span>Read-only storyboard view. Arranging, trimming, and reordering clips take place in Step 5 (Editing).</span>
+        <span>Record takes at step 1. Arranging, trimming, and reordering clips take place in Step 5 (Editing).</span>
       </div>
     `;
+
+    // Wire record button in detail panel if present
+    const recordBtnInDetail = detailPanel.querySelector('.btn-aroll-record');
+    if (recordBtnInDetail) {
+      recordBtnInDetail.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const scN = parseInt(recordBtnInDetail.dataset.sceneN, 10);
+        openRecordingStudio(scN);
+      });
+    }
   }
 
   function getEstimatedDurationText(scriptData) {
@@ -3237,15 +3338,63 @@ ${htmlContent}
         const endTime = formatTime(scene.end_s);
         const timeRange = (scene.start_s !== null && scene.start_s !== undefined && scene.end_s !== null && scene.end_s !== undefined)
           ? `${startTime}–${endTime}` : '—';
+
+        const takeJob = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done');
+        const transcriptJob = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled');
+
+        const hasTake = !!takeJob;
+        const btnLabel = hasTake ? 'Recorded ✓ · Retake' : '🎥 Record';
+        const btnClass = hasTake ? 'btn btn--secondary btn-aroll-record' : 'btn btn--primary btn-aroll-record';
+
+        let takeDetailsHtml = '';
+        if (hasTake) {
+          let videoPreviewHtml = '';
+          if (takeJob.signed_url) {
+            videoPreviewHtml = `
+              <div style="margin-top:10px;">
+                <video src="${escapeHtml(takeJob.signed_url)}" controls playsinline style="max-width:220px;max-height:140px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
+              </div>
+            `;
+          }
+
+          let transcriptHtml = '';
+          if (transcriptJob && transcriptJob.status === 'done' && transcriptJob.output?.text) {
+            transcriptHtml = `
+              <div style="margin-top:8px;padding:8px 12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;font-size:12.5px;color:#166534;line-height:1.45;">
+                <span style="font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:0.04em;display:block;margin-bottom:2px;color:#15803D;">Real Subtitles (AssemblyAI):</span>
+                "${escapeHtml(transcriptJob.output.text)}"
+              </div>
+            `;
+          } else if (transcriptJob && (transcriptJob.status === 'pending' || transcriptJob.status === 'running')) {
+            transcriptHtml = `
+              <div style="margin-top:8px;padding:6px 10px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;font-size:12px;color:#1D4ED8;display:inline-flex;align-items:center;gap:6px;">
+                <span class="spinner" style="width:12px;height:12px;border:2px solid #3B82F6;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
+                <span>Transcribing founder audio with AssemblyAI…</span>
+              </div>
+            `;
+          }
+
+          takeDetailsHtml = `
+            ${videoPreviewHtml}
+            ${transcriptHtml}
+          `;
+        }
+
         return `
-          <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;display:flex;gap:14px;align-items:flex-start;">
+          <div style="padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:6px;display:flex;gap:16px;align-items:flex-start;">
             <div style="flex-shrink:0;min-width:70px;">
               <span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;">Scene ${scene.n || (idx + 1)}</span>
               <div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(timeRange)} <span style="font-size:9px;">est.</span></div>
             </div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">${escapeHtml(phaseName)}</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+                <div style="font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(phaseName)}</div>
+                <button type="button" class="${btnClass}" data-scene-n="${scene.n || (idx + 1)}" style="padding:5px 12px;font-size:12px;">
+                  ${btnLabel}
+                </button>
+              </div>
               <div style="font-size:13px;color:var(--ink);line-height:1.45;">"${escapeHtml(scene.spoken_text || '—')}"</div>
+              ${takeDetailsHtml}
             </div>
           </div>
         `;
@@ -3264,6 +3413,38 @@ ${htmlContent}
       const badgeInfo = ASSET_ORIGIN_CONFIG[assetType] || ASSET_ORIGIN_CONFIG.a_roll;
       const iconSvg = getAssetTypeIcon(assetType);
 
+      const isARoll = assetType === 'a_roll';
+      const aRollTake = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
+      const aRollTranscript = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
+
+      let cardBadgeHtml = `
+        <div style="margin-top:10px;padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;letter-spacing:0.04em;">
+          Pending
+        </div>
+      `;
+      let visualContentHtml = `
+        <div style="width:36px;height:36px;border-radius:50%;background:${badgeInfo.iconBg};color:${badgeInfo.iconColor};display:flex;align-items:center;justify-content:center;margin-bottom:8px;">
+          ${iconSvg}
+        </div>
+        <div style="padding:3px 6px;border-radius:4px;font-size:9.5px;line-height:1.2;text-align:center;${badgeInfo.style}">
+          ${badgeInfo.label}
+        </div>
+      `;
+
+      if (isARoll && aRollTake) {
+        cardBadgeHtml = `
+          <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
+            Recorded ✓
+          </div>
+        `;
+        if (aRollTake.signed_url) {
+          visualContentHtml = `
+            <video src="${escapeHtml(aRollTake.signed_url)}" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;"></video>
+            <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
+          `;
+        }
+      }
+
       let queryLabel = 'Prompt';
       let fullQuery = '';
       if (assetType === 'stock') {
@@ -3274,7 +3455,11 @@ ${htmlContent}
         fullQuery = scene.visual_prompt || scene.spoken_text || '—';
       } else if (assetType === 'a_roll') {
         queryLabel = 'A-roll';
-        fullQuery = scene.spoken_text || 'Founder spoken take';
+        if (aRollTranscript && aRollTranscript.status === 'done' && aRollTranscript.output?.text) {
+          fullQuery = aRollTranscript.output.text;
+        } else {
+          fullQuery = scene.spoken_text || 'Founder spoken take';
+        }
       } else {
         queryLabel = 'Motion';
         fullQuery = scene.visual_prompt || scene.on_screen_text || 'Motion graphic';
@@ -3287,16 +3472,9 @@ ${htmlContent}
             <span style="font-size:10px;color:var(--ink-soft);white-space:nowrap;">${escapeHtml(timeRange)} <span style="font-size:9px;">est.</span></span>
           </div>
 
-          <div style="width:100%;aspect-ratio:9/16;border-radius:6px;background:var(--surface-alt);border:1px dashed ${badgeInfo.borderStyle};display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:10px 8px;text-align:center;box-sizing:border-box;">
-            <div style="width:36px;height:36px;border-radius:50%;background:${badgeInfo.iconBg};color:${badgeInfo.iconColor};display:flex;align-items:center;justify-content:center;margin-bottom:8px;">
-              ${iconSvg}
-            </div>
-            <div style="padding:3px 6px;border-radius:4px;font-size:9.5px;line-height:1.2;text-align:center;${badgeInfo.style}">
-              ${badgeInfo.label}
-            </div>
-            <div style="margin-top:10px;padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;letter-spacing:0.04em;">
-              Pending
-            </div>
+          <div style="width:100%;aspect-ratio:9/16;border-radius:6px;background:var(--surface-alt);border:1px dashed ${badgeInfo.borderStyle};display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:10px 8px;text-align:center;box-sizing:border-box;overflow:hidden;">
+            ${visualContentHtml}
+            ${cardBadgeHtml}
           </div>
 
           <div style="font-size:11px;color:var(--ink-soft);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 0;" title="${escapeHtml(fullQuery)}">
@@ -3368,14 +3546,10 @@ ${htmlContent}
           ${aRollListHtml}
         </div>
 
-        <div style="padding:10px 14px;background:#FFF9EB;border:1px solid #FDE68A;border-radius:6px;font-size:12.5px;color:#92400E;line-height:1.5;margin-bottom:14px;display:flex;align-items:flex-start;gap:8px;">
+        <div style="padding:10px 14px;background:#FFF9EB;border:1px solid #FDE68A;border-radius:6px;font-size:12.5px;color:#92400E;line-height:1.5;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:2px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
           <span>The teleprompter is a guide, not a script — improvise freely. What you say becomes your real subtitles.</span>
         </div>
-
-        <button class="btn btn--secondary" disabled style="padding:8px 16px;font-size:13px;opacity:0.6;cursor:not-allowed;" title="Teleprompter recording is coming in the next release">
-          Open teleprompter — coming next
-        </button>
       </div>
 
       <!-- Paso 2: Assets - timeline -->
@@ -3486,6 +3660,16 @@ ${htmlContent}
     if (scenes.length > 0) {
       selectScene(0, false);
     }
+
+    // Wire A-roll record buttons
+    const aRollRecordBtns = container.querySelectorAll('.btn-aroll-record');
+    aRollRecordBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const scN = parseInt(btn.dataset.sceneN, 10);
+        openRecordingStudio(scN);
+      });
+    });
   }
 
   // =============================================================================
@@ -3505,7 +3689,7 @@ ${htmlContent}
     el.style.display = 'none';
   }
 
-  // Show Audiovisual view (Pieza 46)
+  // Show Audiovisual view (Pieza 46 / Pieza 51)
   function showAudiovisualView() {
     showDocLoading('Loading audiovisual studio…');
     try {
@@ -3543,6 +3727,13 @@ ${htmlContent}
       if (guardEl) guardEl.style.display = 'none';
       if (contentEl) {
         contentEl.style.display = 'block';
+        loadAudiovisualJobs(currentScriptData.idea_id).then((jobs) => {
+          renderAudiovisualView();
+          const hasActiveTranscript = (jobs || []).some(j => j.kind === 'transcript' && (j.status === 'pending' || j.status === 'running'));
+          if (hasActiveTranscript) {
+            pollAudiovisualJobs(currentScriptData.idea_id);
+          }
+        });
         renderAudiovisualView();
       }
 
@@ -3552,6 +3743,613 @@ ${htmlContent}
     } finally {
       hideDocLoading();
     }
+  }
+
+  // =============================================================================
+  // PIEZA 51: RECORDING STUDIO & TELEPROMPTER CONTROLLER
+  // =============================================================================
+  let studioActiveSceneN = null;
+  let studioCameraStream = null;
+  let studioMediaRecorder = null;
+  let studioRecordedChunks = [];
+  let studioRecordedBlob = null;
+  let studioRecordedMime = 'video/webm';
+  let studioRecordStartTime = null;
+  let studioTimerInterval = null;
+  let studioCountdownTimer = null;
+  let studioRafId = null;
+  let studioLastTs = null;
+  let studioScrollY = 0;
+  let studioIsPlaying = false;
+  let studioIsRecording = false;
+
+  async function openRecordingStudio(sceneN) {
+    if (!currentScriptData || !currentScriptData.scenes) return;
+    const aRollScenes = currentScriptData.scenes.filter(s => s.asset_type === 'a_roll');
+    if (!aRollScenes.length) return;
+
+    const targetScene = aRollScenes.find(s => s.n === sceneN) || aRollScenes[0];
+    studioActiveSceneN = targetScene.n;
+
+    const overlay = document.getElementById('Recording-Studio-Overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    updateStudioSceneUI(targetScene, aRollScenes);
+    resetStudioTeleprompter();
+    resetStudioRecordingState();
+
+    await startStudioCamera();
+  }
+
+  function closeRecordingStudio() {
+    stopStudioRecording();
+    stopStudioCamera();
+
+    if (studioCountdownTimer) {
+      clearInterval(studioCountdownTimer);
+      studioCountdownTimer = null;
+    }
+
+    const previewVideo = document.getElementById('Studio-PreviewVideo');
+    if (previewVideo && previewVideo.src) {
+      URL.revokeObjectURL(previewVideo.src);
+      previewVideo.src = '';
+    }
+
+    const overlay = document.getElementById('Recording-Studio-Overlay');
+    if (overlay) overlay.style.display = 'none';
+    document.body.style.overflow = '';
+
+    renderAudiovisualView();
+  }
+
+  function setStudioCameraAvailable(hasStream) {
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+    const retryBarBtn = document.getElementById('Studio-RetryCameraBarBtn');
+
+    if (recordBtn) {
+      if (hasStream) {
+        recordBtn.disabled = false;
+        recordBtn.style.opacity = '1';
+        recordBtn.style.cursor = 'pointer';
+        recordBtn.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:#fff;display:inline-block;"></span> Record';
+      } else {
+        recordBtn.disabled = true;
+        recordBtn.style.opacity = '0.6';
+        recordBtn.style.cursor = 'not-allowed';
+        recordBtn.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.4);display:inline-block;"></span> Camera needed';
+      }
+    }
+
+    if (retryBarBtn) {
+      retryBarBtn.style.display = hasStream ? 'none' : 'inline-flex';
+    }
+  }
+
+  async function startStudioCamera() {
+    const cameraVideo = document.getElementById('Studio-CameraVideo');
+    const previewVideo = document.getElementById('Studio-PreviewVideo');
+    const errorEl = document.getElementById('Studio-CameraError');
+
+    if (previewVideo) previewVideo.style.display = 'none';
+    if (cameraVideo) cameraVideo.style.display = 'block';
+    if (errorEl) errorEl.style.display = 'none';
+
+    stopStudioCamera();
+    setStudioCameraAvailable(false);
+
+    try {
+      const constraints = {
+        video: {
+          facingMode: 'user',
+          aspectRatio: 9 / 16,
+          height: { ideal: 1280 }
+        },
+        audio: true
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      studioCameraStream = stream;
+      if (cameraVideo) {
+        cameraVideo.srcObject = stream;
+        try {
+          await cameraVideo.play();
+        } catch (e) {
+          console.warn('[Studio] Camera play error:', e);
+        }
+      }
+      setStudioCameraAvailable(true);
+      if (errorEl) errorEl.style.display = 'none';
+    } catch (err) {
+      console.error('[Studio] getUserMedia error:', err);
+      studioCameraStream = null;
+      setStudioCameraAvailable(false);
+      if (errorEl) {
+        errorEl.style.display = 'flex';
+      }
+    }
+  }
+
+  function stopStudioCamera() {
+    if (studioCameraStream) {
+      try {
+        studioCameraStream.getTracks().forEach(track => track.stop());
+      } catch (e) {
+        console.warn('[Studio] Error stopping camera tracks:', e);
+      }
+      studioCameraStream = null;
+    }
+    const cameraVideo = document.getElementById('Studio-CameraVideo');
+    if (cameraVideo) cameraVideo.srcObject = null;
+    setStudioCameraAvailable(false);
+  }
+
+  function triggerStudioRecord() {
+    if (studioIsRecording || !studioCameraStream) return;
+    const countdownEl = document.getElementById('Studio-Countdown');
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+    if (recordBtn) recordBtn.disabled = true;
+
+    let count = 3;
+    if (countdownEl) {
+      countdownEl.textContent = count;
+      countdownEl.style.display = 'flex';
+    }
+
+    studioCountdownTimer = setInterval(() => {
+      count--;
+      if (count > 0) {
+        if (countdownEl) countdownEl.textContent = count;
+      } else {
+        clearInterval(studioCountdownTimer);
+        studioCountdownTimer = null;
+        if (countdownEl) countdownEl.style.display = 'none';
+        if (recordBtn) recordBtn.disabled = false;
+        startStudioRecording();
+      }
+    }, 1000);
+  }
+
+  function startStudioRecording() {
+    if (!studioCameraStream) return;
+    studioRecordedChunks = [];
+    studioRecordedBlob = null;
+
+    const preferredMimes = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+      'video/mp4'
+    ];
+    let selectedMime = 'video/webm';
+    for (const m of preferredMimes) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) {
+        selectedMime = m;
+        break;
+      }
+    }
+    studioRecordedMime = selectedMime;
+
+    try {
+      studioMediaRecorder = new MediaRecorder(studioCameraStream, { mimeType: selectedMime });
+    } catch (e) {
+      try {
+        studioMediaRecorder = new MediaRecorder(studioCameraStream);
+        studioRecordedMime = studioMediaRecorder.mimeType || 'video/webm';
+      } catch (err2) {
+        console.error('[Studio] Failed to initialize MediaRecorder:', err2);
+        return;
+      }
+    }
+
+    studioMediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        studioRecordedChunks.push(e.data);
+      }
+    };
+
+    studioMediaRecorder.onstop = () => {
+      studioRecordedBlob = new Blob(studioRecordedChunks, { type: studioRecordedMime });
+      showStudioPreview();
+    };
+
+    studioMediaRecorder.start(250);
+    studioIsRecording = true;
+    studioRecordStartTime = Date.now();
+
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+    const stopBtn = document.getElementById('Studio-StopBtn');
+    const recBadge = document.getElementById('Studio-RecBadge');
+    if (recordBtn) recordBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'inline-flex';
+    if (recBadge) recBadge.style.display = 'flex';
+
+    startStudioTeleprompterScroll();
+    startStudioTimer();
+  }
+
+  function stopStudioRecording() {
+    if (!studioIsRecording) return;
+    studioIsRecording = false;
+
+    if (studioMediaRecorder && studioMediaRecorder.state !== 'inactive') {
+      try {
+        studioMediaRecorder.stop();
+      } catch (e) {
+        console.warn('[Studio] Error stopping MediaRecorder:', e);
+      }
+    }
+
+    stopStudioTeleprompterScroll();
+    stopStudioTimer();
+
+    const stopBtn = document.getElementById('Studio-StopBtn');
+    const recBadge = document.getElementById('Studio-RecBadge');
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (recBadge) recBadge.style.display = 'none';
+  }
+
+  function showStudioPreview() {
+    const cameraVideo = document.getElementById('Studio-CameraVideo');
+    const previewVideo = document.getElementById('Studio-PreviewVideo');
+    const retakeBtn = document.getElementById('Studio-RetakeBtn');
+    const useTakeBtn = document.getElementById('Studio-UseTakeBtn');
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+    const stopBtn = document.getElementById('Studio-StopBtn');
+
+    if (cameraVideo) cameraVideo.style.display = 'none';
+    if (previewVideo && studioRecordedBlob) {
+      if (previewVideo.src) URL.revokeObjectURL(previewVideo.src);
+      previewVideo.src = URL.createObjectURL(studioRecordedBlob);
+      previewVideo.style.display = 'block';
+      previewVideo.play().catch(() => {});
+    }
+
+    if (recordBtn) recordBtn.style.display = 'none';
+    const retryBarBtn = document.getElementById('Studio-RetryCameraBarBtn');
+    if (retryBarBtn) retryBarBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (retakeBtn) retakeBtn.style.display = 'inline-flex';
+    if (useTakeBtn) useTakeBtn.style.display = 'inline-flex';
+  }
+
+  function retakeStudioRecording() {
+    const previewVideo = document.getElementById('Studio-PreviewVideo');
+    const cameraVideo = document.getElementById('Studio-CameraVideo');
+    const retakeBtn = document.getElementById('Studio-RetakeBtn');
+    const useTakeBtn = document.getElementById('Studio-UseTakeBtn');
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+
+    if (previewVideo) {
+      if (previewVideo.src) URL.revokeObjectURL(previewVideo.src);
+      previewVideo.src = '';
+      previewVideo.style.display = 'none';
+    }
+    if (cameraVideo) cameraVideo.style.display = 'block';
+
+    studioRecordedBlob = null;
+    studioRecordedChunks = [];
+
+    if (retakeBtn) retakeBtn.style.display = 'none';
+    if (useTakeBtn) useTakeBtn.style.display = 'none';
+    if (recordBtn) recordBtn.style.display = 'inline-flex';
+    setStudioCameraAvailable(Boolean(studioCameraStream));
+
+    resetStudioTeleprompter();
+  }
+
+  async function useStudioTake() {
+    if (!studioRecordedBlob || !currentScriptData || studioActiveSceneN === null) return;
+    const ideaId = currentScriptData.idea_id;
+    const sceneN = studioActiveSceneN;
+
+    const retakeBtn = document.getElementById('Studio-RetakeBtn');
+    const useTakeBtn = document.getElementById('Studio-UseTakeBtn');
+    const uploadStatus = document.getElementById('Studio-UploadStatus');
+    const uploadText = document.getElementById('Studio-UploadText');
+
+    if (retakeBtn) retakeBtn.disabled = true;
+    if (useTakeBtn) useTakeBtn.disabled = true;
+    if (uploadStatus) uploadStatus.style.display = 'inline-flex';
+    if (uploadText) uploadText.textContent = 'Requesting upload URL…';
+
+    try {
+      const ext = studioRecordedMime.includes('mp4') ? 'mp4' : 'webm';
+      const urlRes = await fetchWithAuth(`/api/audiovisual/${ideaId}/takes/${sceneN}/upload-url?ext=${ext}`, {
+        method: 'POST'
+      });
+      if (!urlRes.ok) {
+        const errJson = await urlRes.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to obtain upload URL');
+      }
+      const { storage_path, signed_upload_url, token } = await urlRes.json();
+
+      if (uploadText) uploadText.textContent = 'Uploading take to storage…';
+      if (supabase && supabase.storage) {
+        const { data, error } = await supabase.storage.from('brand-assets').uploadToSignedUrl(storage_path, token, studioRecordedBlob);
+        if (error) {
+          console.warn('[Studio] supabase uploadToSignedUrl error:', error);
+          if (signed_upload_url) {
+            const putRes = await fetch(signed_upload_url, {
+              method: 'PUT',
+              headers: { 'Content-Type': studioRecordedMime },
+              body: studioRecordedBlob
+            });
+            if (!putRes.ok) throw new Error('Upload to storage failed');
+          } else {
+            throw error;
+          }
+        }
+      } else if (signed_upload_url) {
+        const putRes = await fetch(signed_upload_url, {
+          method: 'PUT',
+          headers: { 'Content-Type': studioRecordedMime },
+          body: studioRecordedBlob
+        });
+        if (!putRes.ok) throw new Error('Upload to storage failed');
+      }
+
+      if (uploadText) uploadText.textContent = 'Enqueuing AssemblyAI transcript…';
+      const durationS = studioRecordStartTime ? (Date.now() - studioRecordStartTime) / 1000 : null;
+      const commitRes = await fetchWithAuth(`/api/audiovisual/${ideaId}/takes/${sceneN}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storage_path: storage_path,
+          mime: studioRecordedMime,
+          duration_s: durationS
+        })
+      });
+      if (!commitRes.ok) {
+        const errJson = await commitRes.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to commit take');
+      }
+
+      await loadAudiovisualJobs(ideaId);
+      pollAudiovisualJobs(ideaId);
+      closeRecordingStudio();
+    } catch (err) {
+      console.error('[Studio] Upload/commit error:', err);
+      alert('Upload failed: ' + (err.message || 'Please try again'));
+      if (retakeBtn) retakeBtn.disabled = false;
+      if (useTakeBtn) useTakeBtn.disabled = false;
+      if (uploadStatus) uploadStatus.style.display = 'none';
+    }
+  }
+
+  function updateStudioSceneUI(scene, aRollScenes) {
+    const sceneInfoEl = document.getElementById('Studio-SceneInfo');
+    const prevBtn = document.getElementById('Studio-PrevSceneBtn');
+    const nextBtn = document.getElementById('Studio-NextSceneBtn');
+    const spokenTextEl = document.getElementById('Studio-SpokenText');
+    const actingNoteEl = document.getElementById('Studio-ActingNote');
+
+    const sceneIdx = aRollScenes.findIndex(s => s.n === scene.n);
+    const phaseName = PHASE_NAMES[scene.phase] || (scene.phase ? scene.phase.replace(/_/g, ' ') : 'Scene');
+
+    if (sceneInfoEl) {
+      const takeNum = (sceneIdx >= 0 ? sceneIdx : 0) + 1;
+      const totalTakes = aRollScenes.length || 1;
+      sceneInfoEl.textContent = `Take ${takeNum} of ${totalTakes} · Scene ${scene.n} · ${phaseName}`;
+    }
+    if (prevBtn) prevBtn.disabled = sceneIdx <= 0;
+    if (nextBtn) nextBtn.disabled = sceneIdx >= aRollScenes.length - 1;
+
+    if (spokenTextEl) {
+      spokenTextEl.textContent = scene.spoken_text || '—';
+    }
+
+    if (actingNoteEl) {
+      actingNoteEl.textContent = scene.acting_note ? `How to say it: ${scene.acting_note}` : '';
+    }
+  }
+
+  function startStudioTeleprompterScroll() {
+    studioIsPlaying = true;
+    studioLastTs = null;
+    function tick(ts) {
+      if (!studioIsPlaying) return;
+      if (!studioLastTs) studioLastTs = ts;
+      const dt = (ts - studioLastTs) / 1000;
+      studioLastTs = ts;
+
+      const speedInput = document.getElementById('Studio-Speed');
+      const speed = speedInput ? parseFloat(speedInput.value) : 50;
+
+      studioScrollY -= speed * dt;
+      const track = document.getElementById('Studio-ScrollTrack');
+      if (track) {
+        track.style.transform = `translateY(${studioScrollY}px)`;
+      }
+
+      studioRafId = requestAnimationFrame(tick);
+    }
+    studioRafId = requestAnimationFrame(tick);
+  }
+
+  function stopStudioTeleprompterScroll() {
+    studioIsPlaying = false;
+    if (studioRafId) {
+      cancelAnimationFrame(studioRafId);
+      studioRafId = null;
+    }
+    studioLastTs = null;
+  }
+
+  function resetStudioTeleprompter() {
+    stopStudioTeleprompterScroll();
+    studioScrollY = 0;
+    const track = document.getElementById('Studio-ScrollTrack');
+    if (track) track.style.transform = 'translateY(0px)';
+    const timerEl = document.getElementById('Studio-Timer');
+    if (timerEl) timerEl.textContent = '00:00';
+  }
+
+  function startStudioTimer() {
+    stopStudioTimer();
+    const timerEl = document.getElementById('Studio-Timer');
+    studioTimerInterval = setInterval(() => {
+      if (studioRecordStartTime) {
+        const sec = Math.floor((Date.now() - studioRecordStartTime) / 1000);
+        const m = Math.floor(sec / 60).toString().padStart(2, '0');
+        const s = (sec % 60).toString().padStart(2, '0');
+        if (timerEl) timerEl.textContent = `${m}:${s}`;
+      }
+    }, 500);
+  }
+
+  function stopStudioTimer() {
+    if (studioTimerInterval) {
+      clearInterval(studioTimerInterval);
+      studioTimerInterval = null;
+    }
+  }
+
+  function resetStudioRecordingState() {
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+    const stopBtn = document.getElementById('Studio-StopBtn');
+    const retakeBtn = document.getElementById('Studio-RetakeBtn');
+    const useTakeBtn = document.getElementById('Studio-UseTakeBtn');
+    const uploadStatus = document.getElementById('Studio-UploadStatus');
+    const recBadge = document.getElementById('Studio-RecBadge');
+    const countdownEl = document.getElementById('Studio-Countdown');
+    const previewVideo = document.getElementById('Studio-PreviewVideo');
+    const cameraVideo = document.getElementById('Studio-CameraVideo');
+
+    if (recordBtn) { recordBtn.style.display = 'inline-flex'; }
+    setStudioCameraAvailable(Boolean(studioCameraStream));
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (retakeBtn) { retakeBtn.style.display = 'none'; retakeBtn.disabled = false; }
+    if (useTakeBtn) { useTakeBtn.style.display = 'none'; useTakeBtn.disabled = false; }
+    if (uploadStatus) uploadStatus.style.display = 'none';
+    if (recBadge) recBadge.style.display = 'none';
+    if (countdownEl) countdownEl.style.display = 'none';
+    if (previewVideo) {
+      if (previewVideo.src) URL.revokeObjectURL(previewVideo.src);
+      previewVideo.src = '';
+      previewVideo.style.display = 'none';
+    }
+    if (cameraVideo) cameraVideo.style.display = 'block';
+
+    studioRecordedBlob = null;
+    studioRecordedChunks = [];
+    studioIsRecording = false;
+  }
+
+  function initRecordingStudio() {
+    const overlay = document.getElementById('Recording-Studio-Overlay');
+    if (!overlay) return;
+
+    const closeBtn = document.getElementById('Studio-CloseBtn');
+    if (closeBtn) closeBtn.onclick = () => closeRecordingStudio();
+
+    const recordBtn = document.getElementById('Studio-RecordBtn');
+    if (recordBtn) recordBtn.onclick = () => triggerStudioRecord();
+
+    const stopBtn = document.getElementById('Studio-StopBtn');
+    if (stopBtn) stopBtn.onclick = () => stopStudioRecording();
+
+    const retakeBtn = document.getElementById('Studio-RetakeBtn');
+    if (retakeBtn) retakeBtn.onclick = () => retakeStudioRecording();
+
+    const useTakeBtn = document.getElementById('Studio-UseTakeBtn');
+    if (useTakeBtn) useTakeBtn.onclick = () => useStudioTake();
+
+    const resetBtn = document.getElementById('Studio-ResetBtn');
+    if (resetBtn) resetBtn.onclick = () => resetStudioTeleprompter();
+
+    const retryBtn = document.getElementById('Studio-RetryCameraBtn');
+    if (retryBtn) retryBtn.onclick = () => startStudioCamera();
+
+    const retryBarBtn = document.getElementById('Studio-RetryCameraBarBtn');
+    if (retryBarBtn) retryBarBtn.onclick = () => startStudioCamera();
+
+    const speedInput = document.getElementById('Studio-Speed');
+    const speedVal = document.getElementById('Studio-SpeedVal');
+    if (speedInput && speedVal) {
+      speedInput.oninput = () => {
+        speedVal.textContent = speedInput.value;
+      };
+    }
+
+    const fontScaleInput = document.getElementById('Studio-FontScale');
+    const fontScaleVal = document.getElementById('Studio-FontScaleVal');
+    const spokenText = document.getElementById('Studio-SpokenText');
+    if (fontScaleInput && fontScaleVal) {
+      fontScaleInput.oninput = () => {
+        fontScaleVal.textContent = fontScaleInput.value + '%';
+        if (spokenText) {
+          spokenText.style.fontSize = (26 * parseFloat(fontScaleInput.value) / 100) + 'px';
+        }
+      };
+    }
+
+    const mirrorBtn = document.getElementById('Studio-MirrorBtn');
+    const scrollTrack = document.getElementById('Studio-ScrollTrack');
+    const cameraVideo = document.getElementById('Studio-CameraVideo');
+    if (mirrorBtn) {
+      mirrorBtn.onclick = () => {
+        if (scrollTrack) scrollTrack.classList.toggle('mirrored');
+        if (cameraVideo) {
+          const isMirrored = cameraVideo.style.transform === 'scaleX(-1)';
+          cameraVideo.style.transform = isMirrored ? 'scaleX(1)' : 'scaleX(-1)';
+        }
+      };
+    }
+
+    const prevSceneBtn = document.getElementById('Studio-PrevSceneBtn');
+    const nextSceneBtn = document.getElementById('Studio-NextSceneBtn');
+    if (prevSceneBtn) {
+      prevSceneBtn.onclick = () => {
+        if (!currentScriptData || !currentScriptData.scenes) return;
+        const aRollScenes = currentScriptData.scenes.filter(s => s.asset_type === 'a_roll');
+        const currIdx = aRollScenes.findIndex(s => s.n === studioActiveSceneN);
+        if (currIdx > 0) {
+          const prevScene = aRollScenes[currIdx - 1];
+          studioActiveSceneN = prevScene.n;
+          updateStudioSceneUI(prevScene, aRollScenes);
+          resetStudioTeleprompter();
+          resetStudioRecordingState();
+        }
+      };
+    }
+    if (nextSceneBtn) {
+      nextSceneBtn.onclick = () => {
+        if (!currentScriptData || !currentScriptData.scenes) return;
+        const aRollScenes = currentScriptData.scenes.filter(s => s.asset_type === 'a_roll');
+        const currIdx = aRollScenes.findIndex(s => s.n === studioActiveSceneN);
+        if (currIdx >= 0 && currIdx < aRollScenes.length - 1) {
+          const nextScene = aRollScenes[currIdx + 1];
+          studioActiveSceneN = nextScene.n;
+          updateStudioSceneUI(nextScene, aRollScenes);
+          resetStudioTeleprompter();
+          resetStudioRecordingState();
+        }
+      };
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (overlay.style.display !== 'none' && overlay.style.display !== '') {
+        if (e.code === 'Space') {
+          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            if (studioIsRecording) {
+              stopStudioRecording();
+            } else if (!studioRecordedBlob && studioCameraStream) {
+              triggerStudioRecord();
+            }
+          }
+        } else if (e.key === 'r' || e.key === 'R') {
+          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            resetStudioTeleprompter();
+          }
+        } else if (e.key === 'Escape') {
+          closeRecordingStudio();
+        }
+      }
+    });
   }
 
   // Block C: Load script data for an idea
@@ -5301,6 +6099,9 @@ ${htmlContent}
 
     // Initialize pipeline rail
     initPipelineRail();
+
+    // Initialize recording studio
+    initRecordingStudio();
   });
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');

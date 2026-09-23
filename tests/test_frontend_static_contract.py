@@ -233,3 +233,30 @@ def test_brand_soul_door_and_action_bar_contract():
     assert "function showDocLoading" in stripped_js
     assert "function hideDocLoading" in stripped_js
 
+
+def test_recording_studio_scene_header_and_camera_retry_contract():
+    """
+    PIEZA 51B: Rebote corto del QA del estudio de grabación.
+    1. Header displays take position and scene number with 'Take ' prefix (e.g. 'Take 1 of 1 · Scene 1 · Hook').
+    2. Button 'Try camera again' exists in index.html to request camera access again.
+    3. Record button falls back to 'Camera needed' when stream is not available.
+    """
+    assert APP_JS_PATH.exists(), f"app.js not found at {APP_JS_PATH}"
+    assert INDEX_HTML_PATH.exists(), f"index.html not found at {INDEX_HTML_PATH}"
+
+    js_content = APP_JS_PATH.read_text(encoding="utf-8")
+    stripped_js = re.sub(r"/\*.*?\*/", "", js_content, flags=re.DOTALL)
+    html_content = INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+    # 1. 'Take ' appears in studio scene info header
+    assert "Take " in html_content
+    assert "Take ${" in stripped_js
+
+    # 2. Button 'Try camera again' exists
+    assert "Try camera again" in html_content
+    assert "Studio-RetryCameraBtn" in html_content
+    assert "Studio-RetryCameraBtn" in stripped_js
+    assert "Camera needed" in html_content
+    assert "Camera needed" in stripped_js
+
+

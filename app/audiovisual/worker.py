@@ -20,9 +20,81 @@ from app.guard import guard
 
 logger = logging.getLogger(__name__)
 
+async def resolve_transcript(job: dict[str, Any]) -> dict[str, Any]:
+    """
+    Resolver for 'transcript' job (Pieza 51):
+    1. Obtains the signed URL for the A-roll take from storage_path.
+    2. Sends the signed URL to AssemblyAI for pre-recorded transcription.
+    3. Returns text, words (with start_ms, end_ms, confidence), and language_code.
+    """
+    input_data = job.get("input", {}) or {}
+    storage_path = input_data.get("storage_path")
+    if not storage_path:
+        raise ValueError("Missing storage_path in transcript job input")
+
+    from app.audiovisual.storage import signed_url
+    media_signed_url = signed_url(storage_path, ttl=3600)
+
+    from app.config import settings
+    import assemblyai as aai
+
+    api_key = getattr(settings, "assemblyai_api_key", None)
+    if not api_key:
+        raise RuntimeError("AssemblyAI API key not configured")
+
+    aai.settings.api_key = api_key
+
+    config = aai.TranscriptionConfig(language_detection=True)
+    transcriber = aai.Transcriber()
+
+    try:
+        transcript = await asyncio.wait_for(
+            asyncio.to_thread(transcriber.transcribe, media_signed_url, config),
+            timeout=120.0,
+        )
+    except asyncio.TimeoutError as e:
+        raise RuntimeError("AssemblyAI transcription timed out") from e
+    except Exception as e:
+        raise RuntimeError(f"AssemblyAI transcription failed: {e}") from e
+
+    status_val = getattr(transcript, "status", None)
+    err = getattr(transcript, "error", None)
+    if status_val == aai.TranscriptStatus.error or err:
+        raise RuntimeError(f"AssemblyAI transcription error: {err}")
+
+    raw_words = getattr(transcript, "words", None) or []
+    words_data: list[dict[str, Any]] = []
+    for w in raw_words:
+        start_ms = getattr(w, "start", 0)
+        end_ms = getattr(w, "end", 0)
+        confidence = getattr(w, "confidence", 0.0)
+        words_data.append({
+            "text": getattr(w, "text", "") or "",
+            "start_ms": int(start_ms) if start_ms is not None else 0,
+            "end_ms": int(end_ms) if end_ms is not None else 0,
+            "confidence": float(confidence) if confidence is not None else 0.0,
+        })
+
+    return {
+        "text": getattr(transcript, "text", "") or "",
+        "words": words_data,
+        "language_code": getattr(transcript, "language_code", None) or "en",
+        "storage_path": storage_path,
+    }
+
+
 # Registry of resolvers: kind -> async callable(job: dict) -> dict (output)
-# In Pieza 50, this registry is empty in production and only populated in tests.
-RESOLVERS: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]] = {}
+# P51 registers 'transcript' resolver by default.
+RESOLVERS: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]] = {
+    "transcript": resolve_transcript,
+}
+
+
+def register_default_resolvers() -> None:
+    """Registers built-in resolvers if not present."""
+    if "transcript" not in RESOLVERS:
+        RESOLVERS["transcript"] = resolve_transcript
+
 
 _worker_task: asyncio.Task[None] | None = None
 _running: bool = False
@@ -131,6 +203,7 @@ async def worker_loop(poll_interval: float = 3.0) -> None:
 def start_worker(poll_interval: float = 3.0) -> asyncio.Task[None] | None:
     """Starts the background worker task if not already running."""
     global _worker_task, _running
+    register_default_resolvers()
     if _running or (_worker_task and not _worker_task.done()):
         return _worker_task
 

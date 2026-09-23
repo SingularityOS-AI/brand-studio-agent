@@ -7,6 +7,7 @@ import hashlib
 import mimetypes
 import os
 from typing import Any
+import uuid
 
 from app.audiovisual.config import AV_STORAGE_BUCKET
 from app.config import settings
@@ -124,3 +125,47 @@ def signed_url(storage_path: str, ttl: int = 3600) -> str:
             raise RuntimeError(f"Failed to create signed URL from Supabase: {e}") from e
     else:
         return f"https://local-storage.test/{AV_STORAGE_BUCKET}/{storage_path}?ttl={ttl}&token=mock_signed"
+
+
+def create_signed_upload_url(
+    session_token: str,
+    idea_id: str,
+    scene_n: int,
+    ext: str = "webm",
+) -> dict[str, str]:
+    """
+    Creates a signed upload URL for an A-roll take.
+
+    Storage path format: {token_hash}/{idea_id}/{scene_n}/{take_id}.{ext}
+    Returns a dict with:
+      - storage_path: full path inside brand-assets bucket
+      - signed_upload_url: direct upload URL
+      - token: signature token for uploadToSignedUrl
+    """
+    token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()[:16]
+    clean_ext = _resolve_extension(ext) if "/" in ext else ext.lstrip(".")
+    if not clean_ext:
+        clean_ext = "webm"
+    take_id = f"take_{uuid.uuid4().hex[:12]}"
+    storage_path = f"{token_hash}/{idea_id}/{scene_n}/{take_id}.{clean_ext}"
+
+    client = _get_storage_client()
+    if client is not None:
+        try:
+            res = client.storage.from_(AV_STORAGE_BUCKET).create_signed_upload_url(storage_path)
+            signed_url_val = res.get("signed_url") or res.get("signedUrl") or ""
+            token_val = res.get("token") or ""
+            return {
+                "storage_path": storage_path,
+                "signed_upload_url": signed_url_val,
+                "token": token_val,
+            }
+        except Exception as e:
+            raise RuntimeError(f"Failed to create signed upload URL from Supabase: {e}") from e
+    else:
+        return {
+            "storage_path": storage_path,
+            "signed_upload_url": f"https://local-storage.test/{AV_STORAGE_BUCKET}/{storage_path}?token=mock_upload_token",
+            "token": "mock_upload_token",
+        }
+
