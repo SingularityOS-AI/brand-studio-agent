@@ -1137,7 +1137,13 @@ For SCRIPT-LEVEL:
 - music_prompt: Search query IN ENGLISH for background music (mood + genre, e.g., "upbeat corporate electronic" or "cinematic suspense piano")
 - recording_format: One of the 5 formats above
 
-NOTE ON A-ROLL: This is a personal brand product. Scenes where the founder speaks to camera are a_roll and cost $0. Stock/AI are used only for B-roll (visuals while founder speaks off-screen or supplementary visuals).
+NOTE ON A-ROLL AND B-ROLL MIX (CRITICAL):
+This is a personal brand product. A successful video is a dynamic mix of the founder speaking to camera (A-roll) and supporting visuals (B-roll):
+- hook and close_cta: Almost always "a_roll" (the founder must look directly into camera to hook and close).
+- B-roll requirement (≥2 escenas no a_roll): At least 2 scenes MUST be B-roll (non-a_roll scenes: "stock" preferred, with concrete filmable stock_query in English, e.g., "doctor video call tablet clinic", not abstract).
+- AI assets budget (≤1 ai_video): Maximum 1 scene "ai_video" (it is the most expensive asset). Use "ai_image" or "motion_graphic" only when stock cannot show it (a metric, a chart, a diagram).
+- Spoken text: Scenes with B-roll STILL have spoken_text (the founder's voiceover continues speaking over the B-roll visuals).
+DO NOT mark all scenes as "a_roll". Mix founder takes with B-roll to create a broadcast-quality video.
 
 HOOK REQUIREMENTS:
 The hook's acting_note MUST be SPECIFIC: include rhythm, energy level, which word to emphasize, where to breathe/pause/cut, and where to look. NO generic "say it confidently" — give actionable direction the founder can execute.

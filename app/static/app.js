@@ -1021,10 +1021,97 @@ Always respond in English. Keep your responses conversational and engaging.`;
     renderModoASections(sections);
   }
 
+  // PIEZA 46: Humanized translations for Brand Brain fields
+  const BRAIN_FIELD_LABELS = {
+    // Diagnostico
+    etapa: 'Stage',
+    nivel_ramiro: 'Awareness level',
+    sintoma_diagnostico: 'Diagnostic symptom',
+    habilidad_a_desbloquear: 'Skill to unlock',
+    prohibicion: 'Prohibition',
+    postura: 'Stance',
+    justificacion_postura: 'Posture justification',
+
+    // Brand Journey
+    resultado_deseado: 'Desired outcome',
+    de_que_ser_conocido: 'Known for',
+    que_hacer: 'What to do',
+    que_aprender: 'What to learn',
+
+    // Charco
+    problema: 'Problem',
+    nivel: 'Level',
+    logro_que_lo_respalda: 'Backing achievement',
+    costo_de_no_resolverlo: 'Cost of inaction',
+    intentos_fallidos: 'Failed attempts',
+
+    // ICP
+    quien_decide: 'Decision maker',
+    tamano_empresa: 'Company size',
+    disparador_de_urgencia: 'Urgency trigger',
+    poder_adquisitivo: 'Purchasing power',
+    comite_de_compra: 'Buying committee',
+    a_quien_le_rinde_cuentas: 'Accountable to',
+
+    // Contrarian
+    creencia_comun: 'Common belief',
+    postura_opuesta: 'Opposing stance',
+    prueba: 'Evidence / proof',
+    por_que_no_es_provocacion: 'Why not a provocation',
+
+    // Asociaciones
+    deseadas: 'Desired associations',
+    prohibidas: 'Forbidden associations',
+
+    // Identidad
+    voz: 'Tone of voice',
+    colores: 'Colors',
+    tipografias: 'Typography',
+    narrativa_de_origen: 'Origin story',
+
+    // Oferta
+    resultado_sonado: 'Dream outcome',
+    probabilidad_percibida: 'Perceived likelihood',
+    retraso: 'Time delay',
+    esfuerzo: 'Effort & sacrifice',
+    componentes: 'Components',
+    garantia: 'Guarantee',
+
+    // Lead Magnet
+    tipo: 'Type',
+    problema_A: 'Problem A',
+    problema_B_que_revela: 'Problem B revealed',
+    formato: 'Format',
+    captura: 'Lead capture'
+  };
+
+  function humanizeBrainField(key) {
+    if (BRAIN_FIELD_LABELS[key]) return BRAIN_FIELD_LABELS[key];
+    const cleaned = String(key || '').replace(/_/g, ' ').trim();
+    if (!cleaned) return 'Insight';
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  function buildMaskForValue(rawVal) {
+    let len = 20;
+    if (typeof rawVal === 'string') {
+      len = rawVal.trim().length;
+    } else if (Array.isArray(rawVal)) {
+      len = rawVal.join(', ').length;
+    } else if (typeof rawVal === 'object' && rawVal !== null) {
+      len = JSON.stringify(rawVal).length;
+    } else if (rawVal !== null && rawVal !== undefined) {
+      len = String(rawVal).length;
+    }
+    const maskCount = Math.max(10, Math.min(len, 32));
+    return '█'.repeat(maskCount);
+  }
+
   /**
    * Render Modo A: Brand brain sections one-by-one in the center document zone
-   * Each section shows citation text in JetBrains Mono, dotted border for proposed vs solid for confirmed
-   * Hover links to original transcript location
+   * PIEZA 46: Confirmed sections are obfuscated with 100% animated progress bars.
+   * Real values NEVER enter the DOM for confirmed sections.
+   * Proposed sections remain in clear text for founder review/correction.
    */
   function renderModoASections(sections) {
     const docBody = document.querySelector('.docbody');
@@ -1032,6 +1119,19 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
     // Clear existing ghost sections and replace with live sections
     docBody.innerHTML = '';
+
+    // PIEZA 46: Line above the list
+    const unlockNotice = document.createElement('div');
+    unlockNotice.className = 'brand-soul-unlock-notice';
+    unlockNotice.style.cssText = 'margin: 0 0 16px; padding: 10px 14px; background: rgba(43, 76, 216, 0.05); border: 1px solid rgba(43, 76, 216, 0.15); border-radius: 6px; font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 8px; font-weight: 500;';
+    unlockNotice.innerHTML = `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+      <span>Your full Brand Soul is unlocked in the Brand Soul document.</span>
+    `;
+    docBody.appendChild(unlockNotice);
 
     const sectionOrder = ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet'];
     const labels = {
@@ -1070,12 +1170,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
       sectionEl.className = 'brain-section';
       sectionEl.dataset.sectionId = sectionId;
 
-      // Border style: dotted for propuesto, solid for confirmado
-      const isPropuesto = section.status === 'propuesto';
-      const borderColor = isPropuesto ? '#D5DAE4' : '#2B4CD8';
+      // PIEZA 46: Obfuscate ONLY confirmed/completado/confirmed sections.
+      // Proposed sections remain in clear text so founder can review/correct.
+      const isConfirmed = section.status === 'confirmado' || section.status === 'completado' || section.status === 'confirmed';
+      const isPropuesto = !isConfirmed;
+      const borderColor = isPropuesto ? '#D5DAE4' : '#1B7F4C';
       const borderStyle = isPropuesto ? 'dotted' : 'solid';
       const bgColor = isPropuesto ? '#FFFFFF' : '#F5F7FB';
-      const statusText = isPropuesto ? 'Proposed' : 'Confirmed';
 
       sectionEl.style.cssText = `
         display: flex;
@@ -1096,14 +1197,29 @@ Always respond in English. Keep your responses conversational and engaging.`;
         align-items: center;
         gap: 12px;
       `;
-      header.innerHTML = `
-        <span class="section-num mono" style="font-size: 11px; color: #5C6675; font-weight: 600;">${sectionNumber}</span>
-        <span class="section-label" style="font-size: 14px; font-weight: 500; color: #14181F; flex: 1;">${label}</span>
-        <span class="section-status mono" style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: ${borderColor}; font-weight: 600;">${statusText}</span>
-      `;
+
+      if (isConfirmed) {
+        const count = (typeof section.content === 'object' && section.content !== null)
+          ? Object.keys(section.content).length
+          : 1;
+        const insightsText = `${count} ${count === 1 ? 'insight' : 'insights'} captured`;
+
+        header.innerHTML = `
+          <span class="section-num mono" style="font-size: 11px; color: #5C6675; font-weight: 600;">${sectionNumber}</span>
+          <span class="section-label" style="font-size: 14px; font-weight: 500; color: #14181F; flex: 1;">${escapeHtml(label)}</span>
+          <span class="section-insights mono" style="font-size: 11px; color: #5C6675; font-weight: 500;">${escapeHtml(insightsText)}</span>
+          <span class="section-status mono" style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #1B7F4C; font-weight: 600; padding: 2px 8px; background: rgba(27, 127, 76, 0.08); border-radius: 4px;">Confirmed · 100%</span>
+        `;
+      } else {
+        header.innerHTML = `
+          <span class="section-num mono" style="font-size: 11px; color: #5C6675; font-weight: 600;">${sectionNumber}</span>
+          <span class="section-label" style="font-size: 14px; font-weight: 500; color: #14181F; flex: 1;">${escapeHtml(label)}</span>
+          <span class="section-status mono" style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #5C6675; font-weight: 600;">Proposed</span>
+        `;
+      }
       sectionEl.appendChild(header);
 
-      // Section content (handle single values and nested objects)
+      // Section content
       const contentEl = document.createElement('div');
       contentEl.className = 'section-content';
       contentEl.style.cssText = `
@@ -1113,96 +1229,156 @@ Always respond in English. Keep your responses conversational and engaging.`;
         color: #14181F;
       `;
 
-      if (typeof section.content === 'object' && section.content !== null) {
-        // For nested objects (like contrarian, asociaciones), render two-column layout if applicable
-        const entries = Object.entries(section.content);
-        if (sectionId === 'contrarian' || sectionId === 'asociaciones') {
-          const grid = document.createElement('div');
-          grid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;';
-          entries.forEach(([key, value]) => {
-            const col = document.createElement('div');
-            col.style.cssText = 'padding: 8px; background: rgba(43, 76, 216, 0.04); border-radius: 6px;';
-            const keyEl = document.createElement('div');
-            keyEl.style.cssText = 'font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 4px;';
-            keyEl.textContent = key;
-            const valEl = document.createElement('div');
-            valEl.style.cssText = 'font-size: 13px; color: #14181F;';
-            valEl.textContent = value || '—';
-            col.appendChild(keyEl);
-            col.appendChild(valEl);
-            grid.appendChild(col);
-          });
-          contentEl.appendChild(grid);
-        } else {
-          // For other objects, render as key-value pairs
+      if (isConfirmed) {
+        // PIEZA 46: Obfuscated fields - real value NEVER enters DOM
+        if (typeof section.content === 'object' && section.content !== null) {
+          const entries = Object.entries(section.content);
           entries.forEach(([key, value]) => {
             const row = document.createElement('div');
-            row.style.cssText = 'margin-bottom: 4px;';
-            const keyEl = document.createElement('strong');
-            keyEl.style.cssText = 'font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #5C6675; margin-right: 8px;';
-            keyEl.textContent = `${key}:`;
-            const valEl = document.createElement('span');
-            valEl.textContent = value || '—';
-            row.appendChild(keyEl);
-            row.appendChild(valEl);
+            row.className = 'brain-field-row';
+            row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.04); font-size: 12.5px;';
+            const mask = buildMaskForValue(value);
+            row.innerHTML = `
+              <span style="color: #1B7F4C; font-weight: 700; font-size: 13px; flex-shrink: 0;">✓</span>
+              <span style="font-weight: 600; color: #14181F; min-width: 160px; max-width: 220px; flex-shrink: 0;">${escapeHtml(humanizeBrainField(key))}</span>
+              <span class="mono" style="color: #94A3B8; letter-spacing: 1px; user-select: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">${mask}</span>
+              <div style="display: flex; align-items: center; gap: 8px; width: 120px; flex-shrink: 0;">
+                <div style="flex: 1; height: 6px; background: #E2E8F0; border-radius: 3px; overflow: hidden;">
+                  <div class="progress-fill-anim" style="width: 100%; height: 100%; background: #1B7F4C; border-radius: 3px;"></div>
+                </div>
+                <span class="mono" style="font-size: 10px; font-weight: 600; color: #1B7F4C;">100%</span>
+              </div>
+            `;
             contentEl.appendChild(row);
           });
+        } else {
+          // Single value
+          const row = document.createElement('div');
+          row.className = 'brain-field-row';
+          row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.04); font-size: 12.5px;';
+          const mask = buildMaskForValue(section.content);
+          row.innerHTML = `
+            <span style="color: #1B7F4C; font-weight: 700; font-size: 13px; flex-shrink: 0;">✓</span>
+            <span style="font-weight: 600; color: #14181F; min-width: 160px; max-width: 220px; flex-shrink: 0;">${escapeHtml(label)}</span>
+            <span class="mono" style="color: #94A3B8; letter-spacing: 1px; user-select: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">${mask}</span>
+            <div style="display: flex; align-items: center; gap: 8px; width: 120px; flex-shrink: 0;">
+              <div style="flex: 1; height: 6px; background: #E2E8F0; border-radius: 3px; overflow: hidden;">
+                <div class="progress-fill-anim" style="width: 100%; height: 100%; background: #1B7F4C; border-radius: 3px;"></div>
+              </div>
+              <span class="mono" style="font-size: 10px; font-weight: 600; color: #1B7F4C;">100%</span>
+            </div>
+          `;
+          contentEl.appendChild(row);
         }
+        sectionEl.appendChild(contentEl);
+
+        // PIEZA 46: Citation block for confirmed section - no quote in DOM
+        const citationEl = document.createElement('div');
+        citationEl.className = 'citation-block';
+        citationEl.style.cssText = `
+          padding-left: 26px;
+          margin-top: 8px;
+          border-left: 2px solid #1B7F4C;
+          padding-left: 10px;
+        `;
+        const citationLabel = document.createElement('div');
+        citationLabel.style.cssText = `
+          font-size: 11px;
+          font-weight: 500;
+          color: #1B7F4C;
+        `;
+        citationLabel.textContent = 'Source: your interview ✓';
+        citationEl.appendChild(citationLabel);
+        sectionEl.appendChild(citationEl);
+
       } else {
-        // For simple string values
-        contentEl.textContent = section.content || '—';
+        // Proposed section - clear text display
+        if (typeof section.content === 'object' && section.content !== null) {
+          const entries = Object.entries(section.content);
+          if (sectionId === 'contrarian' || sectionId === 'asociaciones') {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;';
+            entries.forEach(([key, value]) => {
+              const col = document.createElement('div');
+              col.style.cssText = 'padding: 8px; background: rgba(43, 76, 216, 0.04); border-radius: 6px;';
+              const keyEl = document.createElement('div');
+              keyEl.style.cssText = 'font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 4px;';
+              keyEl.textContent = key;
+              const valEl = document.createElement('div');
+              valEl.style.cssText = 'font-size: 13px; color: #14181F;';
+              valEl.textContent = value || '—';
+              col.appendChild(keyEl);
+              col.appendChild(valEl);
+              grid.appendChild(col);
+            });
+            contentEl.appendChild(grid);
+          } else {
+            entries.forEach(([key, value]) => {
+              const row = document.createElement('div');
+              row.style.cssText = 'margin-bottom: 4px;';
+              const keyEl = document.createElement('strong');
+              keyEl.style.cssText = 'font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #5C6675; margin-right: 8px;';
+              keyEl.textContent = `${key}:`;
+              const valEl = document.createElement('span');
+              valEl.textContent = value || '—';
+              row.appendChild(keyEl);
+              row.appendChild(valEl);
+              contentEl.appendChild(row);
+            });
+          }
+        } else {
+          contentEl.textContent = section.content || '—';
+        }
+        sectionEl.appendChild(contentEl);
+
+        // Citation block with quote for proposed section
+        const citationEl = document.createElement('div');
+        citationEl.className = 'citation-block';
+        citationEl.style.cssText = `
+          padding-left: 26px;
+          margin-top: 8px;
+          border-left: 2px solid #D5DAE4;
+          padding-left: 10px;
+          cursor: pointer;
+          transition: background-color 0.2s ease;
+        `;
+        citationEl.title = 'Click to jump to this moment in the conversation';
+
+        const citationLabel = document.createElement('div');
+        citationLabel.style.cssText = `
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #5C6675;
+          margin-bottom: 4px;
+        `;
+        citationLabel.textContent = section.citation_source === 'usuario' ? 'Source: You said' : 'Source: Analysis';
+        citationEl.appendChild(citationLabel);
+
+        const citationText = document.createElement('div');
+        citationText.className = 'mono';
+        citationText.style.cssText = `
+          font-size: 11px;
+          color: #2B4CD8;
+          font-style: italic;
+          line-height: 1.5;
+        `;
+        citationText.textContent = section.citation_text || '—';
+        citationEl.appendChild(citationText);
+
+        citationEl.addEventListener('mouseenter', () => {
+          citationEl.style.backgroundColor = 'rgba(43, 76, 216, 0.04)';
+        });
+        citationEl.addEventListener('mouseleave', () => {
+          citationEl.style.backgroundColor = 'transparent';
+        });
+        citationEl.addEventListener('click', () => {
+          highlightTranscriptSection(section.citation_text);
+        });
+
+        sectionEl.appendChild(citationEl);
       }
-      sectionEl.appendChild(contentEl);
 
-      // Citation block (always visible, non-empty invariant enforced)
-      const citationEl = document.createElement('div');
-      citationEl.className = 'citation-block';
-      citationEl.style.cssText = `
-        padding-left: 26px;
-        margin-top: 8px;
-        border-left: 2px solid #D5DAE4;
-        padding-left: 10px;
-        cursor: pointer;
-        transition: background-color 0.2s ease;
-      `;
-      citationEl.title = 'Click to jump to this moment in the conversation';
-
-      const citationLabel = document.createElement('div');
-      citationLabel.style.cssText = `
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #5C6675;
-        margin-bottom: 4px;
-      `;
-      citationLabel.textContent = section.citation_source === 'usuario' ? 'Source: You said' : 'Source: Analysis';
-      citationEl.appendChild(citationLabel);
-
-      const citationText = document.createElement('div');
-      citationText.className = 'mono';
-      citationText.style.cssText = `
-        font-size: 11px;
-        color: #2B4CD8;
-        font-style: italic;
-        line-height: 1.5;
-      `;
-      citationText.textContent = section.citation_text || '—';
-      citationEl.appendChild(citationText);
-
-      // Add hover effect
-      citationEl.addEventListener('mouseenter', () => {
-        citationEl.style.backgroundColor = 'rgba(43, 76, 216, 0.04)';
-      });
-      citationEl.addEventListener('mouseleave', () => {
-        citationEl.style.backgroundColor = 'transparent';
-      });
-
-      // Add click handler to link to transcript (scroll to matching message in stream)
-      citationEl.addEventListener('click', () => {
-        highlightTranscriptSection(section.citation_text);
-      });
-
-      sectionEl.appendChild(citationEl);
       docBody.appendChild(sectionEl);
     });
   }
@@ -2716,13 +2892,421 @@ ${htmlContent}
     }
   }
 
-  // Show Audiovisual view (placeholder)
+  // =============================================================================
+  // AUDIOVISUAL STUDIO VIEW (Pieza 46)
+  // =============================================================================
+
+  const ASSET_ORIGIN_CONFIG = {
+    a_roll: {
+      label: 'You record · free',
+      style: 'background:#DCFCE7;color:#166534;border:1px solid #BBF7D0;font-weight:600;',
+      iconBg: 'rgba(22, 101, 52, 0.1)',
+      iconColor: '#166534',
+      borderStyle: '#86EFAC'
+    },
+    stock: {
+      label: 'Stock · free',
+      style: 'background:#DBEAFE;color:#1E40AF;border:1px solid #BFDBFE;font-weight:600;',
+      iconBg: 'rgba(30, 64, 175, 0.1)',
+      iconColor: '#1E40AF',
+      borderStyle: '#93C5FD'
+    },
+    ai_image: {
+      label: 'AI image · premium',
+      style: 'background:#F3E8FF;color:#6B21A8;border:1px solid #E9D5FF;font-weight:600;',
+      iconBg: 'rgba(107, 33, 168, 0.1)',
+      iconColor: '#6B21A8',
+      borderStyle: '#D8B4FE'
+    },
+    ai_video: {
+      label: 'AI video · premium ★',
+      style: 'background:linear-gradient(135deg, #FEF08A, #FDE047);color:#854D0E;border:1px solid #EAB308;font-weight:700;box-shadow:0 1px 3px rgba(234,179,8,0.25);',
+      iconBg: 'rgba(234, 179, 8, 0.15)',
+      iconColor: '#854D0E',
+      borderStyle: '#FACC15'
+    },
+    motion_graphic: {
+      label: 'Motion graphic',
+      style: 'background:#F3F4F6;color:#374151;border:1px solid #E5E7EB;font-weight:600;',
+      iconBg: 'rgba(55, 65, 81, 0.1)',
+      iconColor: '#374151',
+      borderStyle: '#D1D5DB'
+    }
+  };
+
+  function getAssetTypeIcon(type) {
+    if (type === 'a_roll') {
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7 16 12 23 17 23 7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>`;
+    }
+    if (type === 'stock') {
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>`;
+    }
+    if (type === 'ai_image') {
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+    }
+    if (type === 'ai_video') {
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`;
+    }
+    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>`;
+  }
+
+  let selectedTimelineSceneIdx = null;
+
+  function renderSelectedSceneDetail(sceneIdx) {
+    const detailPanel = document.getElementById('AV-DetailPanel');
+    if (!detailPanel || !currentScriptData || !currentScriptData.scenes) return;
+
+    const scene = currentScriptData.scenes[sceneIdx];
+    if (!scene) {
+      detailPanel.style.display = 'none';
+      return;
+    }
+
+    selectedTimelineSceneIdx = sceneIdx;
+
+    // Highlight active card
+    const allCards = document.querySelectorAll('.av-card');
+    allCards.forEach((card) => {
+      const idx = parseInt(card.dataset.sceneIndex, 10);
+      if (idx === sceneIdx) {
+        card.classList.add('is-active');
+      } else {
+        card.classList.remove('is-active');
+      }
+    });
+
+    const phaseName = PHASE_NAMES[scene.phase] || (scene.phase ? scene.phase.replace(/_/g, ' ') : 'Scene');
+    const startTime = formatTime(scene.start_s);
+    const endTime = formatTime(scene.end_s);
+    const timeRange = (scene.start_s !== null && scene.start_s !== undefined && scene.end_s !== null && scene.end_s !== undefined)
+      ? `${startTime}–${endTime}` : '—';
+    const assetType = scene.asset_type || 'a_roll';
+    const badgeInfo = ASSET_ORIGIN_CONFIG[assetType] || ASSET_ORIGIN_CONFIG.a_roll;
+
+    detailPanel.style.display = 'block';
+    detailPanel.innerHTML = `
+      <div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);">Scene Inspector (Read-only)</div>
+          <div style="font-size:16px;font-weight:700;color:var(--ink);margin-top:2px;">
+            Scene #${scene.n || (sceneIdx + 1)} · ${escapeHtml(phaseName)}
+            <span style="font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:8px;">${escapeHtml(timeRange)} est.</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="padding:3px 8px;border-radius:4px;font-size:10px;${badgeInfo.style}">${badgeInfo.label}</span>
+          <span style="padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;">Pending</span>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.5;">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Spoken Text (Founder Voice)</div>
+          <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
+            ${escapeHtml(scene.spoken_text || '—')}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">On-Screen Text (Subtitle)</div>
+          <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
+            ${escapeHtml(scene.on_screen_text || '—')}
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;font-size:13px;line-height:1.5;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Prompt & Direction Details</div>
+        <div style="background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);font-size:12px;color:var(--ink);">
+          ${scene.stock_query ? `<div style="margin-bottom:4px;"><strong>Stock Query:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.stock_query)}</span></div>` : ''}
+          ${scene.visual_prompt ? `<div style="margin-bottom:4px;"><strong>Visual Prompt:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.visual_prompt)}</span></div>` : ''}
+          ${scene.shot ? `<div style="margin-bottom:4px;"><strong>Camera Shot:</strong> ${escapeHtml(scene.shot)}</div>` : ''}
+          ${scene.acting_note ? `<div style="margin-bottom:4px;"><strong>How to say it:</strong> ${escapeHtml(scene.acting_note)}</div>` : ''}
+          ${(!scene.stock_query && !scene.visual_prompt && !scene.shot && !scene.acting_note) ? '<div style="color:var(--ink-soft);font-style:italic;">A-roll spoken scene · no visual generation prompt needed</div>' : ''}
+        </div>
+      </div>
+
+      <div style="margin-top:12px;font-size:11.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>Read-only storyboard view. Arranging, trimming, and reordering clips take place in Step 5 (Editing).</span>
+      </div>
+    `;
+  }
+
+  function getEstimatedDurationText(scriptData) {
+    const scenes = scriptData?.scenes;
+    if (!scenes || !scenes.length) return '—';
+    const lastScene = scenes[scenes.length - 1];
+    if (lastScene && lastScene.end_s !== null && lastScene.end_s !== undefined && !isNaN(Number(lastScene.end_s))) {
+      return `${Math.round(Number(lastScene.end_s))}s est.`;
+    }
+    return '—';
+  }
+
+  function renderAudiovisualView() {
+    const container = document.getElementById('Audiovisual-Content');
+    if (!container || !currentScriptData) return;
+
+    const matchedIdea = currentCatalog?.ideas?.find(i => i.id === currentScriptData.idea_id);
+    const scriptTitle = currentScriptData.title || matchedIdea?.title || 'Video Script';
+    const recordingFormatText = RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || currentScriptData.recording_format || 'Natural selfie';
+    const durationText = getEstimatedDurationText(currentScriptData);
+    const musicPromptText = currentScriptData.music_prompt ? `Music: ${currentScriptData.music_prompt}` : 'Music: upbeat corporate electronic';
+    const scenes = currentScriptData.scenes || [];
+
+    // Step 1: A-roll scenes
+    const aRollScenes = scenes.filter(s => s.asset_type === 'a_roll');
+    let aRollListHtml = '';
+    if (aRollScenes.length === 0) {
+      aRollListHtml = `<div style="padding:12px 14px;background:var(--surface);border:1px dashed var(--line);border-radius:6px;font-size:13px;color:var(--ink-soft);font-style:italic;">No A-roll scenes in this script. All scenes are visual B-roll or AI assets.</div>`;
+    } else {
+      aRollListHtml = aRollScenes.map((scene, idx) => {
+        const phaseName = PHASE_NAMES[scene.phase] || (scene.phase ? scene.phase.replace(/_/g, ' ') : 'Scene');
+        const startTime = formatTime(scene.start_s);
+        const endTime = formatTime(scene.end_s);
+        const timeRange = (scene.start_s !== null && scene.start_s !== undefined && scene.end_s !== null && scene.end_s !== undefined)
+          ? `${startTime}–${endTime}` : '—';
+        return `
+          <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;display:flex;gap:14px;align-items:flex-start;">
+            <div style="flex-shrink:0;min-width:70px;">
+              <span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;">Scene ${scene.n || (idx + 1)}</span>
+              <div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(timeRange)} <span style="font-size:9px;">est.</span></div>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">${escapeHtml(phaseName)}</div>
+              <div style="font-size:13px;color:var(--ink);line-height:1.45;">"${escapeHtml(scene.spoken_text || '—')}"</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Step 2: Timeline cards
+    let timelineCardsHtml = '';
+    scenes.forEach((scene, idx) => {
+      const phaseName = PHASE_NAMES[scene.phase] || (scene.phase ? scene.phase.replace(/_/g, ' ') : 'Scene');
+      const startTime = formatTime(scene.start_s);
+      const endTime = formatTime(scene.end_s);
+      const timeRange = (scene.start_s !== null && scene.start_s !== undefined && scene.end_s !== null && scene.end_s !== undefined)
+        ? `${startTime}–${endTime}` : '—';
+      const assetType = scene.asset_type || 'a_roll';
+      const badgeInfo = ASSET_ORIGIN_CONFIG[assetType] || ASSET_ORIGIN_CONFIG.a_roll;
+      const iconSvg = getAssetTypeIcon(assetType);
+
+      let queryLabel = 'Prompt';
+      let fullQuery = '';
+      if (assetType === 'stock') {
+        queryLabel = 'Stock';
+        fullQuery = scene.stock_query || scene.spoken_text || '—';
+      } else if (assetType === 'ai_image' || assetType === 'ai_video') {
+        queryLabel = 'Prompt';
+        fullQuery = scene.visual_prompt || scene.spoken_text || '—';
+      } else if (assetType === 'a_roll') {
+        queryLabel = 'A-roll';
+        fullQuery = scene.spoken_text || 'Founder spoken take';
+      } else {
+        queryLabel = 'Motion';
+        fullQuery = scene.visual_prompt || scene.on_screen_text || 'Motion graphic';
+      }
+
+      timelineCardsHtml += `
+        <div class="av-card" data-scene-index="${idx}" style="flex:0 0 160px;width:160px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:8px;user-select:none;box-sizing:border-box;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px;">
+            <span style="font-size:12px;font-weight:700;color:var(--ink);">#${scene.n || (idx + 1)} <span style="font-weight:500;color:var(--accent);">${escapeHtml(phaseName)}</span></span>
+            <span style="font-size:10px;color:var(--ink-soft);white-space:nowrap;">${escapeHtml(timeRange)} <span style="font-size:9px;">est.</span></span>
+          </div>
+
+          <div style="width:100%;aspect-ratio:9/16;border-radius:6px;background:var(--surface-alt);border:1px dashed ${badgeInfo.borderStyle};display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:10px 8px;text-align:center;box-sizing:border-box;">
+            <div style="width:36px;height:36px;border-radius:50%;background:${badgeInfo.iconBg};color:${badgeInfo.iconColor};display:flex;align-items:center;justify-content:center;margin-bottom:8px;">
+              ${iconSvg}
+            </div>
+            <div style="padding:3px 6px;border-radius:4px;font-size:9.5px;line-height:1.2;text-align:center;${badgeInfo.style}">
+              ${badgeInfo.label}
+            </div>
+            <div style="margin-top:10px;padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;letter-spacing:0.04em;">
+              Pending
+            </div>
+          </div>
+
+          <div style="font-size:11px;color:var(--ink-soft);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 0;" title="${escapeHtml(fullQuery)}">
+            <span style="font-weight:600;color:var(--ink);">${escapeHtml(queryLabel)}:</span> ${escapeHtml(fullQuery)}
+          </div>
+        </div>
+      `;
+    });
+
+    // Summary counts
+    const counts = { a_roll: 0, stock: 0, ai_image: 0, ai_video: 0, motion_graphic: 0 };
+    scenes.forEach(s => {
+      const type = s.asset_type || 'a_roll';
+      if (counts[type] !== undefined) counts[type]++;
+      else counts[type] = 1;
+    });
+
+    const parts = [];
+    if (counts.a_roll) parts.push(`${counts.a_roll} you record`);
+    if (counts.stock) parts.push(`${counts.stock} stock`);
+    if (counts.ai_image) parts.push(`${counts.ai_image} AI image`);
+    if (counts.ai_video) parts.push(`${counts.ai_video} AI video`);
+    if (counts.motion_graphic) parts.push(`${counts.motion_graphic} motion graphic`);
+    const summaryCountsText = parts.length > 0 ? parts.join(' · ') : '0 scenes';
+
+    container.innerHTML = `
+      <!-- Cabecera -->
+      <div class="dochead" style="display:flex;align-items:start;justify-content:space-between;padding:26px 40px 16px;border-bottom:1px solid var(--line);">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Audiovisual Studio · Locked Script</div>
+          <h1 class="disp" style="margin:0 0 10px;font-size:26px;font-weight:600;letter-spacing:-.02em;color:var(--ink);">${escapeHtml(scriptTitle)}</h1>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);">
+            <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-alt);padding:4px 10px;border-radius:4px;border:1px solid var(--line);font-weight:500;color:var(--ink);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+              Vertical 9:16
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-alt);padding:4px 10px;border-radius:4px;border:1px solid var(--line);font-weight:500;color:var(--ink);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              ${escapeHtml(durationText)}
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-alt);padding:4px 10px;border-radius:4px;border:1px solid var(--line);font-weight:500;color:var(--ink);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7 16 12 23 17 23 7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+              ${escapeHtml(recordingFormatText)}
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(43,76,216,0.06);padding:4px 10px;border-radius:4px;border:1px solid rgba(43,76,216,0.15);font-weight:500;color:var(--accent);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+              ${escapeHtml(musicPromptText)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paso 1: Record your A-roll -->
+      <div style="padding:24px 40px;border-bottom:1px solid var(--line);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <h2 style="font-size:16px;font-weight:600;color:var(--ink);margin:0 0 4px;display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;">1</span>
+              <span>Record your A-roll</span>
+            </h2>
+            <div style="font-size:13px;color:var(--ink-soft);">Recorded takes cost nothing. Record before generating AI assets.</div>
+          </div>
+          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#1B7F4C;background:rgba(27,127,76,0.08);padding:3px 8px;border-radius:4px;border:1px solid rgba(27,127,76,0.2);">
+            Step 1 of 2
+          </span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
+          ${aRollListHtml}
+        </div>
+
+        <div style="padding:10px 14px;background:#FFF9EB;border:1px solid #FDE68A;border-radius:6px;font-size:12.5px;color:#92400E;line-height:1.5;margin-bottom:14px;display:flex;align-items:flex-start;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:2px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <span>The teleprompter is a guide, not a script — improvise freely. What you say becomes your real subtitles.</span>
+        </div>
+
+        <button class="btn btn--secondary" disabled style="padding:8px 16px;font-size:13px;opacity:0.6;cursor:not-allowed;" title="Teleprompter recording is coming in the next release">
+          Open teleprompter — coming next
+        </button>
+      </div>
+
+      <!-- Paso 2: Assets - timeline -->
+      <div style="padding:24px 40px;border-bottom:1px solid var(--line);overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <h2 style="font-size:16px;font-weight:600;color:var(--ink);margin:0 0 4px;display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;">2</span>
+              <span>Assets — timeline</span>
+            </h2>
+            <div style="font-size:13px;color:var(--ink-soft);">Ordered scene storyboard. Click any scene to inspect spoken text, subtitle, and prompt.</div>
+          </div>
+          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);background:rgba(43,76,216,0.08);padding:3px 8px;border-radius:4px;border:1px solid rgba(43,76,216,0.2);">
+            Step 2 of 2
+          </span>
+        </div>
+
+        <!-- Horizontal strip: scroll ONLY inside the strip -->
+        <div class="av-timeline-strip-wrapper">
+          <div class="av-timeline-strip" style="display:inline-flex;gap:14px;min-width:100%;padding:4px 2px;">
+            ${timelineCardsHtml}
+          </div>
+        </div>
+
+        <!-- Detail panel expanded on click -->
+        <div id="AV-DetailPanel" style="margin-top:12px;padding:16px 20px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt);display:none;"></div>
+      </div>
+
+      <!-- Resumen -->
+      <div style="padding:24px 40px 32px;background:var(--surface-alt);border-radius:0 0 8px 8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Asset Breakdown</div>
+            <div style="font-size:15px;font-weight:600;color:var(--ink);margin-bottom:4px;">
+              ${escapeHtml(summaryCountsText)}
+            </div>
+            <div style="font-size:13px;color:var(--ink-soft);">
+              AI-generated video is the most expensive asset. Stock and your own takes cost nothing.
+            </div>
+          </div>
+          <div>
+            <button class="btn btn--go" disabled style="padding:10px 22px;font-size:14px;opacity:0.6;cursor:not-allowed;" title="Asset generation backend is coming next">
+              Generate assets — coming next
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Wire timeline card clicks
+    const cardEls = container.querySelectorAll('.av-card');
+    cardEls.forEach((cardEl) => {
+      cardEl.addEventListener('click', () => {
+        const idx = parseInt(cardEl.dataset.sceneIndex, 10);
+        renderSelectedSceneDetail(idx);
+      });
+    });
+
+    // Default select first scene
+    if (scenes.length > 0) {
+      renderSelectedSceneDetail(0);
+    }
+  }
+
+  // Show Audiovisual view (Pieza 46)
   function showAudiovisualView() {
     currentOpenView = 'audiovisual';
     if (blockAView) blockAView.style.display = 'none';
     if (blockBView) blockBView.style.display = 'none';
     if (blockCView) blockCView.style.display = 'none';
     if (audiovisualView) audiovisualView.style.display = 'block';
+
+    const guardEl = document.getElementById('Audiovisual-Guard');
+    const contentEl = document.getElementById('Audiovisual-Content');
+
+    // Guard: currentScriptData must exist and state must be 'locked'
+    if (!currentScriptData || currentScriptData.state !== 'locked') {
+      if (contentEl) contentEl.style.display = 'none';
+      if (guardEl) {
+        guardEl.style.display = 'block';
+        const goScriptBtn = document.getElementById('Audiovisual-Guard-GoScriptBtn');
+        if (goScriptBtn) {
+          goScriptBtn.onclick = () => {
+            if (currentScriptIdeaId) {
+              showBlockCView(currentScriptIdeaId);
+            } else {
+              loadCatalogCache().then(() => showBlockBView());
+            }
+          };
+        }
+      }
+      if (typeof renderPipelineRail === 'function') {
+        renderPipelineRail();
+      }
+      return;
+    }
+
+    if (guardEl) guardEl.style.display = 'none';
+    if (contentEl) {
+      contentEl.style.display = 'block';
+      renderAudiovisualView();
+    }
+
     if (typeof renderPipelineRail === 'function') {
       renderPipelineRail();
     }
@@ -2986,7 +3570,7 @@ ${htmlContent}
         </div>
         <div>
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Duration</div>
-          <div id="Script-Duration" style="font-weight:500;color:#14181F">${currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '—'}</div>
+          <div id="Script-Duration" style="font-weight:500;color:#14181F">${getEstimatedDurationText(currentScriptData)}</div>
         </div>
         <div>
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675;margin-bottom:4px">Format</div>
@@ -3417,7 +4001,7 @@ ${htmlContent}
     // Update metadata grid values (without rebuilding)
     if (scriptAngle) scriptAngle.textContent = currentScriptData.angle || '—';
     if (scriptFunnelStage) scriptFunnelStage.textContent = FUNNEL_STAGE_NAMES[currentScriptData.funnel_stage] || currentScriptData.funnel_stage || '—';
-    if (scriptDuration) scriptDuration.textContent = currentScriptData.target_seconds ? `${currentScriptData.target_seconds}s` : '—';
+    if (scriptDuration) scriptDuration.textContent = getEstimatedDurationText(currentScriptData);
     if (scriptRecordingFormat) scriptRecordingFormat.textContent = RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || currentScriptData.recording_format || '—';
     if (scriptMusicPrompt) scriptMusicPrompt.textContent = currentScriptData.music_prompt ? currentScriptData.music_prompt : '—';
 
