@@ -1043,9 +1043,23 @@ async def get_catalog(request: Request):
             }
         )
 
-    # 6. Return cached catalog
+    # 6. Attach script states in a single batch query (PIEZA 45)
+    from app.scripting.scripts import get_script_states_by_session
+    try:
+        script_states = get_script_states_by_session(session_token)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    for idea in catalog.ideas:
+        idea.script_state = script_states.get(idea.id, None)
+
+    catalog_dict = catalog.model_dump(mode="json")
+    for idea_dict in catalog_dict.get("ideas", []):
+        idea_dict["script_state"] = script_states.get(idea_dict.get("id"), None)
+
+    # 7. Return cached catalog
     return JSONResponse(content={
-        "catalog": catalog.model_dump(mode="json"),
+        "catalog": catalog_dict,
         "cache_status": "hit"
     })
 

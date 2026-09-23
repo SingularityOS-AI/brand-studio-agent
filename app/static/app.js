@@ -2036,9 +2036,24 @@ ${htmlContent}
     const regenerateBtnHTML = idea.origin === 'founder'
       ? ''
       : `<button class="btn-regenerate" data-idea-id="${safeId}" title="Regenerate (3 credits)">&#8635;</button>`;
-    // PIEZA 34 (bug 3): Add "Write script" / "Open script" button on approved ideas when catalog is locked
+    // PIEZA 45: "Write script" vs "Open script" button on approved ideas when catalog is locked
+    let scriptBtnLabel = '📝 Write script';
+    let scriptBtnTitle = 'Write script';
+    if (idea.script_state === 'locked') {
+      scriptBtnLabel = '📂 Open script · locked 🔒';
+      scriptBtnTitle = 'Open script (locked)';
+    } else if (idea.script_state === 'reviewed') {
+      scriptBtnLabel = '📂 Open script · reviewed';
+      scriptBtnTitle = 'Open script (reviewed)';
+    } else if (idea.script_state === 'draft') {
+      scriptBtnLabel = '📂 Open script · draft';
+      scriptBtnTitle = 'Open script (draft)';
+    } else if (idea.script_state) {
+      scriptBtnLabel = `📂 Open script · ${escapeHtml(idea.script_state)}`;
+      scriptBtnTitle = `Open script (${escapeHtml(idea.script_state)})`;
+    }
     const scriptBtnHTML = (catalogLocked && idea.status === 'approved')
-      ? `<button class="btn-script" data-idea-id="${safeId}" title="Write script">📝 Write script</button>`
+      ? `<button class="btn-script" data-idea-id="${safeId}" title="${scriptBtnTitle}">${scriptBtnLabel}</button>`
       : '';
     return `
       <span class="ideatitle">${escapeHtml(idea.title)}${founderBadge}</span>
@@ -2051,6 +2066,32 @@ ${htmlContent}
         ${scriptBtnHTML}
       </div>
     `;
+  }
+
+  // PIEZA 45: Update an idea card's script button without reloading the catalog
+  function updateIdeaCardScriptButton(ideaId, scriptState) {
+    const scriptBtns = document.querySelectorAll('.btn-script');
+    for (const btn of scriptBtns) {
+      if (btn.dataset.ideaId === ideaId) {
+        if (scriptState === 'locked') {
+          btn.textContent = '📂 Open script · locked 🔒';
+          btn.title = 'Open script (locked)';
+        } else if (scriptState === 'reviewed') {
+          btn.textContent = '📂 Open script · reviewed';
+          btn.title = 'Open script (reviewed)';
+        } else if (scriptState === 'draft') {
+          btn.textContent = '📂 Open script · draft';
+          btn.title = 'Open script (draft)';
+        } else if (scriptState) {
+          btn.textContent = `📂 Open script · ${scriptState}`;
+          btn.title = `Open script (${scriptState})`;
+        } else {
+          btn.textContent = '📝 Write script';
+          btn.title = 'Write script';
+        }
+        break;
+      }
+    }
   }
 
   // Wire de ✓ / ✗ / ↻ para UNA tarjeta de idea puntual (reutilizable para
@@ -3053,6 +3094,14 @@ ${htmlContent}
         credits = data.credits_remaining;
         updateCreditsUI(data.credits_remaining, initialSessionCredits);
       }
+      // PIEZA 45: Update currentCatalog and card button without reloading
+      if (currentCatalog && currentCatalog.ideas && currentScriptData?.idea_id) {
+        const matchedIdea = currentCatalog.ideas.find(i => i.id === currentScriptData.idea_id);
+        if (matchedIdea) {
+          matchedIdea.script_state = 'reviewed';
+          updateIdeaCardScriptButton(currentScriptData.idea_id, 'reviewed');
+        }
+      }
       // renderScript() rebuilds the review panel (and its Confirm button)
       // from scratch, so no manual re-enable is needed on this path.
       renderScript();
@@ -3619,6 +3668,14 @@ ${htmlContent}
       const data = await response.json();
       // Backend returns {"script": {...}, "status": "locked"}
       currentScriptData = data.script || data;
+      // PIEZA 45: Update currentCatalog and card button without reloading
+      if (currentCatalog && currentCatalog.ideas && currentScriptData?.idea_id) {
+        const matchedIdea = currentCatalog.ideas.find(i => i.id === currentScriptData.idea_id);
+        if (matchedIdea) {
+          matchedIdea.script_state = 'locked';
+          updateIdeaCardScriptButton(currentScriptData.idea_id, 'locked');
+        }
+      }
       renderScript();
       showLockMessage('Script locked successfully.', false);
     } catch (error) {
@@ -4034,6 +4091,15 @@ ${htmlContent}
 
         // Load the generated script
         await loadScriptData(currentScriptIdeaId);
+
+        // PIEZA 45: Update currentCatalog and card button without reloading
+        if (currentCatalog && currentCatalog.ideas && currentScriptIdeaId) {
+          const matchedIdea = currentCatalog.ideas.find(i => i.id === currentScriptIdeaId);
+          if (matchedIdea) {
+            matchedIdea.script_state = data.script?.state || 'draft';
+            updateIdeaCardScriptButton(currentScriptIdeaId, matchedIdea.script_state);
+          }
+        }
 
       } catch (error) {
         clearTimeout(timeoutId);

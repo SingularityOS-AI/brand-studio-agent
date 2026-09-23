@@ -192,6 +192,10 @@ class CatalogIdea(BaseModel):
             "guardados sin este campo."
         )
     )
+    script_state: Optional[Literal["draft", "reviewed", "locked"]] = Field(
+        default=None,
+        description="Estado del guion asociado si existe (draft|reviewed|locked), o null",
+    )
 
     @field_validator("master_category")
     @classmethod

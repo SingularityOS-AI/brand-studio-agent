@@ -364,6 +364,59 @@ def _check_script(session_id: str, idea_id: str) -> Script | None:
     return script
 
 
+def get_script_states_by_session(session_id: str) -> dict[str, str]:
+    """
+    Fetch a mapping of idea_id -> script state (draft|reviewed|locked)
+    for all scripts in the given session with a SINGLE query/read.
+
+    PIEZA 45: Avoids N queries per catalog idea.
+    """
+    states: dict[str, str] = {}
+    client = _get_script_client()
+    if client is not None:
+        try:
+            response = (
+                client.table("scripts")
+                .select("idea_id, status")
+                .eq("session_token", session_id)
+                .execute()
+            )
+            if response.data:
+                for row in response.data:
+                    idea_id = row.get("idea_id")
+                    status = row.get("status")
+                    if idea_id and status:
+                        states[idea_id] = status
+            return states
+        except Exception as e:
+            print(f"Error reading script states from Supabase: {e}")
+            raise ScriptStorageError(f"Failed to read script states from Supabase: {e}") from e
+
+    # Fallback: local file cache
+    cache_dir = os.path.join("cache", "script", session_id)
+    if os.path.exists(cache_dir):
+        try:
+            for fname in os.listdir(cache_dir):
+                if fname.endswith(".json"):
+                    cache_file = os.path.join(cache_dir, fname)
+                    try:
+                        with open(cache_file, "r", encoding="utf-8") as f:
+                            row = json.load(f)
+                            idea_id = row.get("idea_id") or fname[:-5]
+                            status = row.get("status")
+                            if not status and isinstance(row.get("data"), dict):
+                                status = row["data"].get("state")
+                            if idea_id and status:
+                                states[idea_id] = status
+                    except Exception:
+                        pass
+        except OSError as e:
+            print(f"Error reading script cache directory: {e}")
+            raise ScriptStorageError(f"Failed to read script cache directory: {e}") from e
+
+    return states
+
+
 def _save_script(script: Script) -> None:
     """
     Persist script to Supabase or local cache (upsert).
@@ -1018,10 +1071,17 @@ The founder already has recorded footage; your job is to reconstruct the script 
 Your task: Generate a 45-90 second script from an idea and interview transcript.
 
 PARAMETERS:
-- Target duration: 45-90 seconds
+- Target duration: 45-90 seconds (estimated at 2.5 words per second)
 - Tone: Professional, authoritative yet conversational
 - Structure: 6 phases (hook, lock_in, body_1, rehook, body_2, close_cta)
-- Each scene: 3-7 seconds
+- Word budget (CRITICAL): Total spoken_text across all scenes MUST be strictly between 130 and 200 words (approx 52-80 seconds at 2.5 words/sec). Budget by phase:
+  * hook: 10-15 words
+  * lock_in: 15-20 words
+  * body_1: 35-50 words
+  * rehook: 12-18 words
+  * body_2: 35-50 words
+  * close_cta: 20-30 words
+  Count words carefully: scripts below 113 words will fail the 45-second duration rule.
 - Script kind: {script_kind} (use this as a guide for style and approach)
 - Progressive angle: Open very general, then narrow progressively toward CTA
 
@@ -1044,9 +1104,12 @@ STYLE REQUIREMENTS:
 - On-screen text: Maximum 8 words per scene
 - Spoken text: Natural prose — founder interprets, doesn't read word-for-word
 - Rehooks: Use phrases like "stay with me", "and here's why", "but that's not all"
-- FORBIDDEN: "not X, it's Y" patterns (e.g., "it's not just a tool, it's a partner")
+- FORBIDDEN: "not X, it's Y" patterns (e.g., "it's not just a tool, it's a partner"). Prohibited variations include: "It's not about the number of hands. It's about the speed...", "This isn't X. This is Y.", "Not X — Y." (even if split across two sentences or separated by dashes/periods).
 - FORBIDDEN: AI counterexamples (e.g., "unlike other AI tools")
 - CTA: Must match funnel stage (tofu: awareness, mofu: consideration, bofu: decision)
+
+LANGUAGE CONSISTENCY (CRITICAL):
+- All spoken_text, on_screen_text, and acting_note MUST be in English unless the Brand Context explicitly specifies another target publishing language. If Brand Context indicates Spanish, write entirely in Spanish. NEVER mix languages within a script (e.g., an English body with a Spanish closing CTA is strictly forbidden).
 
 HUMANIZATION REQUIREMENTS (CRITICAL):
 1. WORDS BLACKLIST — NEVER use these in spoken_text: delve, crucial, tapestry, landscape, ever-evolving, unlock the potential, revolutionary, vital, in conclusion, in summary, discover how, optimize.
@@ -1111,6 +1174,127 @@ OUTPUT: Valid JSON with this exact schema:
 Total scenes should be 7-12. ALL queries and prompts must be IN ENGLISH. Return ONLY valid JSON.
 """
     return prompt
+
+
+def _parse_and_build_script(
+    session_id: str,
+    idea_id: str,
+    response_text: str,
+) -> tuple[Script, dict[str, Any]]:
+    """Parse JSON response from Gemini, validate scenes/FrameZero, and build audited Script."""
+    try:
+        script_data = json.loads(response_text)
+    except json.JSONDecodeError:
+        import re
+        json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
+        if json_match:
+            script_data = json.loads(json_match.group(1))
+        else:
+            raise ValueError("Failed to parse JSON response from Gemini")
+
+    try:
+        frame_zero = FrameZero.model_validate(script_data.get("frame_zero", {}))
+    except ValidationError as e:
+        raise ValueError(
+            f"Model returned invalid frame_zero: {_summarize_validation_error(e)}"
+        ) from e
+
+    scenes_data = script_data.get("scenes", [])
+    current_time = 0.0
+    scenes = []
+    for idx, scene_data in enumerate(scenes_data, start=1):
+        phase = scene_data.get("phase")
+        estimated_duration = _estimate_scene_duration(scene_data.get("spoken_text", ""))
+
+        start_s = current_time
+        end_s = start_s + estimated_duration
+        current_time = end_s
+
+        scene = _build_validated_scene(
+            scene_data,
+            n=idx,
+            phase=phase,
+            start_s=start_s,
+            end_s=end_s,
+        )
+        scenes.append(scene)
+
+    script = Script(
+        session_id=session_id,
+        idea_id=idea_id,
+        title=script_data.get("title", ""),
+        angle=script_data.get("angle", ""),
+        funnel_stage=script_data.get("funnel_stage", "tofu"),
+        target_seconds=script_data.get("target_seconds", 60),
+        frame_zero=frame_zero,
+        scenes=scenes,
+        sources=script_data.get("sources", []),
+        music_prompt=script_data.get("music_prompt", ""),
+        recording_format=script_data.get("recording_format", "selfie_natural"),
+    )
+    script.audit = audit_script(script)
+    return script, script_data
+
+
+def _format_critical_audit_failures(script: Script, failed_critical: list[AuditFinding]) -> list[str]:
+    """Format exact failure descriptions for single LLM revision attempt."""
+    messages = []
+    total_words = sum(len((sc.spoken_text or "").split()) for sc in script.scenes)
+    forbidden_patterns = [
+        " is not ", " it's not ", "it's not ", "not just a ", "not just an ",
+        "not just ", "not only a ", "not only an ", "not only ",
+    ]
+    for f in failed_critical:
+        if f.rule == "rule_1":
+            messages.append(
+                f"- {f.rule} ({f.detail}): Your draft has {total_words} spoken words "
+                f"(~{script.actual_seconds:.1f}s estimated duration). "
+                "It MUST have strictly between 130 and 200 spoken words across all scenes (target 45-90 seconds)."
+            )
+        elif f.rule == "rule_7":
+            bad_scenes = []
+            for sc in script.scenes:
+                tl = (sc.spoken_text or "").lower()
+                for pat in forbidden_patterns:
+                    if pat in tl:
+                        bad_scenes.append(f"scene {sc.n} ({sc.phase}) contains '{pat.strip()}'")
+                        break
+            detail_str = f" Violations: {'; '.join(bad_scenes)}." if bad_scenes else ""
+            messages.append(
+                f"- {f.rule} ({f.detail}): Forbidden 'not X, it's Y' contrast pattern found.{detail_str} "
+                "Prohibited examples include: 'it's not just a tool, it's a partner', "
+                "'It's not about the number of hands. It's about the speed...', "
+                "'This isn't X. This is Y.', 'Not X — Y.'"
+            )
+        else:
+            messages.append(f"- {f.rule}: {f.detail}")
+    return messages
+
+
+def _build_retry_generation_prompt(
+    base_prompt: str,
+    previous_script_data: dict[str, Any],
+    failure_messages: list[str],
+) -> str:
+    """Build the single-retry prompt providing the previous script and exact failures to fix."""
+    failures_block = "\n".join(failure_messages)
+    return f"""{base_prompt}
+
+CRITICAL REVISION REQUIRED:
+Your previous draft failed the following critical audit rules:
+{failures_block}
+
+PREVIOUS DRAFT:
+{json.dumps(previous_script_data, indent=2)}
+
+INSTRUCTIONS FOR REVISION:
+Fix all the critical audit failures listed above while preserving the structure and brand tone.
+- Total spoken_text across all scenes MUST be strictly between 130 and 200 words (45-90 seconds).
+- Distribute word budget across phases: hook 10-15, lock_in 15-20, body_1 35-50, rehook 12-18, body_2 35-50, close_cta 20-30 words.
+- Eliminate all forbidden contrast patterns ("not X, it's Y").
+- Maintain strict language consistency (all English unless Brand Context specifies Spanish).
+Return ONLY the complete corrected script as valid JSON adhering to the exact schema.
+"""
 
 
 async def generate_script(
@@ -1184,77 +1368,43 @@ async def generate_script(
         },
     )
 
-    # 6. Parse response
-    try:
-        script_data = json.loads(response.text)
-    except json.JSONDecodeError:
-        # Try to extract JSON from markdown code block
-        import re
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", response.text, re.DOTALL)
-        if json_match:
-            script_data = json.loads(json_match.group(1))
-        else:
-            raise ValueError("Failed to parse JSON response from Gemini")
+    # 6. Parse and build Script object
+    script, script_data = _parse_and_build_script(session_id, idea_id, response.text)
 
-    # 7. Build Script object
-    # Pieza 43: FrameZero built via model_validate + a clean error message
-    # instead of a raw Pydantic trace bubbling straight out of Scene(**...).
-    try:
-        frame_zero = FrameZero.model_validate(script_data.get("frame_zero", {}))
-    except ValidationError as e:
-        raise ValueError(
-            f"Model returned invalid frame_zero: {_summarize_validation_error(e)}"
-        ) from e
+    # 7. Check critical audit rules
+    critical_rules = {
+        r["rule"] for r in AUDIT_RULES
+        if r.get("critical", False)
+    }
+    failed_critical = [
+        f for f in script.audit
+        if f.status == "fail" and f.rule in critical_rules
+    ]
 
-    scenes_data = script_data["scenes"]
-
-    # Pieza 39: Calculate timing as ESTIMATE based on spoken text.
-    # Formula: words / 2.5 words per second (150 words/minute = 2.5 words/sec)
-    # min_duration ensures no scene shows as 0 seconds.
-    # IMPORTANT: This is an ESTIMATE for planning — actual duration only exists after recording.
-    current_time = 0.0
-    scenes = []
-    for idx, scene_data in enumerate(scenes_data, start=1):
-        phase = scene_data.get("phase")
-
-        # Duration is ESTIMATED from spoken_text length, not clamped.
-        # We use the word count to give a proportional timeline for planning.
-        estimated_duration = _estimate_scene_duration(scene_data.get("spoken_text", ""))
-
-        start_s = current_time
-        end_s = start_s + estimated_duration
-        current_time = end_s
-
-        # Pieza 43: full validation (Scene.model_validate) BEFORE this scene
-        # ever becomes part of the script, with normalization of documented
-        # model slips (e.g. asset_type "b_roll" -> "stock") and a clean,
-        # one-line error on truly invalid output instead of a raw trace.
-        scene = _build_validated_scene(
-            scene_data,
-            n=idx,
-            phase=phase,
-            start_s=start_s,
-            end_s=end_s,
-        )
-        scenes.append(scene)
-
-    script = Script(
-        session_id=session_id,
-        idea_id=idea_id,
-        title=script_data["title"],
-        angle=script_data["angle"],
-        funnel_stage=script_data.get("funnel_stage", "tofu"),
-        target_seconds=script_data.get("target_seconds", 60),
-        frame_zero=frame_zero,
-        scenes=scenes,
-        sources=script_data.get("sources", []),
-        # BLUEPRINT fields (Pieza 39)
-        music_prompt=script_data.get("music_prompt", ""),
-        recording_format=script_data.get("recording_format", "selfie_natural"),
-    )
-
-    # 8. Run audit
-    script.audit = audit_script(script)
+    # 8. Single automatic retry if any critical rule fails (Pieza 45)
+    if failed_critical:
+        failure_messages = _format_critical_audit_failures(script, failed_critical)
+        retry_prompt = _build_retry_generation_prompt(prompt, script_data, failure_messages)
+        try:
+            retry_response = await model.generate_content_async(
+                retry_prompt,
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 8192,
+                    "response_mime_type": "application/json",
+                },
+            )
+            retry_script, _ = _parse_and_build_script(
+                session_id, idea_id, retry_response.text
+            )
+            retry_failed_critical = [
+                f for f in retry_script.audit
+                if f.status == "fail" and f.rule in critical_rules
+            ]
+            if len(retry_failed_critical) < len(failed_critical):
+                script = retry_script
+        except Exception as e:
+            print(f"[WARN] Script automatic retry failed: {e}. Retaining original draft.")
 
     # 9. Save and return
     _save_script(script)
