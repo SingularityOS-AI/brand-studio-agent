@@ -12,12 +12,14 @@ Main FastAPI application with:
 
 import os
 import asyncio
-import httpx
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 
 from app.config import settings
 from app.guard import guard
@@ -27,10 +29,25 @@ from app.auth.supabase_auth import supabase_auth
 from app.billing import router as billing_router
 from app.webhooks import router as webhooks_router
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background worker only if not running inside test environment."""
+    if settings.environment != "test" and os.getenv("ENVIRONMENT") != "test":
+        from app.audiovisual.worker import start_worker
+        start_worker()
+    yield
+    if settings.environment != "test" and os.getenv("ENVIRONMENT") != "test":
+        from app.audiovisual.worker import stop_worker
+        await stop_worker()
+
 app = FastAPI(
     title="Brand Studio Agent — Voice API",
     description="AssemblyAI Voice Agent API with Rate Limiting & Session Budget",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS (restrict in production)
@@ -660,6 +677,13 @@ async def generate_script_endpoint(request: Request, body: ScriptGenerateRequest
             content={"error": "Missing 'idea_id' query parameter"}
         )
 
+    # Debt Pieza 50: raw_footage upload is coming soon - 400 before charging
+    if getattr(body, "source_mode", None) == "raw_footage":
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Raw footage upload is coming soon"}
+        )
+
     # BUG B1 (mismo patrón que /api/catalog/generate, 4b273e7): un guion ya
     # guardado para esta idea se devuelve TAL CUAL, sin cobrar y sin volver a
     # llamar al LLM -- antes el endpoint siempre generaba y siempre cobraba
@@ -985,6 +1009,242 @@ async def confirm_script_endpoint(
         "status": "reviewed",
         "credits_remaining": guard.get_remaining_credits(session_token),
     })
+
+
+# =============================================================================
+# AUDIOVISUAL ENDPOINTS (Pieza 50 — Bloque D: Audiovisual Generation)
+# =============================================================================
+
+@app.get("/api/audiovisual/{idea_id}/estimate", response_class=JSONResponse)
+async def estimate_audiovisual_endpoint(request: Request, idea_id: str):
+    """
+    Returns credit and cost estimate for audiovisual generation of a locked script.
+    409 if script is not locked. Does not charge credits.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    from app.scripting.scripts import _check_script, ScriptStorageError
+    from app.audiovisual.pricing import estimate
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Script not found for idea {idea_id}"},
+        )
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked before estimating audiovisual generation"},
+        )
+
+    try:
+        est = estimate(script)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+    return JSONResponse(content=est)
+
+
+@app.post("/api/audiovisual/{idea_id}/generate", response_class=JSONResponse)
+async def generate_audiovisual_endpoint(request: Request, idea_id: str):
+    """
+    Launches audiovisual generation for a locked script.
+    - Recalculates estimate
+    - 409 if not locked
+    - 422 if over_ceiling or over_ai_video_limit
+    - Charges base (15 credits) once per launch (idempotent by idea_id + script version)
+    - Creates asset jobs: one per non-a_roll scene + one music job
+    - Returns {jobs: [...], credits_remaining}
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    from app.scripting.scripts import _check_script, ScriptStorageError
+    from app.audiovisual.pricing import estimate, CREDITS_TABLE, COST_USD_TABLE
+    from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Script not found for idea {idea_id}"},
+        )
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked before generating audiovisual assets"},
+        )
+
+    est = estimate(script)
+    if est.get("over_ai_video_limit"):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": f"AI video limit exceeded: {est['ai_video_count']} video scenes (max 1 allowed)"
+            },
+        )
+    if est.get("over_ceiling"):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": f"Cost ceiling exceeded: ${est['cost_usd_total']:.2f} USD (max $1.50 USD)"
+            },
+        )
+
+    # Base charge: 15 credits once per launch (idempotent by idea_id + script version)
+    script_version = getattr(script, "timestamp", None)
+    version_tag = script_version.isoformat() if script_version else (getattr(script, "id", None) or "v1")
+
+    base_cost = CREDITS_TABLE.get("base", 15)
+    remaining_balance = guard.get_remaining_credits(session_token)
+    if remaining_balance is None:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    credits_total = est.get("credits_total", base_cost)
+    music_idempotency_key = f"{session_token}:{idea_id}:{version_tag}:music"
+
+    # Check if jobs were already launched for this version
+    existing_jobs = list_jobs(session_token, idea_id)
+    already_launched = any(
+        j.get("idempotency_key") == music_idempotency_key and j.get("status") != "cancelled"
+        for j in existing_jobs
+    )
+
+    # 1. El saldo se valida contra est["credits_total"] antes de crear jobs ni cobrar
+    if not already_launched:
+        if remaining_balance < credits_total:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_needed": credits_total,
+                    "credits_remaining": remaining_balance,
+                    "payment_url": settings.payment_url,
+                },
+            )
+
+    # 4. Candado de idempotencia con job-ancla (music)
+    # Orden: 1) crear primero un job-ancla del lanzamiento (music)
+    music_job, music_created = create_job(
+        session_token=session_token,
+        idea_id=idea_id,
+        scene_n=None,
+        kind="music",
+        credits=0,
+        cost_usd=0.0,
+        input={"music_prompt": script.music_prompt},
+        idempotency_key=music_idempotency_key,
+        return_created=True,
+    )
+
+    # 2) Si lo creó esta request, cobrar la base; si falla el cobro, marcar cancelled y devolver 402
+    if music_created:
+        try:
+            remaining_balance = guard.deduct_credits(session_token, amount=base_cost)
+        except Exception as e:
+            logger.error(f"[generate] Failed to deduct base credits for {session_token}: {e}")
+            mark_cancelled(music_job["id"], error="Launch payment failed")
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "Session budget exhausted",
+                    "credits_needed": base_cost,
+                    "credits_remaining": guard.get_remaining_credits(session_token),
+                    "payment_url": settings.payment_url,
+                },
+            )
+
+    # 3) Crear los jobs por escena (idempotentes)
+    created_jobs = []
+    for sc in script.scenes:
+        if sc.asset_type != "a_roll":
+            scene_key = f"{session_token}:{idea_id}:{version_tag}:{sc.n}:{sc.asset_type}"
+            job = create_job(
+                session_token=session_token,
+                idea_id=idea_id,
+                scene_n=sc.n,
+                kind=sc.asset_type,
+                credits=CREDITS_TABLE.get(sc.asset_type, 0),
+                cost_usd=COST_USD_TABLE.get(sc.asset_type, 0.0),
+                input={
+                    "stock_query": sc.stock_query,
+                    "visual_prompt": sc.visual_prompt,
+                    "on_screen_text": sc.on_screen_text,
+                    "spoken_text": sc.spoken_text,
+                    "phase": sc.phase,
+                    "duration_s": sc.duration_s,
+                },
+                idempotency_key=scene_key,
+            )
+            created_jobs.append(job)
+
+    created_jobs.append(music_job)
+
+    return JSONResponse(content={
+        "jobs": created_jobs,
+        "credits_remaining": remaining_balance,
+    })
+
+
+@app.get("/api/audiovisual/{idea_id}/jobs", response_class=JSONResponse)
+async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
+    """
+    List asset jobs for an idea, including signed_url if job status is 'done'.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    from app.audiovisual.jobs import list_jobs
+    from app.audiovisual.storage import signed_url
+
+    jobs = list_jobs(session_token, idea_id)
+    # Augment completed jobs with signed_url
+    for j in jobs:
+        if j.get("status") == "done":
+            storage_path = j.get("output", {}).get("storage_path")
+            if storage_path:
+                try:
+                    j["signed_url"] = signed_url(storage_path)
+                except Exception as e:
+                    logger.warning(f"Could not generate signed_url for job {j.get('id')}: {e}")
+
+    return JSONResponse(content={"jobs": jobs})
 
 
 @app.get("/api/catalog", response_class=JSONResponse)
