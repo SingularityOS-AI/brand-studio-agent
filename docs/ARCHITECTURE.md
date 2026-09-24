@@ -1,5 +1,8 @@
 # Architecture
 
+> **Design document, written before the build (September 2026).** Some pieces described here were planned and not built — the AssemblyAI LLM Gateway verdict, the `reply.create` async bus and raw-footage processing. For what actually runs today, see the [README](../README.md#status) and the [CHANGELOG](../CHANGELOG.md).
+
+
 How Brand Studio Agent is put together, and why each piece sits where it does.
 
 ---

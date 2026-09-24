@@ -102,3 +102,10 @@ package-lock.json
 /SECURITY_AUDIT_REPORT.md
 # carpeta anidada con los analisis de MiniMax (viven en disco, no en el repo)
 /brand-studio-agent/
+
+# 2026-09-24 — internal deployment/QA notes that slipped into the public repo.
+# DEPLOYMENT_STATUS.md carried a Stripe test secret key; it must be rotated (removing the file does not remove it from git history).
+DEPLOYMENT_STATUS.md
+PRODUCTION_STRIPE_SETUP.md
+TEST_WEBHOOK_SETUP.md
+QA_RESEARCH_BUTTONS.md

@@ -1,166 +1,181 @@
 # Brand Studio Agent
 
-**A voice agent that judges your content idea before you waste an evening recording it.** 🚀
+**A voice-first studio that takes a founder from "who am I?" to a shootable, fact-checked short video — and refuses to hand over a script that breaks its own rules.**
 
 Built for the [AssemblyAI Voice Agent Hackathon](https://lablab.ai/ai-hackathons/assemblyai-voice-agent-hackathon) (September 2026) by **VibeMarketing Studio**.
+
+- **Live demo:** https://brand.singularityos-ai.com
+- **Judges:** a judge account with a fixed credit allowance is shared privately through the lablab support ticket, never in this public repo (every AI asset costs real money).
+- **What changed and when:** [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
 ## The problem
 
-Editing tools are solved. They cut silences, add captions, and publish everywhere. None of them ever tells you an idea is weak.
+Editing tools are solved. They cut silences, add captions and publish everywhere. None of them tells you an idea is weak.
 
-For someone building a personal brand without a content background, the bottleneck was never editing speed. It was judgment — knowing which idea is worth recording, and why the one you love will not land.
+For someone building a personal brand without a content background, the bottleneck was never editing speed. It was judgment: knowing who you are on camera, which idea is worth recording, and why the one you love will not land.
 
-## What it does
+## How it works — five steps, one rail
 
-You speak an idea, or you upload ten minutes of unscripted rambling.
+The screen shows a pipeline rail. Each step unlocks the next; a step you have not finished shows a lock and a button back to what is pending.
 
-The agent audits it against a written rubric and returns a verdict:
+### 1. Brand Soul — a voice interview, not a form
+You talk to **Brandy**, a voice agent on the **AssemblyAI Voice Agent API** (WebSocket, PCM16 24 kHz, barge-in, JSON-schema tool calling). As you talk, Brandy calls `extract_brand_brain` and fills a **9-section brand brain** (diagnosis, brand journey, audience, contrarian stance, identity, offer, lead magnet…). Every section keeps the **quote of what you actually said** that justifies it. The full Brand Soul document is generated from that brain.
 
-- **Is there a villain, or just a topic?** Without a common enemy or an unjust system, the piece is weak.
-- **Does the subject land in the first five seconds?**
-- **Is there a counterintuitive claim, or only consensus?**
-- **Does it read like a machine wrote it?**
-- **Is there a call to action?**
+### 2. Catalog — ideas with demand evidence
+A research pass (YouTube Data API + Gemini with search grounding) collects demand signals for your niche and proposes **30 video ideas across 5 master categories**, each tied to a concrete signal. You accept, discard, regenerate or add your own, then lock the catalog.
 
-**Every score must quote the exact sentence that justifies it. No citation, no score.**
+### 3. Scripting — a blueprint that has to pass an audit
+Each locked idea becomes a 6-phase script (hook → lock-in → point 1 → rehook → point 2 → CTA) with, per scene: spoken text, shot, on-screen text, acting note, sound, and a proposed visual type with its stock query or visual prompt.
 
-Below 9/10 the agent withholds the script. You can override it out loud, and the override is logged.
+Every script is audited by **13 deterministic rules (no LLM)**. The **8 critical ones must pass before the script can be locked**:
 
-Then you argue. You interrupt it mid-sentence to defend your idea, it answers, you sharpen the line, the score moves. That loop is the product.
+| Critical (block locking) | Informational |
+|---|---|
+| Duration 45–90 s (estimated) | Hook acting note is concrete |
+| All 6 phases present | Rehook before the second point |
+| Exactly 2 key points | On-screen text ≤ 8 words |
+| Frame zero says why it stops the scroll | Max one rhetorical question and one list of three |
+| No "it's not X, it's Y" pattern | No AI-blacklist words |
+| No AI counter-examples | |
+| Every number has a source | |
+| Has a call to action | |
 
-### What it measures
+You can iterate a single scene with an intent ("make it punchier") and the audit re-runs. It does **not** predict views — nobody can. It checks structure against rules anyone can read.
 
-**Purity (0–99%)** — adherence to the protocol. A process metric.
+### 4. Audiovisual — record, then generate only what the camera can't show
+- **Record every scene** with a built-in teleprompter; retakes are free. Each take is transcribed by **AssemblyAI** (pre-recorded API) with **word-level timestamps** — the raw material for real subtitles.
+- **B-roll per scene:** the script proposes a type, **the founder decides**, seeing the price before spending anything:
 
-It does **not** predict views. Nobody can: published work shows that even models trained on 500 hours of fMRI recordings fail to forecast YouTube replay behaviour (r = +0.058, p = 0.23). Auditing structure against a public rubric is a claim that survives scrutiny; predicting virality is not.
+| Type | Source | Credits |
+|---|---|---|
+| Camera (you) | your take | free |
+| Stock | Pexels / Pixabay, with attribution | free |
+| Motion graphic | HyperFrames templates | free |
+| AI image | `gemini-3.1-flash-lite-image` (Vertex AI) | 15 |
+| AI video (≤ 1 per script) | `veo-3.1-lite-generate-001` (Vertex AI) | 150 |
+
+  When you switch a scene to a type that needs a prompt it doesn't have, a text model writes one (async, 8 s timeout, deterministic fallback).
+- **Soundtrack and SFX:** an AI audio director picks mood and energy; the track comes from a local **CC0 library** (14 tracks, 15 effects, Freesound — credits in `app/audiovisual/library/*.json`). Listen-only here; mixing happens in Editing.
+- **Generation runs as resumable background jobs** with a live progress bar. Charges happen only when an asset succeeds, written ahead so a retry can never charge twice.
+
+### 5. Editing — not built yet
+See [What's missing](#whats-missing).
 
 ---
 
 ## Architecture
 
-Full technical write-up: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
-
 ```mermaid
-flowchart TD
-    U([Creator]) <-->|WebSocket · PCM16 24kHz| VA[AssemblyAI Voice Agent API<br/>conversation · barge-in · tool calling]
-
-    VA -->|tool.call| J[Judge]
-    J -->|forced JSON schema| GW[AssemblyAI LLM Gateway<br/>verdict from transcript_id]
-    GW --> V[/Verdict<br/>purity · score · citations · missing_elements/]
-
-    V -->|below 9/10| GATE{Gate}
-    GATE -->|refuse| U
-    GATE -->|spoken override, logged| SCRIPT[Structured script]
-
-    RAW[(Raw footage)] --> STT[AssemblyAI Streaming STT<br/>word-level timestamps]
-    STT --> EDL[/Edit Decision List/]
-    RAW --> GEM[Gemini · vision only<br/>visual hooks]
-    GEM --> EDL
-
-    EDL -->|spoken edits| RENDER[Render]
-    RENDER -.->|job done| RC[reply.create]
-    RC -.->|agent speaks up on its own| U
+flowchart LR
+    U([Founder]) <-->|WebSocket · PCM16 24 kHz · barge-in| VA[AssemblyAI Voice Agent API]
+    VA -->|tool.call extract_brand_brain| BB[(Brand brain · 9 sections · quotes)]
+    BB --> SOUL[Brand Soul doc]
+    BB --> CAT[Catalog · YouTube Data API + Gemini grounding]
+    CAT --> SCR[Script blueprint]
+    SCR --> AUD{13-rule audit<br/>no LLM}
+    AUD -->|critical rules pass| LOCK[Locked script]
+    LOCK --> REC[Teleprompter takes] --> STT[AssemblyAI transcription<br/>word-level timestamps]
+    LOCK --> JOBS[Async asset jobs]
+    JOBS --> STK[Pexels / Pixabay]
+    JOBS --> MG[HyperFrames]
+    JOBS --> IMG[Gemini image]
+    JOBS --> VEO[Veo video]
+    JOBS --> MUS[CC0 music + SFX]
+    GUARD[[Monthly AI spend brake<br/>fail-closed]] -.-> JOBS
+    JOBS --> ST[(Supabase Storage · private bucket)]
 ```
 
-**AssemblyAI carries three of the four legs.** Gemini covers only vision, which AssemblyAI does not offer.
+**Where AssemblyAI sits:** the whole voice conversation (Voice Agent API) and the transcription of every recorded take (word-level timestamps). Gemini/Veo cover images, video and research — things AssemblyAI does not offer.
 
-The dotted path matters: a tool returns in under a second, the render runs in the background, and the backend later pushes `reply.create` so the agent tells you it is done — **without freezing the conversation**.
+Original design document (includes pieces that were planned and not built): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+---
+
+## Money safety
+
+Real AI calls cost real money, so the app is built to fail closed:
+
+- **Monthly AI spend brake** (`AV_MONTHLY_AI_SPEND_CAP_USD`, default $20): pending, running and finished AI jobs count against it. It is checked in the estimate, when generating, when regenerating, when switching a scene to AI, and last in the worker right before any paid call. If the check itself fails, AI is treated as paused.
+- **Per-video ceiling** of $1.50 in real cost and **max 1 AI video per script**.
+- **Credits are charged only on success**, with a write-ahead flag so retries and restarts never double-charge; a double click on *Generate* is rejected while a scene is in flight.
+- Stripe price IDs come from environment variables, so a live key can never be paired with a test price.
 
 ---
 
 ## Status
 
-This repository is the **foundation**, not the finished product. Being explicit about it:
-
 | Piece | State |
 |---|---|
-| Secure token minting (`GET /api/token`) | ✅ Working |
-| Browser client — WebAudio 24 kHz, AudioWorklet, hardware AEC | ✅ Working |
-| Voice conversation with barge-in | ✅ Working |
-| Tool calling (`tool.call` / `tool.result`) | 🔨 In progress |
-| Async bus (`reply.create`) | 🔨 In progress |
-| The Judge and the rubric | 🔨 In progress |
-| Word-level STT → edit decision list | 📋 Planned |
-| Render | 📋 Planned |
+| Voice interview with barge-in and tool calling (Brand Soul) | ✅ In production |
+| 9-section brand brain with quotes · Brand Soul document | ✅ In production |
+| Demand research + 30-idea catalog | ✅ In production |
+| Script blueprint + 13-rule audit + lock | ✅ In production |
+| Teleprompter recording + AssemblyAI transcription per take | ✅ In production |
+| Stock / motion graphic / AI image / AI video B-roll, founder-chosen | ✅ In production |
+| AI-chosen soundtrack + SFX from a CC0 library (listen-only) | ✅ In production |
+| Credits, Stripe checkout, spend brake | ✅ In production (Stripe in test mode until launch) |
+| **Editing** (assembly, silence cuts, dynamic subtitles, final MP4) | 📋 Next |
+| Voice control of the whole pipeline (Brandy beyond the interview) | 📋 Planned |
+| Raw footage upload | 📋 Coming soon (the API rejects it before charging) |
+
+## What's missing
+
+Being explicit, because a judge will open the code:
+
+- **No final video yet.** Audiovisual prepares takes, B-roll, music and SFX; Editing (assembling them into an MP4 with dynamic subtitles) is the next block.
+- **Voice drives the Brand Soul interview only.** Catalog, scripting and audiovisual are operated on screen today.
+- **Raw footage upload** is not available; the selector says "coming soon" and the backend returns 400 before charging.
+- The music and SFX library was selected by metadata (tags, rating, duration); a human listening pass is in progress.
 
 ---
 
 ## Setup
 
-**Requirements:** Python 3.12+, an [AssemblyAI API key](https://www.assemblyai.com/dashboard/signup), and [Stripe secret keys](https://dashboard.stripe.com/apikeys) (payment processing).
-
-### Running locally
+**Requirements:** Python 3.12+, Chrome or Edge (Safari ignores the `AudioContext` sample rate).
 
 ```bash
-# Clone the repository
 git clone https://github.com/SingularityOS-AI/brand-studio-agent.git
 cd brand-studio-agent
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Copy environment template
-cp .env.example .env
-
-# Edit .env and add your AssemblyAI API key
-# ASSEMBLYAI_API_KEY="your_actual_key_here"
-
-# Run the server (Windows)
-RUN.bat
-
-# Or run directly (any platform)
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+cp .env.example .env        # then fill in your own keys
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
-
-Open `http://localhost:8000` in **Chrome or Edge**. Safari ignores the `AudioContext` sample rate and needs manual resampling.
 
 ### Environment variables
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `ASSEMBLYAI_API_KEY` | Yes | Voice Agent API, Streaming STT and LLM Gateway |
-| `GEMINI_API_KEY` | For vision | Visual hook detection in raw footage |
-| `HOST` / `PORT` | No | Defaults to `0.0.0.0:8088` |
+| Variable | Purpose |
+|---|---|
+| `ASSEMBLYAI_API_KEY` | Voice Agent API and take transcription |
+| `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_JWT_SECRET` | Auth, database and private storage |
+| `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` | Gemini (text, image) and Veo (video) on Vertex AI |
+| `YOUTUBE_API_KEY` | Demand research for the catalog |
+| `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Stock B-roll |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Credit purchases |
+| `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_STUDIO` | Live price IDs (required with a live key) |
+| `AV_MONTHLY_AI_SPEND_CAP_USD` | Monthly AI spend brake (default 20) |
+| `AV_IMAGE_MODEL`, `AV_VIDEO_MODEL`, `AV_STORAGE_BUCKET` | Optional overrides |
 
-**Never commit `.env`.** It is gitignored, and so is every internal document in this workspace.
+**Never commit `.env`.** It is gitignored.
 
----
+### Tests
 
-## Stack
+```bash
+python -m pytest -q -m "not e2e"
+```
 
-Python 3.12 · FastAPI · WebAudio API (PCM16 mono 24 kHz, hardware AEC) · AssemblyAI Voice Agent API (Universal-3 Pro, JSON-Schema tool calling, barge-in, `reply.create`) · AssemblyAI Streaming Speech-to-Text · AssemblyAI LLM Gateway · Google Gemini (vision) · FFmpeg
-
----
+~600 tests. A network lock blocks every outbound connection (sync and async) during tests, and the test config never loads the real `.env`.
 
 ## Notes for anyone reading the code
 
-- Audio is **PCM16 mono at 24 kHz, base64**. Force it with `new AudioContext({ sampleRate: 24000 })` so nothing resamples.
-- Do not send `input.audio` before `session.ready`.
-- On barge-in, flush the playback buffer immediately — on `input.speech.started`, not on `reply.done`. It feels roughly 300 ms snappier.
-- The API key never reaches the browser. The server mints a short-lived token and the client passes it as `?token=` on the WebSocket URL.
+- Audio is **PCM16 mono at 24 kHz, base64**. Force it with `new AudioContext({ sampleRate: 24000 })`.
+- Do not send `input.audio` before `session.ready`. On barge-in, flush playback on `input.speech.started`, not on `reply.done`.
+- The AssemblyAI key never reaches the browser: the server mints a short-lived token and the client passes it on the WebSocket URL.
 
----
+## Deployment
 
-## Production Deployment (Render)
-
-This repo is deployed to Render Free Tier via [`render.yaml`](render.yaml) with auto-deploy on push to `main`.
-
-**Required Environment Variables in Render:**
-
-| Variable | Purpose | Where to get |
-|---|---|---|
-| `ASSEMBLYAI_API_KEY` | AssemblyAI transcription API | AssemblyAI Dashboard |
-| `STRIPE_API_KEY` | Stripe payments (secret key) | Stripe Dashboard → API Keys |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification | Stripe Dashboard → Webhooks → Endpoint secret |
-| `SUPABASE_URL` | Supabase project URL | Supabase Dashboard → Settings → API |
-| `SUPABASE_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | Supabase auth/DB access | Supabase Dashboard → Settings → API |
-
-**Note:** Stripe webhook endpoint at production: `https://brand-studio-agent.onrender.com/api/stripe/webhook` — configure this in Stripe Dashboard.
-
----
+Render (auto-deploy on push to `main`) via [`render.yaml`](render.yaml). Stripe webhook: `https://brand-studio-agent.onrender.com/api/stripe/webhook`.
 
 ## License
 
