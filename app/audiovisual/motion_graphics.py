@@ -104,19 +104,74 @@ def _parse_list_items(text: str) -> list[str]:
     return [text[:60], text[60:120]] if len(text) > 60 else [text, ""]
 
 
+TEMPLATES_ORDER: list[Literal["stat", "quote", "list", "lower_third"]] = [
+    "stat",
+    "quote",
+    "list",
+    "lower_third",
+]
+
+
+def _build_fields_for_template(
+    template_name: Literal["stat", "quote", "list", "lower_third"],
+    on_screen_text: str = "",
+    visual_prompt: str = "",
+    spoken_text: str = "",
+) -> dict[str, Any]:
+    """Builds appropriate fields for the specified template from scene text."""
+    if template_name == "stat":
+        value = _extract_number(on_screen_text or visual_prompt or spoken_text)
+        label = (on_screen_text or spoken_text or "Statistic").strip()
+        label_clean = re.sub(r'\d+\s*%|\d+\s*percent|\$?\d[\d,.]*[kKmMbB%]?', '', label, flags=re.IGNORECASE).strip()
+        label_clean = re.sub(r'^[\s\-\–\—\*•]+|[\s\-\–\—\*•]+$', '', label_clean).strip()
+        if not label_clean:
+            label_clean = "Result"
+        return {"value": value or "1", "headline": label_clean}
+
+    if template_name == "quote":
+        headline = (on_screen_text or spoken_text or "").strip()
+        headline = headline.strip('"""').strip()
+        subline = visual_prompt.strip() if visual_prompt else ""
+        if not subline and len(headline) > 100:
+            parts = headline.rsplit(' - ', 1)
+            if len(parts) == 2:
+                headline, subline = parts
+        return {"headline": headline or "Quote", "subline": subline}
+
+    if template_name == "list":
+        items = _parse_list_items(on_screen_text or spoken_text)
+        headline = visual_prompt.strip() if visual_prompt else "Key Points"
+        return {"items": items, "headline": headline}
+
+    # Default / lower_third
+    headline = (on_screen_text or spoken_text or "").strip()
+    if len(headline) > 120:
+        headline = headline[:117] + "..."
+    subline = visual_prompt.strip() if visual_prompt else ""
+    if not subline and len(spoken_text) > 150:
+        sentences = re.split(r'[.!?]+', spoken_text)
+        if len(sentences) > 1:
+            headline = sentences[0].strip()[:120]
+            subline = '. '.join(sentences[1:])[:120]
+    return {"headline": headline or "Scene Note", "subline": subline}
+
+
 def select_template(
     on_screen_text: str = "",
     visual_prompt: str = "",
     spoken_text: str = "",
+    template_offset: int = 0,
 ) -> tuple[Literal["stat", "quote", "list", "lower_third"], dict[str, Any]]:
     """
-    Select template based on deterministic rules.
+    Select template based on deterministic rules, with optional offset rotation.
 
     Rules (in order of precedence):
     1. Contains number or % → stat (extracts the number)
     2. Contains quotes or starts with first-person affirmation → quote
     3. Contains 2+ items separated by comma/"y"/"and"/bullets → list
     4. Default → lower_third
+
+    If template_offset is specified, rotates among the 4 templates.
 
     Returns (template_name, fields_dict).
     """
@@ -125,59 +180,40 @@ def select_template(
 
     # Rule 1: Number or percentage → stat
     if re.search(r'\d+\s*%|\d+\s*percent|\b\d{1,3}(?:,\d{3})+\b|\$?\d+(?:\.\d+)?[kKmMbB]?', combined):
-        value = _extract_number(on_screen_text or visual_prompt or spoken_text)
-        # Use on_screen_text as label, or spoken_text if on_screen is empty
-        label = (on_screen_text or spoken_text or "Statistic").strip()
-        # Remove the number from label to avoid duplication
-        label_clean = re.sub(r'\d+\s*%|\d+\s*percent|\$?\d[\d,.]*[kKmMbB%]?', '', label, flags=re.IGNORECASE).strip()
-        label_clean = re.sub(r'^[\s\-\–\—\*•]+|[\s\-\–\—\*•]+$', '', label_clean).strip()
-        if not label_clean:
-            label_clean = "Result"
-        return "stat", {"value": value, "headline": label_clean}
-
+        base_template: Literal["stat", "quote", "list", "lower_third"] = "stat"
     # Rule 2: Contains quotes or starts with first-person → quote
-    has_quotes = '"' in combined or '"' in combined or '"' in combined
-    first_person_patterns = [
-        r'^\s*"\s*i\s',
-        r'^\s*"\s*we\s',
-        r'^\s*i\s',
-        r'^\s*we\s',
-        r"^\s*my\s",
-        r"^\s*our\s",
-    ]
-    is_first_person = any(re.search(p, text_lower, re.IGNORECASE) for p in first_person_patterns)
-
-    if has_quotes or is_first_person:
-        # Remove quotes from headline
-        headline = (on_screen_text or spoken_text or "").strip()
-        headline = headline.strip('"""').strip()
-        # Subline could be speaker/attribution
-        subline = visual_prompt.strip() if visual_prompt else ""
-        if not subline and len(headline) > 100:
-            parts = headline.rsplit(' - ', 1)
-            if len(parts) == 2:
-                headline, subline = parts
-        return "quote", {"headline": headline, "subline": subline}
-
+    elif ('"' in combined or '"' in combined or '"' in combined) or any(
+        re.search(p, text_lower, re.IGNORECASE) for p in [
+            r'^\s*"\s*i\s',
+            r'^\s*"\s*we\s',
+            r'^\s*i\s',
+            r'^\s*we\s',
+            r"^\s*my\s",
+            r"^\s*our\s",
+        ]
+    ):
+        base_template = "quote"
     # Rule 3: Contains list items → list
-    if _is_list(on_screen_text or spoken_text):
-        items = _parse_list_items(on_screen_text or spoken_text)
-        headline = visual_prompt.strip() if visual_prompt else "Key Points"
-        return "list", {"items": items, "headline": headline}
+    elif _is_list(on_screen_text or spoken_text):
+        base_template = "list"
+    else:
+        # Rule 4: Default → lower_third
+        base_template = "lower_third"
 
-    # Rule 4: Default → lower_third
-    headline = (on_screen_text or spoken_text or "").strip()
-    # Truncate if too long for lower third
-    if len(headline) > 120:
-        headline = headline[:117] + "..."
-    subline = visual_prompt.strip() if visual_prompt else ""
-    if not subline and len(spoken_text) > 150:
-        # Use first sentence as headline
-        sentences = re.split(r'[.!?]+', spoken_text)
-        if len(sentences) > 1:
-            headline = sentences[0].strip()[:120]
-            subline = '. '.join(sentences[1:])[:120]
-    return "lower_third", {"headline": headline, "subline": subline}
+    if template_offset:
+        base_idx = TEMPLATES_ORDER.index(base_template)
+        chosen_idx = (base_idx + template_offset) % len(TEMPLATES_ORDER)
+        chosen_template = TEMPLATES_ORDER[chosen_idx]
+    else:
+        chosen_template = base_template
+
+    fields = _build_fields_for_template(
+        chosen_template,
+        on_screen_text=on_screen_text,
+        visual_prompt=visual_prompt,
+        spoken_text=spoken_text,
+    )
+    return chosen_template, fields
 
 
 def build_html(template_name: str, fields: dict[str, Any], duration_s: float = 5.0) -> str:
@@ -250,11 +286,18 @@ async def resolve_motion_graphic(job: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         duration_s = 5.0
 
+    template_offset = 0
+    try:
+        template_offset = int(input_data.get("template_offset", 0) or 0)
+    except (TypeError, ValueError):
+        template_offset = 0
+
     # Select template
     template_name, fields = select_template(
         on_screen_text=on_screen_text,
         visual_prompt=visual_prompt,
         spoken_text=spoken_text,
+        template_offset=template_offset,
     )
 
     # Build HTML

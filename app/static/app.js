@@ -3298,7 +3298,7 @@ ${htmlContent}
       const jobs = await loadAudiovisualJobs(ideaId);
       renderAudiovisualView();
 
-      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'stock' || j.kind === 'music' || j.kind === 'sfx' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic') && (j.status === 'pending' || j.status === 'running'));
+      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic') && (j.status === 'pending' || j.status === 'running'));
       if (!hasActiveJobs) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
@@ -3490,7 +3490,6 @@ ${htmlContent}
     const scriptTitle = currentScriptData.title || matchedIdea?.title || 'Video Script';
     const recordingFormatText = RECORDING_FORMAT_NAMES[currentScriptData.recording_format] || currentScriptData.recording_format || 'Natural selfie';
     const durationText = getEstimatedDurationText(currentScriptData);
-    const musicPromptText = currentScriptData.music_prompt ? `Music: ${currentScriptData.music_prompt}` : 'Music: upbeat corporate electronic';
     const scenes = currentScriptData.scenes || [];
 
     // Step 1: A-roll scenes
@@ -3584,7 +3583,7 @@ ${htmlContent}
       const isStock = assetType === 'stock';
       const aRollTake = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
       const aRollTranscript = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
-      const stockJob = isStock ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'stock' && j.status === 'done') : null;
+      const stockJob = isStock ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'stock' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
 
       let cardBadgeHtml = `
         <div style="margin-top:10px;padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;letter-spacing:0.04em;">
@@ -3603,9 +3602,9 @@ ${htmlContent}
       const isAIImage = assetType === 'ai_image';
       const isAIVideo = assetType === 'ai_video';
       const isMotionGraphic = assetType === 'motion_graphic';
-      const aiImageJob = isAIImage ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_image') : null;
-      const aiVideoJob = isAIVideo ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_video') : null;
-      const motionGraphicJob = isMotionGraphic ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'motion_graphic') : null;
+      const aiImageJob = isAIImage ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'ai_image' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
+      const aiVideoJob = isAIVideo ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'ai_video' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
+      const motionGraphicJob = isMotionGraphic ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'motion_graphic' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
 
       if (isARoll && aRollTake) {
         cardBadgeHtml = `
@@ -3619,16 +3618,41 @@ ${htmlContent}
             <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
           `;
         }
-      } else if (isStock && stockJob && stockJob.output) {
-        cardBadgeHtml = `
-          <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
-            Stock ✓
-          </div>
-        `;
-        if (stockJob.output.preview_url) {
+      } else if (isStock && stockJob) {
+        if (stockJob.status === 'done' && stockJob.output) {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
+              Stock ✓
+            </div>
+          `;
+          if (stockJob.output.preview_url) {
+            visualContentHtml = `
+              <img src="${escapeHtml(stockJob.output.preview_url)}" alt="Stock preview" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;">
+              <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
+            `;
+          }
+        } else if (stockJob.status === 'pending' || stockJob.status === 'running') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEF3C7;border:1px solid #FDE68A;font-size:10px;font-weight:700;color:#92400E;letter-spacing:0.04em;">
+              Searching…
+            </div>
+          `;
           visualContentHtml = `
-            <img src="${escapeHtml(stockJob.output.preview_url)}" alt="Stock preview" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;">
-            <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
+              <div class="spinner" style="width:24px;height:24px;border:2px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+              <div style="font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.3;">Searching stock…</div>
+            </div>
+          `;
+        } else if (stockJob.status === 'failed') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEE2E2;border:1px solid #FECACA;font-size:10px;font-weight:700;color:#DC2626;letter-spacing:0.04em;">
+              Failed
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="font-size:10px;color:#DC2626;text-align:center;line-height:1.3;padding:8px;">
+              ${stockJob.error ? escapeHtml(stockJob.error.substring(0, 100)) : 'No stock found'}
+            </div>
           `;
         }
       } else if (isAIImage && aiImageJob) {
@@ -3783,6 +3807,27 @@ ${htmlContent}
         `;
       }
 
+      let cardRegenHtml = '';
+      if (!isARoll) {
+        const bRollJob = (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === assetType && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+        if (bRollJob && (bRollJob.status === 'done' || bRollJob.status === 'failed')) {
+          const regenCost = (assetType === 'ai_video' ? 90 : (assetType === 'ai_image' ? 5 : 0));
+          const regenLabel = regenCost === 0 ? '⟳ Another option · free' : `⟳ Regenerate · ${regenCost} credits`;
+          cardRegenHtml = `
+            <div class="av-card-regen-wrap" data-scene-n="${scene.n}" data-cost="${regenCost}" style="margin-top:auto;padding-top:2px;">
+              <button type="button" class="btn-card-regen" data-scene-n="${scene.n}" data-cost="${regenCost}" style="width:100%;padding:4px 6px;font-size:10px;font-weight:600;border-radius:4px;border:1px solid var(--line);background:var(--surface-alt);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;box-sizing:border-box;">
+                ${escapeHtml(regenLabel)}
+              </button>
+              <div class="av-card-regen-confirm" style="display:none;align-items:center;justify-content:center;gap:4px;padding:3px;background:var(--surface-alt);border-radius:4px;border:1px solid var(--line);font-size:10px;">
+                <span style="font-weight:600;color:var(--ink-soft);font-size:9.5px;">${regenCost > 0 ? `${regenCost} cr?` : 'Another?'}</span>
+                <button type="button" class="btn-card-regen-confirm-yes" data-scene-n="${scene.n}" data-cost="${regenCost}" style="padding:2px 6px;background:var(--accent);color:#fff;border:none;border-radius:3px;font-size:9.5px;font-weight:700;cursor:pointer;">Yes</button>
+                <button type="button" class="btn-card-regen-confirm-no" style="padding:2px 5px;background:transparent;color:var(--ink-soft);border:1px solid var(--line);border-radius:3px;font-size:9.5px;cursor:pointer;">✕</button>
+              </div>
+            </div>
+          `;
+        }
+      }
+
       timelineCardsHtml += `
         <div class="av-card" data-scene-index="${idx}" style="flex:0 0 160px;width:160px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:8px;user-select:none;box-sizing:border-box;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px;">
@@ -3799,6 +3844,7 @@ ${htmlContent}
             <span style="font-weight:600;color:var(--ink);">${escapeHtml(queryLabel)}:</span> ${escapeHtml(fullQuery)}
           </div>
           ${stockAttributionHtml}
+          ${cardRegenHtml}
         </div>
       `;
     });
@@ -3819,6 +3865,60 @@ ${htmlContent}
     if (counts.motion_graphic) parts.push(`${counts.motion_graphic} motion graphic`);
     const summaryCountsText = parts.length > 0 ? parts.join(' · ') : '0 scenes';
 
+    const bRollScenes = scenes.filter(s => s.asset_type !== 'a_roll');
+    const totalBroll = bRollScenes.length;
+    const readyBroll = bRollScenes.filter(s => {
+      const j = (currentAudiovisualJobs || []).find(job => job.scene_n === s.n && job.kind === s.asset_type && job.status === 'done');
+      return !!j;
+    }).length;
+    const counterBadgeHtml = totalBroll > 0 ? `
+      <span id="AV-ReadyCounter" style="font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:12px;background:${readyBroll === totalBroll ? '#DCFCE7' : 'var(--surface-alt)'};color:${readyBroll === totalBroll ? '#15803D' : 'var(--ink-soft)'};border:1px solid ${readyBroll === totalBroll ? '#86EFAC' : 'var(--line)'};margin-left:6px;">
+        ${readyBroll} of ${totalBroll} assets ready
+      </span>
+    ` : '';
+
+    const bRollJobs = (currentAudiovisualJobs || []).filter(j => j.kind !== 'a_roll_take' && j.kind !== 'transcript' && j.kind !== 'music' && j.kind !== 'sfx');
+    const isGeneratingAny = bRollJobs.some(j => j.status === 'pending' || j.status === 'running');
+    const failedBRollScenes = bRollScenes.filter(s => {
+      const j = (currentAudiovisualJobs || []).filter(job => job.scene_n === s.n && job.kind === s.asset_type && job.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+      return j && j.status === 'failed';
+    });
+    const allBRollDone = totalBroll > 0 && readyBroll === totalBroll;
+
+    let mainActionBtnHtml = '';
+    if (totalBroll === 0) {
+      mainActionBtnHtml = `
+        <button class="btn btn--secondary" disabled style="padding:10px 22px;font-size:14px;opacity:0.7;cursor:default;">
+          All scenes recorded
+        </button>
+      `;
+    } else if (isGeneratingAny) {
+      mainActionBtnHtml = `
+        <button id="AV-GenerateBtn" class="btn btn--go" disabled style="padding:10px 22px;font-size:14px;opacity:0.7;cursor:wait;display:inline-flex;align-items:center;gap:8px;">
+          <span class="spinner" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></span>
+          Generating assets…
+        </button>
+      `;
+    } else if (failedBRollScenes.length > 0) {
+      mainActionBtnHtml = `
+        <button id="AV-RetryFailedBtn" class="btn btn--go" style="padding:10px 22px;font-size:14px;background:#DC2626;border-color:#DC2626;cursor:pointer;">
+          Retry failed (${failedBRollScenes.length})
+        </button>
+      `;
+    } else if (allBRollDone) {
+      mainActionBtnHtml = `
+        <button class="btn btn--go" disabled style="padding:10px 22px;font-size:14px;background:#16A34A;border-color:#16A34A;opacity:1;cursor:default;">
+          Assets generated ✓
+        </button>
+      `;
+    } else {
+      mainActionBtnHtml = `
+        <button id="AV-GenerateBtn" class="btn btn--go" style="padding:10px 22px;font-size:14px;cursor:pointer;">
+          ✨ Generate assets
+        </button>
+      `;
+    }
+
     container.innerHTML = `
       <!-- Cabecera -->
       <div class="dochead" style="display:flex;align-items:start;justify-content:space-between;padding:26px 40px 16px;border-bottom:1px solid var(--line);">
@@ -3837,10 +3937,6 @@ ${htmlContent}
             <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-alt);padding:4px 10px;border-radius:4px;border:1px solid var(--line);font-weight:500;color:var(--ink);">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7 16 12 23 17 23 7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
               ${escapeHtml(recordingFormatText)}
-            </span>
-            <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(43,76,216,0.06);padding:4px 10px;border-radius:4px;border:1px solid rgba(43,76,216,0.15);font-weight:500;color:var(--accent);">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-              ${escapeHtml(musicPromptText)}
             </span>
           </div>
         </div>
@@ -3878,6 +3974,7 @@ ${htmlContent}
             <h2 style="font-size:16px;font-weight:600;color:var(--ink);margin:0 0 4px;display:flex;align-items:center;gap:8px;">
               <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;">2</span>
               <span>Assets — timeline</span>
+              ${counterBadgeHtml}
             </h2>
             <div style="font-size:13px;color:var(--ink-soft);">Ordered scene storyboard. Click any scene to inspect spoken text, subtitle, and prompt.</div>
           </div>
@@ -3897,11 +3994,6 @@ ${htmlContent}
           <button type="button" id="AV-Timeline-NextBtn" class="av-timeline-nav-btn" aria-label="Next scene" title="Next scene">›</button>
         </div>
 
-        <!-- Music status line (Pieza 52) -->
-        <div id="AV-MusicStatusLine" style="margin-top:10px;font-size:12.5px;color:var(--ink);display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;">
-          <span id="AV-MusicStatusText" style="font-weight:500;"></span>
-        </div>
-
         <!-- Detail panel expanded on click -->
         <div id="AV-DetailPanel" style="margin-top:12px;padding:16px 20px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt);display:none;"></div>
       </div>
@@ -3918,12 +4010,12 @@ ${htmlContent}
               AI-generated video is the most expensive asset. Stock and your own takes cost nothing.
             </div>
           </div>
-          <div>
-            <button class="btn btn--go" disabled style="padding:10px 22px;font-size:14px;opacity:0.6;cursor:not-allowed;" title="Asset generation backend is coming next">
-              Generate assets — coming next
-            </button>
+          <div id="AV-MainActionContainer">
+            ${mainActionBtnHtml}
           </div>
         </div>
+        <!-- Estimate & Confirmation Panel (Pieza 55) -->
+        <div id="AV-ConfirmPanel" style="display:none;margin-top:18px;padding:20px;background:var(--surface);border:1px solid var(--line);border-radius:8px;"></div>
       </div>
     `;
 
@@ -3941,23 +4033,110 @@ ${htmlContent}
       }
     });
 
-    // Populate music status line using textContent (Pieza 52)
-    const musicJob = (currentAudiovisualJobs || []).find(j => j.kind === 'music' && j.status === 'done');
-    const musicStatusEl = container.querySelector('#AV-MusicStatusText');
-    if (musicStatusEl) {
-      if (musicJob && musicJob.output) {
-        if (musicJob.output.use_music) {
-          const volPct = Math.round((Number(musicJob.output.volume) || 0.15) * 100);
-          const mood = musicJob.output.mood || 'calm';
-          const reason = musicJob.output.reason ? ` — ${musicJob.output.reason}` : '';
-          musicStatusEl.textContent = `🎵 ${mood} · ${volPct}% volume${reason}`;
+    // Wire card regenerate buttons (Pieza 55)
+    container.querySelectorAll('.btn-card-regen').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const scN = parseInt(btn.dataset.sceneN, 10);
+        const cost = parseInt(btn.dataset.cost, 10) || 0;
+        const wrap = btn.closest('.av-card-regen-wrap');
+        if (!wrap) return;
+
+        if (cost > 0) {
+          const confirmBox = wrap.querySelector('.av-card-regen-confirm');
+          btn.style.display = 'none';
+          if (confirmBox) confirmBox.style.display = 'inline-flex';
         } else {
-          const reason = musicJob.output.reason ? ` — ${musicJob.output.reason}` : '';
-          musicStatusEl.textContent = `No music${reason}`;
+          triggerRegenerateScene(scN, btn);
         }
-      } else {
-        musicStatusEl.textContent = '🎵 Background music: awaiting generation…';
-      }
+      });
+    });
+
+    container.querySelectorAll('.btn-card-regen-confirm-no').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wrap = btn.closest('.av-card-regen-wrap');
+        if (!wrap) return;
+        const mainBtn = wrap.querySelector('.btn-card-regen');
+        const confirmBox = wrap.querySelector('.av-card-regen-confirm');
+        if (confirmBox) confirmBox.style.display = 'none';
+        if (mainBtn) mainBtn.style.display = 'inline-flex';
+      });
+    });
+
+    container.querySelectorAll('.btn-card-regen-confirm-yes').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const scN = parseInt(btn.dataset.sceneN, 10);
+        const wrap = btn.closest('.av-card-regen-wrap');
+        const mainBtn = wrap ? wrap.querySelector('.btn-card-regen') : null;
+        if (wrap) {
+          const confirmBox = wrap.querySelector('.av-card-regen-confirm');
+          if (confirmBox) confirmBox.style.display = 'none';
+          if (mainBtn) {
+            mainBtn.style.display = 'inline-flex';
+            mainBtn.disabled = true;
+            mainBtn.textContent = 'Regenerating…';
+          }
+        }
+        triggerRegenerateScene(scN, mainBtn);
+      });
+    });
+
+    // Wire Generate assets button (Pieza 55)
+    const genBtn = container.querySelector('#AV-GenerateBtn');
+    if (genBtn) {
+      genBtn.addEventListener('click', async () => {
+        genBtn.disabled = true;
+        genBtn.innerHTML = '<span class="spinner" style="width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></span> Estimating…';
+        const ideaId = currentScriptData.idea_id;
+        try {
+          const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/estimate`);
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            alert(errData.error || 'Failed to estimate audiovisual generation');
+            renderAudiovisualView();
+            return;
+          }
+          const estData = await res.json();
+          renderAudiovisualEstimatePanel(container, estData, ideaId);
+        } catch (err) {
+          if (err.message !== 'PAYWALL_402') {
+            console.error('[Audiovisual] Estimate error:', err);
+            alert('Failed to estimate assets: ' + err.message);
+          }
+          renderAudiovisualView();
+        }
+      });
+    }
+
+    // Wire Retry failed button (Pieza 55)
+    const retryFailedBtn = container.querySelector('#AV-RetryFailedBtn');
+    if (retryFailedBtn) {
+      retryFailedBtn.addEventListener('click', async () => {
+        retryFailedBtn.disabled = true;
+        retryFailedBtn.innerHTML = '<span class="spinner" style="width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></span> Retrying…';
+        const ideaId = currentScriptData.idea_id;
+        for (const s of failedBRollScenes) {
+          try {
+            const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/scenes/${s.n}/regenerate`, {
+              method: 'POST',
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData.credits_remaining !== undefined) {
+                credits = resData.credits_remaining;
+                updateCreditsUI(resData.credits_remaining, initialSessionCredits);
+              }
+            }
+          } catch (e) {
+            console.error('[Audiovisual] Retry scene error:', e);
+          }
+        }
+        await loadAudiovisualJobs(ideaId);
+        pollAudiovisualJobs(ideaId);
+        renderAudiovisualView();
+      });
     }
 
     const prevBtn = container.querySelector('#AV-Timeline-PrevBtn');
@@ -4027,6 +4206,177 @@ ${htmlContent}
         openRecordingStudio(scN);
       });
     });
+  }
+
+  async function triggerRegenerateScene(sceneN, btnEl) {
+    if (!currentScriptData || !currentScriptData.idea_id) return;
+    const ideaId = currentScriptData.idea_id;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = 'Regenerating…';
+    }
+    try {
+      const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/scenes/${sceneN}/regenerate`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits_remaining !== undefined) {
+          credits = data.credits_remaining;
+          updateCreditsUI(data.credits_remaining, initialSessionCredits);
+        }
+        await loadAudiovisualJobs(ideaId);
+        pollAudiovisualJobs(ideaId);
+        renderAudiovisualView();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || 'Failed to regenerate asset');
+        if (btnEl) btnEl.disabled = false;
+      }
+    } catch (err) {
+      if (err.message !== 'PAYWALL_402') {
+        console.error('[Audiovisual] Regenerate scene error:', err);
+        alert('Failed to regenerate asset: ' + err.message);
+      }
+      if (btnEl) btnEl.disabled = false;
+    }
+  }
+
+  function renderAudiovisualEstimatePanel(container, estData, ideaId) {
+    const confirmPanel = container.querySelector('#AV-ConfirmPanel');
+    if (!confirmPanel) return;
+
+    const scenesList = (estData.scenes || []).filter(s => s.asset_type !== 'a_roll');
+    const totalCredits = estData.credits_total || 0;
+    const userBalance = Number(credits) || 0;
+    const balanceAfter = userBalance - totalCredits;
+    const hasEnoughBalance = balanceAfter >= 0;
+
+    const overAiVideo = Boolean(estData.over_ai_video_limit);
+    const overCeiling = Boolean(estData.over_ceiling);
+    const isBlocked = overAiVideo || overCeiling || !hasEnoughBalance;
+
+    let rowsHtml = scenesList.map(s => {
+      const phaseName = PHASE_NAMES[s.phase] || (s.phase ? s.phase.replace(/_/g, ' ') : 'Scene');
+      const badge = ASSET_ORIGIN_CONFIG[s.asset_type] || ASSET_ORIGIN_CONFIG.a_roll;
+      return `
+        <tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:8px 10px;font-weight:600;color:var(--ink);">Scene #${s.scene_n}</td>
+          <td style="padding:8px 10px;color:var(--ink-soft);">${escapeHtml(phaseName)}</td>
+          <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:4px;font-size:10px;${badge.style}">${badge.label}</span></td>
+          <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--ink);">${s.credits} credits</td>
+        </tr>
+      `;
+    }).join('');
+
+    let warningHtml = '';
+    if (overAiVideo) {
+      warningHtml = `
+        <div style="margin-bottom:12px;padding:8px 12px;background:#FEE2E2;border:1px solid #FECACA;border-radius:6px;font-size:12px;color:#DC2626;font-weight:500;">
+          AI video limit exceeded: maximum 1 AI video scene allowed per script.
+        </div>
+      `;
+    } else if (overCeiling) {
+      warningHtml = `
+        <div style="margin-bottom:12px;padding:8px 12px;background:#FEE2E2;border:1px solid #FECACA;border-radius:6px;font-size:12px;color:#DC2626;font-weight:500;">
+          Cost ceiling exceeded: script exceeds cost limit.
+        </div>
+      `;
+    } else if (!hasEnoughBalance) {
+      warningHtml = `
+        <div style="margin-bottom:12px;padding:8px 12px;background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;font-size:12px;color:#92400E;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span>Insufficient balance (${userBalance} credits available, ${totalCredits} needed).</span>
+          <button type="button" id="AV-EstimatePaywallBtn" class="btn btn--primary" style="padding:4px 10px;font-size:11px;">Get credits</button>
+        </div>
+      `;
+    }
+
+    confirmPanel.style.display = 'block';
+    confirmPanel.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 style="margin:0;font-size:15px;font-weight:600;color:var(--ink);">Generate Assets Confirmation</h3>
+        <button type="button" id="AV-CancelEstimateBtn" class="btn btn--secondary" style="padding:3px 8px;font-size:11px;">✕</button>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--line);text-align:left;font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);letter-spacing:0.04em;">
+            <th style="padding:6px 10px;">Scene</th>
+            <th style="padding:6px 10px;">Phase</th>
+            <th style="padding:6px 10px;">Asset Type</th>
+            <th style="padding:6px 10px;text-align:right;">Credits</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <div style="background:var(--surface-alt);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;display:flex;flex-direction:column;gap:5px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--ink-soft);">Total credits needed:</span>
+          <span style="font-weight:700;color:var(--ink);">${totalCredits} credits</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--ink-soft);">Current balance:</span>
+          <span style="font-weight:600;color:var(--ink);">${userBalance} credits</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:5px;">
+          <span style="color:var(--ink-soft);">Balance after generation:</span>
+          <span style="font-weight:700;color:${hasEnoughBalance ? 'var(--ink)' : '#DC2626'};">${hasEnoughBalance ? `${balanceAfter} credits` : 'Insufficient balance'}</span>
+        </div>
+      </div>
+
+      ${warningHtml}
+
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+        <button type="button" id="AV-CloseEstimateBtn" class="btn btn--secondary" style="padding:8px 16px;font-size:13px;">Cancel</button>
+        <button type="button" id="AV-ConfirmGenerateBtn" class="btn btn--go" ${isBlocked ? 'disabled style="padding:8px 20px;font-size:13px;opacity:0.5;cursor:not-allowed;"' : 'style="padding:8px 20px;font-size:13px;cursor:pointer;"'}>
+          Generate · ${totalCredits} credits
+        </button>
+      </div>
+    `;
+
+    const cancelBtn = confirmPanel.querySelector('#AV-CancelEstimateBtn');
+    const closeBtn = confirmPanel.querySelector('#AV-CloseEstimateBtn');
+    const paywallBtn = confirmPanel.querySelector('#AV-EstimatePaywallBtn');
+    const confirmBtn = confirmPanel.querySelector('#AV-ConfirmGenerateBtn');
+
+    if (cancelBtn) cancelBtn.onclick = () => renderAudiovisualView();
+    if (closeBtn) closeBtn.onclick = () => renderAudiovisualView();
+    if (paywallBtn) paywallBtn.onclick = () => showPaywall();
+
+    if (confirmBtn && !isBlocked) {
+      confirmBtn.addEventListener('click', async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span class="spinner" style="width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></span> Launching…';
+        try {
+          const genRes = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/generate`, {
+            method: 'POST',
+          });
+          if (genRes.ok) {
+            const genData = await genRes.json();
+            if (genData.credits_remaining !== undefined) {
+              credits = genData.credits_remaining;
+              updateCreditsUI(genData.credits_remaining, initialSessionCredits);
+            }
+            currentAudiovisualJobs = genData.jobs || [];
+            pollAudiovisualJobs(ideaId);
+            renderAudiovisualView();
+          } else {
+            const errData = await genRes.json().catch(() => ({}));
+            alert(errData.error || 'Failed to generate assets');
+            renderAudiovisualView();
+          }
+        } catch (err) {
+          if (err.message !== 'PAYWALL_402') {
+            console.error('[Audiovisual] Generate assets error:', err);
+            alert('Failed to generate assets: ' + err.message);
+          }
+          renderAudiovisualView();
+        }
+      });
+    }
   }
 
   // =============================================================================
@@ -4224,6 +4574,24 @@ ${htmlContent}
       studioCameraStream = null;
       setStudioCameraAvailable(false);
       if (errorEl) {
+        const titleEl = document.getElementById('Studio-CameraErrorTitle');
+        const descEl = document.getElementById('Studio-CameraErrorDesc');
+        const retryBtn = document.getElementById('Studio-RetryCameraBtn');
+        if (retryBtn) retryBtn.textContent = 'Try again';
+
+        const isNotAllowed = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
+        const isNotFound = err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError');
+
+        if (isNotAllowed) {
+          if (titleEl) titleEl.textContent = 'Camera and microphone blocked';
+          if (descEl) descEl.textContent = 'Click the 🔒/camera icon in the address bar → set Camera and Microphone to Allow → press Try again';
+        } else if (isNotFound) {
+          if (titleEl) titleEl.textContent = 'No camera/microphone found';
+          if (descEl) descEl.textContent = 'No camera/microphone found';
+        } else {
+          if (titleEl) titleEl.textContent = 'Camera error';
+          if (descEl) descEl.textContent = (err && err.message) ? err.message : 'Unable to access camera and microphone.';
+        }
         errorEl.style.display = 'flex';
       }
     }

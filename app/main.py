@@ -1249,6 +1249,190 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
     })
 
 
+@app.post("/api/audiovisual/{idea_id}/scenes/{scene_n}/regenerate", response_class=JSONResponse)
+async def regenerate_audiovisual_scene_endpoint(request: Request, idea_id: str, scene_n: int):
+    """
+    Regenerates the asset job for a specific non-a_roll scene (Pieza 55).
+    - Requires locked script (409 if not locked)
+    - Rejects a_roll scenes (400)
+    - Validates credit balance against kind credit cost (402 if insufficient)
+    - Cancels prior done/failed jobs for this scene
+    - Creates new job of same kind with unique idempotency_key
+    - For stock: passes exclude_ids of all previously used source_ids in this scene
+    - For motion_graphic: increments template_offset to rotate to next template
+    - For ai_video: respects max 1 active ai_video per script
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    from app.scripting.scripts import _check_script, ScriptStorageError
+    from app.audiovisual.pricing import CREDITS_TABLE, COST_USD_TABLE
+    from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+    import time
+    import uuid
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Script not found for idea {idea_id}"},
+        )
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked before regenerating assets"},
+        )
+
+    target_scene = None
+    for sc in (script.scenes or []):
+        if getattr(sc, "n", None) == scene_n:
+            target_scene = sc
+            break
+
+    if not target_scene:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Scene {scene_n} not found in script"},
+        )
+
+    asset_type = getattr(target_scene, "asset_type", "a_roll")
+    if asset_type == "a_roll":
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Cannot regenerate an a_roll scene. Use the recording studio to record a new take."},
+        )
+
+    credits_required = CREDITS_TABLE.get(asset_type, 0)
+    cost_usd = COST_USD_TABLE.get(asset_type, 0.0)
+
+    remaining_balance = guard.get_remaining_credits(session_token)
+    if remaining_balance is None:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    if remaining_balance < credits_required:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "Insufficient credits to regenerate asset",
+                "credits_needed": credits_required,
+                "credits_remaining": remaining_balance,
+                "payment_url": settings.payment_url,
+            },
+        )
+
+    existing_jobs = list_jobs(session_token, idea_id)
+
+    # Check ai_video limit across active jobs if asset_type == "ai_video"
+    if asset_type == "ai_video":
+        active_ai_videos = [
+            j for j in existing_jobs
+            if j.get("kind") == "ai_video"
+            and j.get("status") in ("pending", "running", "done")
+            and j.get("scene_n") != scene_n
+        ]
+        if len(active_ai_videos) >= 1:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "AI video limit reached (maximum 1 active AI video allowed per script)"},
+            )
+
+    scene_jobs = [
+        j for j in existing_jobs
+        if j.get("scene_n") == scene_n and j.get("kind") == asset_type
+    ]
+
+    # A job already in flight for this scene means a second request (double
+    # click, retry) would run and charge the same asset twice.
+    if any(j.get("status") in ("pending", "running") for j in scene_jobs):
+        return JSONResponse(
+            status_code=409,
+            content={"error": "This scene is already being generated. Wait for it to finish."},
+        )
+
+    # For stock: pass exclude_ids of already used source_ids
+    exclude_ids = []
+    if asset_type == "stock":
+        for j in scene_jobs:
+            out = j.get("output") or {}
+            sid = out.get("source_id")
+            if sid and str(sid) not in exclude_ids:
+                exclude_ids.append(str(sid))
+            inp = j.get("input") or {}
+            for prev_ex in inp.get("exclude_ids") or []:
+                if str(prev_ex) not in exclude_ids:
+                    exclude_ids.append(str(prev_ex))
+
+    # For motion_graphic: pass template_offset (+1 each time)
+    template_offset = 0
+    if asset_type == "motion_graphic":
+        highest_offset = -1
+        for j in scene_jobs:
+            inp = j.get("input") or {}
+            offset_val = inp.get("template_offset")
+            if offset_val is not None:
+                try:
+                    highest_offset = max(highest_offset, int(offset_val))
+                except (ValueError, TypeError):
+                    pass
+            elif j.get("status") in ("done", "failed"):
+                highest_offset = max(highest_offset, 0)
+        template_offset = (highest_offset + 1) if highest_offset >= 0 else 1
+
+    # Mark prior done/failed jobs for this scene as cancelled (do not delete)
+    for j in scene_jobs:
+        if j.get("status") in ("done", "failed"):
+            mark_cancelled(j["id"], error="Regenerated by user")
+
+    input_data = {
+        "stock_query": getattr(target_scene, "stock_query", None),
+        "visual_prompt": getattr(target_scene, "visual_prompt", None),
+        "on_screen_text": getattr(target_scene, "on_screen_text", None),
+        "spoken_text": getattr(target_scene, "spoken_text", None),
+        "phase": getattr(target_scene, "phase", None),
+        "duration_s": getattr(target_scene, "duration_s", 5.0),
+    }
+    if asset_type == "stock":
+        input_data["exclude_ids"] = exclude_ids
+    elif asset_type == "motion_graphic":
+        input_data["template_offset"] = template_offset
+
+    nonce = uuid.uuid4().hex[:8]
+    ts = int(time.time())
+    idempotency_key = f"{session_token}:{idea_id}:scene_{scene_n}:{asset_type}:regen:{ts}_{nonce}"
+
+    job = create_job(
+        session_token=session_token,
+        idea_id=idea_id,
+        scene_n=scene_n,
+        kind=asset_type,
+        credits=credits_required,
+        cost_usd=cost_usd,
+        input=input_data,
+        idempotency_key=idempotency_key,
+    )
+
+    return JSONResponse(content={
+        "job": job,
+        "status": "pending",
+        "credits_remaining": remaining_balance,
+    })
+
+
 @app.get("/api/audiovisual/{idea_id}/jobs", response_class=JSONResponse)
 async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
     """

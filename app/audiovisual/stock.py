@@ -80,7 +80,12 @@ def _score_pexels_video(v: dict[str, Any], est_dur: float) -> tuple[int, int, fl
     return (is_vertical, dur_ok, aspect_ratio, dur_closeness)
 
 
-async def _search_pexels(query: str, est_dur: float, orientation: str = "portrait") -> dict[str, Any] | None:
+async def _search_pexels(
+    query: str,
+    est_dur: float,
+    orientation: str = "portrait",
+    exclude_ids: list[str] | None = None,
+) -> dict[str, Any] | None:
     """Searches Pexels videos API and returns output payload or None."""
     cached_data = _cache_get("pexels", query, orientation)
     if cached_data is not None:
@@ -118,6 +123,12 @@ async def _search_pexels(query: str, est_dur: float, orientation: str = "portrai
     videos = data.get("videos")
     if not isinstance(videos, list) or not videos:
         return None
+
+    if exclude_ids:
+        exclude_set = {str(eid).strip() for eid in exclude_ids}
+        videos = [v for v in videos if str(v.get("id", "")).strip() not in exclude_set]
+        if not videos:
+            return None
 
     # Pick the best video
     best_v = max(videos, key=lambda v: _score_pexels_video(v, est_dur))
@@ -168,7 +179,12 @@ def _score_pixabay_hit(hit: dict[str, Any], variant: dict[str, Any], est_dur: fl
     return (is_vertical, dur_ok, aspect_ratio, dur_closeness)
 
 
-async def _search_pixabay(query: str, est_dur: float, orientation: str = "portrait") -> dict[str, Any] | None:
+async def _search_pixabay(
+    query: str,
+    est_dur: float,
+    orientation: str = "portrait",
+    exclude_ids: list[str] | None = None,
+) -> dict[str, Any] | None:
     """Searches Pixabay videos API and returns output payload or None."""
     cached_data = _cache_get("pixabay", query, orientation)
     if cached_data is not None:
@@ -205,6 +221,12 @@ async def _search_pixabay(query: str, est_dur: float, orientation: str = "portra
     hits = data.get("hits")
     if not isinstance(hits, list) or not hits:
         return None
+
+    if exclude_ids:
+        exclude_set = {str(eid).strip() for eid in exclude_ids}
+        hits = [h for h in hits if str(h.get("id", "")).strip() not in exclude_set]
+        if not hits:
+            return None
 
     candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for hit in hits:
@@ -273,6 +295,7 @@ async def resolve_stock(job: dict[str, Any]) -> dict[str, Any]:
     input_data = job.get("input", {}) or {}
     query = (input_data.get("stock_query") or input_data.get("spoken_text") or "").strip()
     est_dur = float(input_data.get("duration_s") or 0.0)
+    exclude_ids = [str(x).strip() for x in (input_data.get("exclude_ids") or []) if str(x).strip()]
 
     if not query:
         raise RuntimeError("No stock found for ''")
@@ -281,7 +304,7 @@ async def resolve_stock(job: dict[str, Any]) -> dict[str, Any]:
     pexels_429 = False
     pexels_res = None
     try:
-        pexels_res = await _search_pexels(query, est_dur)
+        pexels_res = await _search_pexels(query, est_dur, exclude_ids=exclude_ids)
     except StockRateLimitError:
         pexels_429 = True
         logger.warning(f"[stock] Pexels rate-limited (429) for '{query}', falling back to Pixabay")
@@ -293,7 +316,7 @@ async def resolve_stock(job: dict[str, Any]) -> dict[str, Any]:
     pixabay_429 = False
     pixabay_res = None
     try:
-        pixabay_res = await _search_pixabay(query, est_dur)
+        pixabay_res = await _search_pixabay(query, est_dur, exclude_ids=exclude_ids)
     except StockRateLimitError:
         pixabay_429 = True
         logger.warning(f"[stock] Pixabay rate-limited (429) for '{query}'")
