@@ -203,7 +203,7 @@ def test_regenerate_endpoint_402_if_insufficient_credits(authenticated_client, s
     assert res.status_code == 402
     data = res.json()
     assert "Insufficient credits" in data["error"]
-    assert data["credits_needed"] == 90
+    assert data["credits_needed"] == 150
     assert data["credits_remaining"] == 5
 
     # Verify no jobs created

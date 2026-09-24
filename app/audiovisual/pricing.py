@@ -9,9 +9,9 @@ from app.audiovisual.config import AV_COST_CEILING_USD, AV_MAX_AI_VIDEO
 
 # Table of credits per asset kind (Plano Bloque D - A2)
 CREDITS_TABLE: dict[str, int] = {
-    "base": 15,
-    "ai_image": 5,
-    "ai_video": 90,
+    "base": 0,
+    "ai_image": 15,
+    "ai_video": 150,
     "music_lyria": 5,
     "a_roll": 0,
     "stock": 0,
@@ -122,6 +122,15 @@ def estimate(script: Any, allow_unlocked: bool = False) -> dict[str, Any]:
     over_ceiling = cost_usd_total > AV_COST_CEILING_USD
     over_ai_video_limit = ai_video_count > AV_MAX_AI_VIDEO
 
+    credits_by_type = {k: v for k, v in CREDITS_TABLE.items() if k not in ("base", "music_lyria")}
+
+    from app.audiovisual.spend_guard import AI_KINDS, can_spend
+
+    script_ai_cost = sum(s["cost_usd"] for s in scene_entries if s["asset_type"] in AI_KINDS) + (
+        music_entry["cost_usd"] if music_entry.get("kind") in AI_KINDS else 0.0
+    )
+    ai_paused = not can_spend(script_ai_cost)
+
     return {
         "scenes": scene_entries,
         "music": music_entry,
@@ -132,4 +141,6 @@ def estimate(script: Any, allow_unlocked: bool = False) -> dict[str, Any]:
         "ai_video_count": ai_video_count,
         "over_ceiling": over_ceiling,
         "over_ai_video_limit": over_ai_video_limit,
+        "credits_by_type": credits_by_type,
+        "ai_paused": ai_paused,
     }

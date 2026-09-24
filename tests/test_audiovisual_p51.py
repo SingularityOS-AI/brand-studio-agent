@@ -455,12 +455,12 @@ def test_full_cycle_estimate_take_retake_commit_jobs_zero_credits(
     # 1. Estimate
     res_est = authenticated_client.get(f"/api/audiovisual/{idea_id}/estimate")
     assert res_est.status_code == 200
-    assert res_est.json()["credits_total"] == 15
+    assert res_est.json()["credits_total"] == 0
 
     # 2. Generate
     res_gen = authenticated_client.post(f"/api/audiovisual/{idea_id}/generate")
     assert res_gen.status_code == 200
-    assert guard.get_remaining_credits(session_token) == initial_credits - 15
+    assert guard.get_remaining_credits(session_token) == initial_credits
 
     # 3. Take 1 upload URL
     res_up1 = authenticated_client.post(f"/api/audiovisual/{idea_id}/takes/1/upload-url")
@@ -528,5 +528,5 @@ def test_full_cycle_estimate_take_retake_commit_jobs_zero_credits(
     assert tr2_job["status"] == "done"
     assert tr2_job["output"]["text"] == "The first hook line."
 
-    # 8. Confirm total balance: exactly initial_credits - 15 (0 extra charged for takes/retakes)
-    assert guard.get_remaining_credits(session_token) == initial_credits - 15
+    # 8. Confirm total balance: exactly initial_credits (0 extra charged for takes/retakes)
+    assert guard.get_remaining_credits(session_token) == initial_credits

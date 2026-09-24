@@ -138,7 +138,7 @@ def test_generate_saldo_insuficiente_para_total_assets_402_0_cobro_0_jobs(
     # Debe ser 402 Payment Required
     assert res.status_code == 402
     data = res.json()
-    assert data["credits_needed"] == 105
+    assert data["credits_needed"] == 150
     assert data["credits_remaining"] == 20
     assert "payment_url" in data
     assert data["error"] == "Session budget exhausted"
@@ -332,17 +332,17 @@ def test_generate_doble_llamada_cobra_base_una_sola_vez(
     res1 = authenticated_client.post(f"/api/audiovisual/{idea_id}/generate")
     assert res1.status_code == 200
     data1 = res1.json()
-    assert data1["credits_remaining"] == 85  # 100 - 15 base
+    assert data1["credits_remaining"] == 100  # 100 - 0 base
     assert len(data1["jobs"]) == 3  # stock + motion + music
-    assert guard.get_remaining_credits(session_token) == 85
+    assert guard.get_remaining_credits(session_token) == 100
 
     # Segunda llamada a generate (simulando doble clic o reintento)
     res2 = authenticated_client.post(f"/api/audiovisual/{idea_id}/generate")
     assert res2.status_code == 200
     data2 = res2.json()
-    # Saldo debe permanecer exactamente en 85 (NO se descuentan 15 otra vez)
-    assert data2["credits_remaining"] == 85
-    assert guard.get_remaining_credits(session_token) == 85
+    # Saldo debe permanecer exactamente en 100 (NO se descuentan 0 otra vez)
+    assert data2["credits_remaining"] == 100
+    assert guard.get_remaining_credits(session_token) == 100
 
     # Los IDs de los jobs son idénticos
     jobs1_ids = [j["id"] for j in data1["jobs"]]

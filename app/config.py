@@ -77,7 +77,7 @@ class Settings(BaseSettings):
         os.getenv("MAX_SESSION_DURATION_SECONDS", "3600")
     )  # Default 1 hour
 
-    # Platform Spend Cap (USD) - stops granting free credits after this amount
+    # Platform Spend Cap (USD) - legacy, not enforced — see AV_MONTHLY_AI_SPEND_CAP_USD
     platform_spend_cap_usd: float = float(
         os.getenv("PLATFORM_SPEND_CAP_USD", "120")
     )  # Default $120 USD

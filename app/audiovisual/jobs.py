@@ -536,3 +536,39 @@ def resume_stale() -> int:
                 job["updated_at"] = now_iso
                 count += 1
         return count
+
+
+def sum_cost_usd_since(
+    kinds: set[str] | list[str],
+    statuses: set[str] | list[str],
+    since_iso: str,
+) -> float:
+    """Sum cost_usd of asset_jobs matching kinds, statuses, and created_at >= since_iso."""
+    kinds_list = list(kinds)
+    statuses_list = list(statuses)
+    client = _get_jobs_client()
+    if client is not None:
+        res = (
+            client.table("asset_jobs")
+            .select("cost_usd")
+            .in_("kind", kinds_list)
+            .in_("status", statuses_list)
+            .gte("created_at", since_iso)
+            .execute()
+        )
+        data = res.data or []
+        return float(sum(float(row.get("cost_usd") or 0.0) for row in data))
+
+    with _jobs_lock:
+        kinds_set = set(kinds)
+        statuses_set = set(statuses)
+        total = 0.0
+        for j in _local_jobs.values():
+            if (
+                j.get("kind") in kinds_set
+                and j.get("status") in statuses_set
+                and (j.get("created_at") or "") >= since_iso
+            ):
+                total += float(j.get("cost_usd") or 0.0)
+        return total
+

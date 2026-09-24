@@ -21,6 +21,7 @@ from app.audiovisual.motion_graphics import resolve_motion_graphic
 from app.audiovisual.music import resolve_music
 from app.audiovisual.sfx import resolve_sfx
 from app.audiovisual.stock import resolve_stock
+from app.audiovisual.spend_guard import AI_KINDS, can_spend
 from app.guard import guard
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,14 @@ async def process_one_job() -> bool:
     if not resolver:
         revert_to_pending(job["id"])
         return False
+
+    if kind in AI_KINDS:
+        if not can_spend(0.0):
+            logger.warning(
+                f"[worker] Job {job['id']} ({kind}) failed: monthly AI spend cap exceeded."
+            )
+            mark_failed(job_id_or_job=job["id"], error="AI generation paused (platform spend limit)")
+            return True
 
     try:
         output = await resolver(job)

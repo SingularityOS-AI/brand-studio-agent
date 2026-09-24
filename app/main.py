@@ -16,6 +16,7 @@ import hashlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -1121,11 +1122,27 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
             },
         )
 
-    # Base charge: 15 credits once per launch (idempotent by idea_id + script version)
+    from app.audiovisual.spend_guard import AI_KINDS, can_spend
+
+    ai_cost_sum = sum(
+        COST_USD_TABLE.get(sc.asset_type, 0.0)
+        for sc in script.scenes
+        if sc.asset_type in AI_KINDS
+    )
+    if ai_cost_sum > 0 and not can_spend(ai_cost_sum):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "AI generation is paused right now. Switch those scenes to Stock or Motion graphic — they're free.",
+                "code": "ai_paused",
+            },
+        )
+
+    # Base charge: non-zero credits once per launch (idempotent by idea_id + script version)
     script_version = getattr(script, "timestamp", None)
     version_tag = script_version.isoformat() if script_version else (getattr(script, "id", None) or "v1")
 
-    base_cost = CREDITS_TABLE.get("base", 15)
+    base_cost = CREDITS_TABLE.get("base", 0)
     remaining_balance = guard.get_remaining_credits(session_token)
     if remaining_balance is None:
         raise HTTPException(status_code=401, detail="Invalid session")
@@ -1177,8 +1194,8 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
         return_created=True,
     )
 
-    # 2) Si lo creó esta request, cobrar la base; si falla el cobro, marcar cancelled y devolver 402
-    if music_created:
+    # 2) Si lo creó esta request y base_cost > 0, cobrar la base; si falla el cobro, marcar cancelled y devolver 402
+    if music_created and base_cost > 0:
         try:
             remaining_balance = guard.deduct_credits(session_token, amount=base_cost)
         except Exception as e:
@@ -1320,6 +1337,17 @@ async def regenerate_audiovisual_scene_endpoint(request: Request, idea_id: str, 
     credits_required = CREDITS_TABLE.get(asset_type, 0)
     cost_usd = COST_USD_TABLE.get(asset_type, 0.0)
 
+    from app.audiovisual.spend_guard import AI_KINDS, can_spend
+
+    if asset_type in AI_KINDS and not can_spend(cost_usd):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "AI generation is paused right now. Switch those scenes to Stock or Motion graphic — they're free.",
+                "code": "ai_paused",
+            },
+        )
+
     remaining_balance = guard.get_remaining_credits(session_token)
     if remaining_balance is None:
         raise HTTPException(status_code=401, detail="Invalid session")
@@ -1433,10 +1461,208 @@ async def regenerate_audiovisual_scene_endpoint(request: Request, idea_id: str, 
     })
 
 
+class AssetTypePatchRequest(BaseModel):
+    asset_type: str
+
+
+async def _generate_asset_prompt(target_type: str, scene: Any, script_angle: str) -> str:
+    spoken_text = getattr(scene, "spoken_text", "") or ""
+    on_screen_text = getattr(scene, "on_screen_text", "") or ""
+    stock_query = getattr(scene, "stock_query", "") or ""
+    b_roll = getattr(scene, "b_roll", "") or ""
+
+    try:
+        import asyncio
+        from app.audiovisual.genai_client import get_genai_client
+        from app.config import settings
+        from google.genai import types
+
+        client = get_genai_client()
+        model_name = getattr(settings, "vertex_ai_model", "gemini-2.5-flash")
+
+        if target_type in ("ai_image", "ai_video"):
+            system_instruction = (
+                "Write a single visual prompt description in English, max 40 words, for an image or 6 s clip, "
+                "vertical 9:16, no text/letters/logos, no identifiable real faces of people."
+            )
+            contents = (
+                f"Angle: {script_angle}\n"
+                f"Spoken text: {spoken_text}\n"
+                f"On-screen text: {on_screen_text}\n"
+                f"Stock query: {stock_query}\n"
+                f"B-roll: {b_roll}\n"
+            )
+        elif target_type == "stock":
+            system_instruction = "Write 2 to 5 search words in English searchable on Pexels for stock video footage."
+            contents = f"On-screen text: {on_screen_text}\nB-roll: {b_roll}\nSpoken text: {spoken_text}"
+        else:
+            return ""
+
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.4,
+        )
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=config,
+            ),
+            timeout=8.0,
+        )
+        text = (getattr(resp, "text", "") or "").strip().strip('"').strip("'")
+        if text:
+            return text[:400]
+    except Exception as e:
+        logger.warning(f"[patch_scene_asset_type] LLM prompt generation failed: {e}")
+
+    # Fallback determinista
+    if target_type in ("ai_image", "ai_video"):
+        base = stock_query or b_roll or on_screen_text or spoken_text or "cinematic scene"
+        return f"{base}, cinematic, vertical 9:16, clean composition, no text"
+    elif target_type == "stock":
+        content_text = b_roll or on_screen_text or spoken_text or ""
+        words = [w for w in content_text.split() if len(w) > 2][:4]
+        if not words:
+            words = ["business", "office"]
+        return " ".join(words)
+    return ""
+
+
+@app.patch("/api/audiovisual/{idea_id}/scenes/{scene_n}/asset_type", response_class=JSONResponse)
+async def patch_scene_asset_type_endpoint(
+    request: Request,
+    idea_id: str,
+    scene_n: int,
+    body: AssetTypePatchRequest,
+):
+    """
+    Patch asset_type of a scene in a locked script (Pieza 57).
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    valid_types = {"a_roll", "stock", "ai_image", "ai_video", "motion_graphic"}
+    new_asset_type = body.asset_type
+    if new_asset_type not in valid_types:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid asset_type '{new_asset_type}'"},
+        )
+
+    from app.scripting.scripts import _check_script, _get_script_lock, _save_script, ScriptStorageError
+    from app.audiovisual.pricing import estimate, COST_USD_TABLE
+    from app.audiovisual.spend_guard import AI_KINDS, can_spend
+    from app.audiovisual.jobs import list_jobs
+
+    async with _get_script_lock(session_token, idea_id):
+        try:
+            script = _check_script(session_token, idea_id)
+        except ScriptStorageError as e:
+            return JSONResponse(status_code=503, content={"error": str(e)})
+
+        if not script:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Script not found for idea {idea_id}"},
+            )
+
+        if script.state != "locked":
+            return JSONResponse(
+                status_code=409,
+                content={"error": "Script must be locked before modifying scene asset types"},
+            )
+
+        target_scene = None
+        for sc in (script.scenes or []):
+            if getattr(sc, "n", None) == scene_n:
+                target_scene = sc
+                break
+
+        if not target_scene:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Scene {scene_n} not found in script"},
+            )
+
+        current_asset_type = getattr(target_scene, "asset_type", "a_roll")
+        if new_asset_type == current_asset_type:
+            return JSONResponse(content={
+                "scene": target_scene.model_dump(mode="json"),
+                "estimate": estimate(script),
+            })
+
+        # 422 if ai_video and another scene is already ai_video
+        if new_asset_type == "ai_video":
+            other_ai_video = next(
+                (sc for sc in script.scenes if getattr(sc, "n", None) != scene_n and getattr(sc, "asset_type", None) == "ai_video"),
+                None,
+            )
+            if other_ai_video:
+                return JSONResponse(
+                    status_code=422,
+                    content={"error": f"Only 1 AI video per script. Change scene {other_ai_video.n} first."},
+                )
+
+        # 503 if AI type and spend limit exceeded
+        if new_asset_type in AI_KINDS:
+            cost = COST_USD_TABLE.get(new_asset_type, 0.0)
+            if not can_spend(cost):
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": "AI generation is paused right now. Switch those scenes to Stock or Motion graphic — they're free.",
+                        "code": "ai_paused",
+                    },
+                )
+
+        # 409 if job in flight for scene_n
+        existing_jobs = list_jobs(session_token, idea_id)
+        scene_jobs = [j for j in existing_jobs if j.get("scene_n") == scene_n]
+        if any(j.get("status") in ("pending", "running") for j in scene_jobs):
+            return JSONResponse(
+                status_code=409,
+                content={"error": "This scene is being generated. Wait for it to finish."},
+            )
+
+        # Save original asset_type to suggested_asset_type on first change
+        if getattr(target_scene, "suggested_asset_type", None) is None:
+            target_scene.suggested_asset_type = current_asset_type
+
+        target_scene.asset_type = new_asset_type
+
+        # Generate prompt/query if missing
+        if new_asset_type in ("ai_image", "ai_video") and not (getattr(target_scene, "visual_prompt", None) or "").strip():
+            generated_prompt = await _generate_asset_prompt(new_asset_type, target_scene, script.angle)
+            target_scene.visual_prompt = generated_prompt
+
+        if new_asset_type == "stock" and not (getattr(target_scene, "stock_query", None) or "").strip():
+            generated_query = await _generate_asset_prompt("stock", target_scene, script.angle)
+            target_scene.stock_query = generated_query
+
+        _save_script(script)
+
+        return JSONResponse(content={
+            "scene": target_scene.model_dump(mode="json"),
+            "estimate": estimate(script),
+        })
+
+
 @app.get("/api/audiovisual/{idea_id}/jobs", response_class=JSONResponse)
 async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
     """
-    List asset jobs for an idea, including signed_url if job status is 'done'.
+    List asset jobs for an idea, including signed_url if job status is 'done',
+    and output_display for music and sfx jobs (Pieza 57).
     """
     authorization = request.headers.get("authorization")
     if not authorization:
@@ -1450,9 +1676,13 @@ async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
 
     from app.audiovisual.jobs import list_jobs
     from app.audiovisual.storage import signed_url
+    from app.audiovisual.music import load_music_library
+    from app.audiovisual.sfx import load_sfx_library
 
     jobs = list_jobs(session_token, idea_id)
-    # Augment completed jobs with signed_url
+    music_lib = load_music_library()
+    sfx_lib = load_sfx_library()
+
     for j in jobs:
         if j.get("status") == "done":
             storage_path = j.get("output", {}).get("storage_path") or j.get("input", {}).get("storage_path")
@@ -1461,6 +1691,35 @@ async def get_audiovisual_jobs_endpoint(request: Request, idea_id: str):
                     j["signed_url"] = signed_url(storage_path)
                 except Exception as e:
                     logger.warning(f"Could not generate signed_url for job {j.get('id')}: {e}")
+
+        kind = j.get("kind")
+        status_val = j.get("status")
+        out = j.get("output") or {}
+        inp = j.get("input") or {}
+
+        if kind == "music" and status_val == "done":
+            track_file = out.get("track_file")
+            if track_file:
+                matched_track = next((t for t in music_lib if t.get("file") == track_file), None)
+                j["output_display"] = {
+                    "title": matched_track.get("title", track_file) if matched_track else track_file,
+                    "author": matched_track.get("author", "") if matched_track else "",
+                    "mood": out.get("mood", ""),
+                    "energy": out.get("energy", ""),
+                    "reason": out.get("reason", ""),
+                }
+        elif kind == "sfx":
+            sfx_file = out.get("file") or inp.get("sfx_file")
+            tag = out.get("tag") or inp.get("tag")
+            matched_sfx = next((s for s in sfx_lib if s.get("file") == sfx_file), None)
+            if not matched_sfx and tag:
+                matched_sfx = next((s for s in sfx_lib if tag in [t.lower() for t in s.get("tags", [])]), None)
+            title = matched_sfx.get("title") if matched_sfx else (sfx_file or tag or "")
+            display_tag = tag or (matched_sfx.get("tags", ["sfx"])[0] if matched_sfx and matched_sfx.get("tags") else "sfx")
+            j["output_display"] = {
+                "tag": display_tag,
+                "title": title,
+            }
 
     return JSONResponse(content={"jobs": jobs})
 

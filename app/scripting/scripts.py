@@ -118,6 +118,10 @@ class Scene(BaseModel):
         default=None,
         description="Generation prompt for AI image/video. ALWAYS IN ENGLISH. None if a_roll."
     )
+    suggested_asset_type: str | None = Field(
+        default=None,
+        description="Original asset type suggested by LLM when script was created"
+    )
 
     @property
     def duration_s(self) -> float:

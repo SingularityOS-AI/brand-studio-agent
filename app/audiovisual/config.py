@@ -11,6 +11,7 @@ AV_MUSIC_MODEL: str = os.getenv("AV_MUSIC_MODEL", "lyria-3-clip-preview")
 # Guardrails and budget ceilings (Plan Bloque D - A5)
 AV_COST_CEILING_USD: float = float(os.getenv("AV_COST_CEILING_USD", "1.50"))
 AV_MAX_AI_VIDEO: int = int(os.getenv("AV_MAX_AI_VIDEO", "1"))
+AV_MONTHLY_AI_SPEND_CAP_USD: float = float(os.getenv("AV_MONTHLY_AI_SPEND_CAP_USD", "20"))
 
 # Private storage bucket for binary assets
 AV_STORAGE_BUCKET: str = os.getenv("AV_STORAGE_BUCKET", "brand-assets")

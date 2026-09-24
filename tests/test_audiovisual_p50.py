@@ -122,8 +122,8 @@ def test_estimate_sweet_spot(sample_frame_zero):
     script = make_locked_script("sess_1", "idea_1", scenes, sample_frame_zero)
     est = estimate(script)
 
-    assert est["credits_total"] == 15
-    assert est["credits_base"] == 15
+    assert est["credits_total"] == 0
+    assert est["credits_base"] == 0
     assert est["cost_usd_base"] == 0.01
     assert est["ai_video_count"] == 0
     assert est["over_ceiling"] is False
@@ -154,8 +154,8 @@ def test_estimate_two_ai_video_triggers_limit(sample_frame_zero):
 
     assert est["ai_video_count"] == 2
     assert est["over_ai_video_limit"] is True
-    # 15 base + 90 + 90 = 195 credits
-    assert est["credits_total"] == 195
+    # 0 base + 150 + 150 = 300 credits
+    assert est["credits_total"] == 300
 
 
 def test_estimate_over_ceiling(sample_frame_zero):
@@ -490,7 +490,7 @@ def test_endpoints_409_422_200(authenticated_client, sample_frame_zero):
     # Estimate 200
     res_est_200 = authenticated_client.get(f"/api/audiovisual/{idea_id}/estimate")
     assert res_est_200.status_code == 200
-    assert res_est_200.json()["credits_total"] == 15
+    assert res_est_200.json()["credits_total"] == 0
 
     initial_credits = guard.get_remaining_credits(session_token)
 
@@ -501,13 +501,13 @@ def test_endpoints_409_422_200(authenticated_client, sample_frame_zero):
     assert "jobs" in data
     # Scenes non-a_roll: scene 3 (stock) and scene 5 (motion_graphic) + 1 music job = 3 jobs
     assert len(data["jobs"]) == 3
-    # 15 base credits deducted
-    assert data["credits_remaining"] == initial_credits - 15
+    # 0 base credits deducted
+    assert data["credits_remaining"] == initial_credits
 
     # Calling generate again for the same locked script version is idempotent: no extra deduction
     res_gen_repeat = authenticated_client.post(f"/api/audiovisual/{idea_id}/generate")
     assert res_gen_repeat.status_code == 200
-    assert res_gen_repeat.json()["credits_remaining"] == initial_credits - 15
+    assert res_gen_repeat.json()["credits_remaining"] == initial_credits
 
     # 4. Jobs list endpoint
     # Mark one job as done with storage_path

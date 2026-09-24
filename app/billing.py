@@ -24,13 +24,44 @@ from app.config import settings
 # CREDIT PACKAGES - Stripe price IDs already created in test mode (2026-09-11)
 # ============================================================================
 CREDIT_PACKAGES = {
-    # price_id reales, ya creados en Stripe modo test por el Capitan (2026-09-11).
-    # Los equivalentes de modo LIVE se crean aparte el dia que se active cobro real -
-    # nunca reusar un price_id de test en produccion.
     "starter": {"price_usd": 9, "credits": 550, "stripe_price_id": "price_1UEbb70StQbwtwVc8mTCMm4Q"},
     "pro":     {"price_usd": 29, "credits": 1800, "stripe_price_id": "price_1UEbcq0StQbwtwVcahleC7WN"},
     "studio":  {"price_usd": 59, "credits": 4000, "stripe_price_id": "price_1UEbdv0StQbwtwVc3TMmj93B"},
 }
+
+
+def get_package_price_id(package: str) -> str:
+    """
+    Returns the Stripe price ID for a package based on environment variables or test mode default.
+
+    PIEZA 57:
+    - STRIPE_PRICE_STARTER / STRIPE_PRICE_PRO / STRIPE_PRICE_STUDIO env vars take precedence.
+    - If env var missing and stripe key is sk_test_ -> use hardcoded test price ID.
+    - If env var missing and stripe key is sk_live_ -> raises HTTPException 400 "Package not configured".
+    """
+    env_vars = {
+        "starter": "STRIPE_PRICE_STARTER",
+        "pro": "STRIPE_PRICE_PRO",
+        "studio": "STRIPE_PRICE_STUDIO",
+    }
+    test_defaults = {
+        "starter": "price_1UEbb70StQbwtwVc8mTCMm4Q",
+        "pro": "price_1UEbcq0StQbwtwVcahleC7WN",
+        "studio": "price_1UEbdv0StQbwtwVc3TMmj93B",
+    }
+    var_name = env_vars.get(package)
+    env_val = os.getenv(var_name) if var_name else None
+    if env_val:
+        return env_val
+
+    key = getattr(settings, "stripe_secret_key", "") or ""
+    if key.startswith("sk_test_"):
+        return test_defaults.get(package, "")
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Package not configured",
+    )
 
 
 # ============================================================================
@@ -74,7 +105,6 @@ async def get_or_create_stripe_customer(user_id: str, email: str) -> str:
         HTTPException: If user cannot be found in Supabase
     """
     from app.guard import guard
-    from app.auth.supabase_auth import supabase_auth
 
     # Get session from guard (it has access to Supabase)
     session_token = guard.get_or_create_user_session(user_id)
@@ -111,7 +141,7 @@ async def get_or_create_stripe_customer(user_id: str, email: str) -> str:
             guard._supabase.table("sessions").update({
                 "stripe_customer_id": stripe_customer_id
             }).eq("user_id", user_id).execute()
-            print(f"[BILLING] Updated sessions table with stripe_customer_id")
+            print("[BILLING] Updated sessions table with stripe_customer_id")
         except Exception as e:
             print(f"[BILLING] Warning: Failed to save stripe_customer_id to Supabase: {e}")
             # Non-fatal - we can still proceed with checkout
@@ -184,6 +214,7 @@ async def create_checkout_session(request: Request, body: CheckoutRequest):
         )
 
     package_info = CREDIT_PACKAGES[package]
+    stripe_price_id = get_package_price_id(package)
 
     # 3. Get or create Stripe customer
     try:
@@ -202,7 +233,7 @@ async def create_checkout_session(request: Request, body: CheckoutRequest):
 
     # 5. Create Stripe Checkout Session
     try:
-        print(f"[BILLING] Creating Stripe checkout session for package '{package}' (price_id: {package_info['stripe_price_id']})")
+        print(f"[BILLING] Creating Stripe checkout session for package '{package}' (price_id: {stripe_price_id})")
         print(f"[BILLING] Success URL: {success_url}, Cancel URL: {cancel_url}")
 
         session = stripe.checkout.Session.create(
@@ -210,7 +241,7 @@ async def create_checkout_session(request: Request, body: CheckoutRequest):
             mode="payment",  # NUNCA 'subscription' - compra de créditos, no suscripción
             line_items=[
                 {
-                    "price": package_info["stripe_price_id"],
+                    "price": stripe_price_id,
                     "quantity": 1,
                 }
             ],
