@@ -270,6 +270,45 @@ def revert_to_pending(job_id_or_job: str | dict[str, Any]) -> dict[str, Any]:
         return copy.deepcopy(job)
 
 
+def set_job_progress(
+    job_id_or_job: str | dict[str, Any],
+    progress_data: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Persists partial progress by merging progress_data into the job's output.
+    Used for long-running resumable jobs (e.g., Veo operation_name).
+    """
+    job_id = job_id_or_job["id"] if isinstance(job_id_or_job, dict) else str(job_id_or_job)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    client = _get_jobs_client()
+    if client is not None:
+        res = client.table("asset_jobs").select("output").eq("id", job_id).execute()
+        current_output = {}
+        if res.data and isinstance(res.data[0].get("output"), dict):
+            current_output = res.data[0]["output"]
+        merged_output = {**current_output, **progress_data}
+        update_res = (
+            client.table("asset_jobs")
+            .update({
+                "output": merged_output,
+                "updated_at": now_iso,
+            })
+            .eq("id", job_id)
+            .execute()
+        )
+        return update_res.data[0] if update_res.data else {"output": merged_output}
+
+    with _jobs_lock:
+        job = _local_jobs.get(job_id)
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+        if not isinstance(job.get("output"), dict):
+            job["output"] = {}
+        job["output"].update(progress_data)
+        job["updated_at"] = now_iso
+        return copy.deepcopy(job)
+
+
 def mark_done(
     job_id_or_job: str | dict[str, Any],
     output: dict[str, Any],

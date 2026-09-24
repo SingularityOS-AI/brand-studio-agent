@@ -3158,7 +3158,7 @@ ${htmlContent}
       const jobs = await loadAudiovisualJobs(ideaId);
       renderAudiovisualView();
 
-      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'stock' || j.kind === 'music' || j.kind === 'sfx') && (j.status === 'pending' || j.status === 'running'));
+      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'stock' || j.kind === 'music' || j.kind === 'sfx' || j.kind === 'ai_image' || j.kind === 'ai_video') && (j.status === 'pending' || j.status === 'running'));
       if (!hasActiveJobs) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
@@ -3458,6 +3458,11 @@ ${htmlContent}
         </div>
       `;
 
+      const isAIImage = assetType === 'ai_image';
+      const isAIVideo = assetType === 'ai_video';
+      const aiImageJob = isAIImage ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_image') : null;
+      const aiVideoJob = isAIVideo ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_video') : null;
+
       if (isARoll && aRollTake) {
         cardBadgeHtml = `
           <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
@@ -3480,6 +3485,76 @@ ${htmlContent}
           visualContentHtml = `
             <img src="${escapeHtml(stockJob.output.preview_url)}" alt="Stock preview" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;">
             <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
+          `;
+        }
+      } else if (isAIImage && aiImageJob) {
+        // AI Image: show generating spinner or the generated image
+        if (aiImageJob.status === 'done' && aiImageJob.signed_url) {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
+              AI Image ✓
+            </div>
+          `;
+          visualContentHtml = `
+            <img src="${escapeHtml(aiImageJob.signed_url)}" alt="AI generated image" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;">
+          `;
+        } else if (aiImageJob.status === 'pending' || aiImageJob.status === 'running') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEF3C7;border:1px solid #FDE68A;font-size:10px;font-weight:700;color:#92400E;letter-spacing:0.04em;">
+              Generating…
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
+              <div class="spinner" style="width:24px;height:24px;border:2px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+              <div style="font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.3;">Generating…<br>(up to a few minutes)</div>
+            </div>
+          `;
+        } else if (aiImageJob.status === 'failed') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEE2E2;border:1px solid #FECACA;font-size:10px;font-weight:700;color:#DC2626;letter-spacing:0.04em;">
+              Failed
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="font-size:10px;color:#DC2626;text-align:center;line-height:1.3;padding:8px;">
+              ${aiImageJob.error ? escapeHtml(aiImageJob.error.substring(0, 100)) : 'Generation failed'}
+            </div>
+          `;
+        }
+      } else if (isAIVideo && aiVideoJob) {
+        // AI Video: show generating spinner or the generated video
+        if (aiVideoJob.status === 'done' && aiVideoJob.signed_url) {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
+              AI Video ✓
+            </div>
+          `;
+          visualContentHtml = `
+            <video src="${escapeHtml(aiVideoJob.signed_url)}" muted loop playsinline autoplay style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;"></video>
+          `;
+        } else if (aiVideoJob.status === 'pending' || aiVideoJob.status === 'running') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEF3C7;border:1px solid #FDE68A;font-size:10px;font-weight:700;color:#92400E;letter-spacing:0.04em;">
+              Generating…
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
+              <div class="spinner" style="width:24px;height:24px;border:2px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+              <div style="font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.3;">Generating…<br>(up to a few minutes)</div>
+            </div>
+          `;
+        } else if (aiVideoJob.status === 'failed') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEE2E2;border:1px solid #FECACA;font-size:10px;font-weight:700;color:#DC2626;letter-spacing:0.04em;">
+              Failed
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="font-size:10px;color:#DC2626;text-align:center;line-height:1.3;padding:8px;">
+              ${aiVideoJob.error ? escapeHtml(aiVideoJob.error.substring(0, 100)) : 'Generation failed'}
+            </div>
           `;
         }
       }
