@@ -1,1 +1,209 @@
-[]
+[
+  {
+    "file": "whoosh_02.mp3",
+    "tags": [
+      "whoosh",
+      "swoosh",
+      "transition"
+    ],
+    "duration_s": 1.27,
+    "source": "freesound",
+    "source_id": 614169,
+    "source_url": "https://freesound.org/s/614169/",
+    "title": "Swishes_9_hill_curve_stronger",
+    "author": "videofueralle",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "whoosh_03.mp3",
+    "tags": [
+      "whoosh",
+      "swoosh",
+      "transition"
+    ],
+    "duration_s": 0.29,
+    "source": "freesound",
+    "source_id": 422495,
+    "source_url": "https://freesound.org/s/422495/",
+    "title": "Swinging staff whoosh (low) 03",
+    "author": "Nightflame",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "whoosh_01.mp3",
+    "tags": [
+      "whoosh",
+      "swoosh",
+      "transition"
+    ],
+    "duration_s": 1.97,
+    "source": "freesound",
+    "source_id": 683185,
+    "source_url": "https://freesound.org/s/683185/",
+    "title": "Power Up",
+    "author": "NearTheAtmoshphere",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "pop_02.mp3",
+    "tags": [
+      "pop"
+    ],
+    "duration_s": 0.31,
+    "source": "freesound",
+    "source_id": 669918,
+    "source_url": "https://freesound.org/s/669918/",
+    "title": "The Best Bubble Pop Sound For Game and UI",
+    "author": "el_boss",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "pop_03.mp3",
+    "tags": [
+      "pop"
+    ],
+    "duration_s": 0.09,
+    "source": "freesound",
+    "source_id": 734249,
+    "source_url": "https://freesound.org/s/734249/",
+    "title": "SimplePop1",
+    "author": "NoisyRedFox",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "pop_01.mp3",
+    "tags": [
+      "pop"
+    ],
+    "duration_s": 1.0,
+    "source": "freesound",
+    "source_id": 220190,
+    "source_url": "https://freesound.org/s/220190/",
+    "title": "Blip Pop",
+    "author": "GameAudio",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "click_03.mp3",
+    "tags": [
+      "click"
+    ],
+    "duration_s": 0.12,
+    "source": "freesound",
+    "source_id": 582902,
+    "source_url": "https://freesound.org/s/582902/",
+    "title": "Snap Click 05",
+    "author": "ironcross32",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "click_02.mp3",
+    "tags": [
+      "click"
+    ],
+    "duration_s": 0.09,
+    "source": "freesound",
+    "source_id": 670266,
+    "source_url": "https://freesound.org/s/670266/",
+    "title": "Button on Parade",
+    "author": "adh.dreaming",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "click_01.mp3",
+    "tags": [
+      "click"
+    ],
+    "duration_s": 1.0,
+    "source": "freesound",
+    "source_id": 220187,
+    "source_url": "https://freesound.org/s/220187/",
+    "title": "Loose/Deny Casual 1",
+    "author": "GameAudio",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "riser_02.mp3",
+    "tags": [
+      "riser"
+    ],
+    "duration_s": 4.0,
+    "source": "freesound",
+    "source_id": 806664,
+    "source_url": "https://freesound.org/s/806664/",
+    "title": "BASIC RISER ONE",
+    "author": "johnjohnfm",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "riser_03.mp3",
+    "tags": [
+      "riser"
+    ],
+    "duration_s": 2.52,
+    "source": "freesound",
+    "source_id": 754771,
+    "source_url": "https://freesound.org/s/754771/",
+    "title": "Riser Hit sfx 097",
+    "author": "AudioPapkin",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "riser_01.mp3",
+    "tags": [
+      "riser"
+    ],
+    "duration_s": 4.06,
+    "source": "freesound",
+    "source_id": 503804,
+    "source_url": "https://freesound.org/s/503804/",
+    "title": "reverse fx 2",
+    "author": "reathance",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "ding_01.mp3",
+    "tags": [
+      "ding",
+      "chime",
+      "bell"
+    ],
+    "duration_s": 0.8,
+    "source": "freesound",
+    "source_id": 571513,
+    "source_url": "https://freesound.org/s/571513/",
+    "title": "Soft-Notifications - Bell - Ding-Dong",
+    "author": "LegitCheese",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "ding_02.mp3",
+    "tags": [
+      "ding",
+      "chime",
+      "bell"
+    ],
+    "duration_s": 0.65,
+    "source": "freesound",
+    "source_id": 759840,
+    "source_url": "https://freesound.org/s/759840/",
+    "title": "ShiningRinging",
+    "author": "NoisyRedFox",
+    "license": "CC0-1.0"
+  },
+  {
+    "file": "ding_03.mp3",
+    "tags": [
+      "ding",
+      "chime",
+      "bell"
+    ],
+    "duration_s": 1.56,
+    "source": "freesound",
+    "source_id": 215774,
+    "source_url": "https://freesound.org/s/215774/",
+    "title": "bong",
+    "author": "OtisJames",
+    "license": "CC0-1.0"
+  }
+]

@@ -12,6 +12,7 @@ See test_no_real_secrets_in_tests.py for the safety lock that verifies this.
 import os
 import socket
 import sys
+from unittest.mock import patch
 
 # ============================================================================
 # CRITICAL: Set FAKE values for ALL sensitive variables BEFORE any app imports
@@ -298,6 +299,26 @@ def get_session_token_for_user(user_id: str) -> str:
         if session.get("user_id") == user_id:
             return token
     return None
+
+
+@pytest.fixture(autouse=True)
+def _empty_audiovisual_libraries_by_default():
+    """
+    Default the SFX/music library loaders to an empty list for every test.
+
+    `app/audiovisual/library/{sfx,music}.json` now ship with real production
+    data (14/15 CC0 entries). Tests must not depend on that real content --
+    it can grow/shrink/change independently of test expectations (job counts,
+    picked tracks, etc.). Tests that need a specific library patch
+    `app.audiovisual.sfx.load_sfx_library` / `app.audiovisual.music.load_music_library`
+    themselves inside a `with patch(...)` block (see test_audiovisual_p52.py);
+    that inner patch wins while active because it's applied on top of this
+    fixture's patch and unwound first, restoring this fixture's `[]` mock
+    for the rest of the test.
+    """
+    with patch("app.audiovisual.sfx.load_sfx_library", return_value=[]), \
+            patch("app.audiovisual.music.load_music_library", return_value=[]):
+        yield
 
 
 @pytest.fixture(autouse=True)
