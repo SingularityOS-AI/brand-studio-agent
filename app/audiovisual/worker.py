@@ -17,6 +17,7 @@ from app.audiovisual.jobs import (
     revert_to_pending,
 )
 from app.audiovisual.ai_generation import resolve_ai_image, resolve_ai_video
+from app.audiovisual.motion_graphics import resolve_motion_graphic
 from app.audiovisual.music import resolve_music
 from app.audiovisual.sfx import resolve_sfx
 from app.audiovisual.stock import resolve_stock
@@ -88,8 +89,7 @@ async def resolve_transcript(job: dict[str, Any]) -> dict[str, Any]:
 
 
 # Registry of resolvers: kind -> async callable(job: dict) -> dict (output)
-# P51: transcript. P52: stock, music, sfx. P53: ai_image, ai_video.
-# motion_graphic remains pending until P54.
+# P51: transcript. P52: stock, music, sfx. P53: ai_image, ai_video. P54: motion_graphic.
 RESOLVERS: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]] = {
     "transcript": resolve_transcript,
     "stock": resolve_stock,
@@ -97,6 +97,7 @@ RESOLVERS: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, An
     "sfx": resolve_sfx,
     "ai_image": resolve_ai_image,
     "ai_video": resolve_ai_video,
+    "motion_graphic": resolve_motion_graphic,
 }
 
 
@@ -114,6 +115,8 @@ def register_default_resolvers() -> None:
         RESOLVERS["ai_image"] = resolve_ai_image
     if "ai_video" not in RESOLVERS:
         RESOLVERS["ai_video"] = resolve_ai_video
+    if "motion_graphic" not in RESOLVERS:
+        RESOLVERS["motion_graphic"] = resolve_motion_graphic
 
 
 _worker_task: asyncio.Task[None] | None = None

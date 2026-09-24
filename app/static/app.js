@@ -2998,6 +2998,9 @@ ${htmlContent}
 
   // Show BlockA view (brand soul)
   async function showBlockAView() {
+    if (typeof cleanupAudiovisualBlobUrls === 'function') {
+      cleanupAudiovisualBlobUrls();
+    }
     currentOpenView = 'brain';
     if (blockAView) blockAView.style.display = 'block';
     if (blockBView) blockBView.style.display = 'none';
@@ -3024,6 +3027,9 @@ ${htmlContent}
 
   // Show BlockB view (catalog)
   function showBlockBView() {
+    if (typeof cleanupAudiovisualBlobUrls === 'function') {
+      cleanupAudiovisualBlobUrls();
+    }
     currentOpenView = 'catalog';
     if (blockAView) blockAView.style.display = 'none';
     if (blockBView) blockBView.style.display = 'block';
@@ -3036,6 +3042,9 @@ ${htmlContent}
 
   // Show BlockC view (script) with empty state for interview mode
   function showBlockCView(ideaId) {
+    if (typeof cleanupAudiovisualBlobUrls === 'function') {
+      cleanupAudiovisualBlobUrls();
+    }
     // Track current idea ID
     currentScriptIdeaId = ideaId;
     currentOpenView = 'script';
@@ -3126,10 +3135,140 @@ ${htmlContent}
   let currentAudiovisualJobs = [];
   let audiovisualPollInterval = null;
 
+  // Pieza 54 / 54B: HyperFrames Motion Graphics preview caching and blob lifecycle
+  let activeMotionBlobUrls = [];
+  const motionHtmlCache = new Map();
+  let currentAudiovisualRenderId = 0;
+
+  function cleanupAudiovisualBlobUrls() {
+    if (activeMotionBlobUrls.length > 0) {
+      activeMotionBlobUrls.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          // ignore
+        }
+      });
+      activeMotionBlobUrls = [];
+    }
+  }
+
+  async function isHyperframesPlayerAvailable() {
+    if (typeof window === 'undefined' || !window.customElements) return false;
+    if (customElements.get('hyperframes-player')) return true;
+    if (document.readyState === 'complete') {
+      return !!customElements.get('hyperframes-player');
+    }
+    try {
+      const definedPromise = customElements.whenDefined('hyperframes-player');
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(false), 2000));
+      await Promise.race([definedPromise, timeoutPromise]);
+      return !!customElements.get('hyperframes-player');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function renderMotionGraphicFallback(player, template, fields) {
+    const parent = player.parentElement;
+    if (!parent) return;
+
+    let fieldListHtml = '';
+    const entries = Object.entries(fields || {});
+    if (entries.length > 0) {
+      fieldListHtml = entries
+        .filter(([_, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+        .map(([k, v]) => {
+          const valStr = Array.isArray(v) ? v.join(', ') : String(v);
+          return `<div style="font-size:10px;color:var(--ink-soft);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;" title="${escapeHtml(valStr)}"><strong style="color:var(--ink);">${escapeHtml(k)}:</strong> ${escapeHtml(valStr)}</div>`;
+        })
+        .join('');
+    }
+
+    parent.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:8px 8px 24px;text-align:center;width:100%;height:100%;box-sizing:border-box;background:var(--surface-alt);">
+        <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.04em;">
+          ${escapeHtml(template)}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;width:100%;align-items:center;margin-top:2px;">
+          ${fieldListHtml || '<div style="font-size:10px;color:var(--ink-soft);font-style:italic;">Motion graphic preview</div>'}
+        </div>
+      </div>
+    `;
+  }
+
+  async function hydrateMotionGraphicPlayers(container, renderId) {
+    const motionPlayers = container.querySelectorAll('hyperframes-player[data-motion-scene]');
+    if (!motionPlayers || motionPlayers.length === 0) return;
+
+    const isAvailable = await isHyperframesPlayerAvailable();
+
+    motionPlayers.forEach(async (player) => {
+      const sceneN = parseInt(player.dataset.motionScene, 10);
+      const scene = (currentScriptData?.scenes || []).find(s => s.n === sceneN);
+      const motionJob = (currentAudiovisualJobs || []).find(j => j.scene_n === sceneN && j.kind === 'motion_graphic');
+      const template = motionJob?.output?.template || 'lower_third';
+      const fields = motionJob?.output?.fields || {};
+
+      if (renderId !== currentAudiovisualRenderId || !player.isConnected) return;
+
+      if (!isAvailable) {
+        renderMotionGraphicFallback(player, template, fields);
+        return;
+      }
+
+      const ideaId = currentScriptData?.idea_id;
+      if (!ideaId) {
+        renderMotionGraphicFallback(player, template, fields);
+        return;
+      }
+
+      const jobId = motionJob?.id || motionJob?.output?.storage_path || 'done';
+      const cacheKey = `${ideaId}:${sceneN}:${jobId}`;
+
+      let htmlContent = motionHtmlCache.get(cacheKey);
+      if (!htmlContent) {
+        try {
+          const previewUrl = `/api/audiovisual/${encodeURIComponent(ideaId)}/motion/${sceneN}`;
+          const res = await authenticatedFetch(previewUrl);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          htmlContent = await res.text();
+          motionHtmlCache.set(cacheKey, htmlContent);
+        } catch (err) {
+          console.warn(`[MotionGraphic] Failed to fetch preview HTML for scene ${sceneN}:`, err);
+          if (renderId === currentAudiovisualRenderId && player.isConnected) {
+            renderMotionGraphicFallback(player, template, fields);
+          }
+          return;
+        }
+      }
+
+      if (renderId !== currentAudiovisualRenderId || !player.isConnected) return;
+
+      try {
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+        if (renderId !== currentAudiovisualRenderId || !player.isConnected) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        activeMotionBlobUrls.push(blobUrl);
+        player.setAttribute('src', blobUrl);
+      } catch (err) {
+        console.warn(`[MotionGraphic] Failed to create blob URL for scene ${sceneN}:`, err);
+        if (renderId === currentAudiovisualRenderId && player.isConnected) {
+          renderMotionGraphicFallback(player, template, fields);
+        }
+      }
+    });
+  }
+
   async function loadAudiovisualJobs(ideaId) {
     if (!ideaId) return [];
     try {
-      const res = await fetchWithAuth(`/api/audiovisual/${ideaId}/jobs`);
+      const res = await authenticatedFetch(`/api/audiovisual/${ideaId}/jobs`);
       if (res.ok) {
         const data = await res.json();
         currentAudiovisualJobs = data.jobs || [];
@@ -3152,13 +3291,14 @@ ${htmlContent}
       if (currentOpenView !== 'audiovisual' || !currentScriptData || currentScriptData.idea_id !== ideaId) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
+        cleanupAudiovisualBlobUrls();
         return;
       }
 
       const jobs = await loadAudiovisualJobs(ideaId);
       renderAudiovisualView();
 
-      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'stock' || j.kind === 'music' || j.kind === 'sfx' || j.kind === 'ai_image' || j.kind === 'ai_video') && (j.status === 'pending' || j.status === 'running'));
+      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'stock' || j.kind === 'music' || j.kind === 'sfx' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic') && (j.status === 'pending' || j.status === 'running'));
       if (!hasActiveJobs) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
@@ -3341,6 +3481,8 @@ ${htmlContent}
   }
 
   function renderAudiovisualView() {
+    cleanupAudiovisualBlobUrls();
+    const renderId = ++currentAudiovisualRenderId;
     const container = document.getElementById('Audiovisual-Content');
     if (!container || !currentScriptData) return;
 
@@ -3460,8 +3602,10 @@ ${htmlContent}
 
       const isAIImage = assetType === 'ai_image';
       const isAIVideo = assetType === 'ai_video';
+      const isMotionGraphic = assetType === 'motion_graphic';
       const aiImageJob = isAIImage ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_image') : null;
       const aiVideoJob = isAIVideo ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_video') : null;
+      const motionGraphicJob = isMotionGraphic ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'motion_graphic') : null;
 
       if (isARoll && aRollTake) {
         cardBadgeHtml = `
@@ -3554,6 +3698,56 @@ ${htmlContent}
           visualContentHtml = `
             <div style="font-size:10px;color:#DC2626;text-align:center;line-height:1.3;padding:8px;">
               ${aiVideoJob.error ? escapeHtml(aiVideoJob.error.substring(0, 100)) : 'Generation failed'}
+            </div>
+          `;
+        }
+      } else if (isMotionGraphic && motionGraphicJob) {
+        // Motion Graphic Preview (Pieza 54 / 54B)
+        if (motionGraphicJob.status === 'done' && motionGraphicJob.output?.storage_path) {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
+              Motion ✓
+            </div>
+          `;
+          const template = motionGraphicJob.output?.template || 'lower_third';
+          const fields = motionGraphicJob.output?.fields || {};
+          visualContentHtml = `
+            <div style="position:absolute;inset:0;width:100%;height:100%;border-radius:5px;overflow:hidden;">
+              <hyperframes-player
+                data-motion-scene="${scene.n}"
+                width="1080"
+                height="1920"
+                autoplay
+                loop
+                muted
+                style="width:100%;height:100%;"
+              ></hyperframes-player>
+            </div>
+            <div style="position:absolute;bottom:6px;left:6px;z-index:3;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.7);font-size:9px;font-weight:600;color:#fff;letter-spacing:0.04em;">
+              ${escapeHtml(template)}
+            </div>
+          `;
+        } else if (motionGraphicJob.status === 'pending' || motionGraphicJob.status === 'running') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEF3C7;border:1px solid #FDE68A;font-size:10px;font-weight:700;color:#92400E;letter-spacing:0.04em;">
+              Generating…
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
+              <div class="spinner" style="width:24px;height:24px;border:2px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+              <div style="font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.3;">Generating…<br>(motion graphic)</div>
+            </div>
+          `;
+        } else if (motionGraphicJob.status === 'failed') {
+          cardBadgeHtml = `
+            <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#FEE2E2;border:1px solid #FECACA;font-size:10px;font-weight:700;color:#DC2626;letter-spacing:0.04em;">
+              Failed
+            </div>
+          `;
+          visualContentHtml = `
+            <div style="font-size:10px;color:#DC2626;text-align:center;line-height:1.3;padding:8px;">
+              ${motionGraphicJob.error ? escapeHtml(motionGraphicJob.error.substring(0, 100)) : 'Generation failed'}
             </div>
           `;
         }
@@ -3732,6 +3926,9 @@ ${htmlContent}
         </div>
       </div>
     `;
+
+    // Pieza 54B: Hydrate HyperFrames Motion Graphic players with authenticated blobs
+    hydrateMotionGraphicPlayers(container, renderId);
 
     // Populate stock card attribution text using textContent
     container.querySelectorAll('.av-stock-attribution-tag').forEach((el) => {
@@ -4217,7 +4414,7 @@ ${htmlContent}
 
     try {
       const ext = studioRecordedMime.includes('mp4') ? 'mp4' : 'webm';
-      const urlRes = await fetchWithAuth(`/api/audiovisual/${ideaId}/takes/${sceneN}/upload-url?ext=${ext}`, {
+      const urlRes = await authenticatedFetch(`/api/audiovisual/${ideaId}/takes/${sceneN}/upload-url?ext=${ext}`, {
         method: 'POST'
       });
       if (!urlRes.ok) {
@@ -4253,7 +4450,7 @@ ${htmlContent}
 
       if (uploadText) uploadText.textContent = 'Enqueuing AssemblyAI transcript…';
       const durationS = studioRecordStartTime ? (Date.now() - studioRecordStartTime) / 1000 : null;
-      const commitRes = await fetchWithAuth(`/api/audiovisual/${ideaId}/takes/${sceneN}/commit`, {
+      const commitRes = await authenticatedFetch(`/api/audiovisual/${ideaId}/takes/${sceneN}/commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -260,3 +260,54 @@ def test_recording_studio_scene_header_and_camera_retry_contract():
     assert "Camera needed" in stripped_js
 
 
+def test_hyperframes_player_and_motion_graphic_contract():
+    """
+    PIEZA 54B: Rebote del QA de la P54: player de HyperFrames y preview de motion graphics.
+    1. index.html script tag src contains /+esm.
+    2. app.js uses URL.createObjectURL for motion graphics player.
+    3. app.js uses revokeObjectURL to clean up blob URLs.
+    4. app.js renders hyperframes-player without src and with data-motion-scene.
+    5. app.js escapes template name with escapeHtml.
+    """
+    assert APP_JS_PATH.exists(), f"app.js not found at {APP_JS_PATH}"
+    assert INDEX_HTML_PATH.exists(), f"index.html not found at {INDEX_HTML_PATH}"
+
+    js_content = APP_JS_PATH.read_text(encoding="utf-8")
+    stripped_js = re.sub(r"/\*.*?\*/", "", js_content, flags=re.DOTALL)
+    html_content = INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+    # 1. Script tag in index.html contains /+esm
+    assert "/+esm" in html_content
+    assert 'src="https://cdn.jsdelivr.net/npm/@hyperframes/player@0/+esm"' in html_content
+
+    # 2. app.js uses URL.createObjectURL for motion graphics player
+    assert "URL.createObjectURL" in stripped_js
+    assert "player.setAttribute('src', blobUrl)" in stripped_js
+
+    # 3. app.js uses revokeObjectURL
+    assert "revokeObjectURL" in stripped_js
+
+    # 4. hyperframes-player rendered without src and with data-motion-scene
+    assert "data-motion-scene" in stripped_js
+
+    # 5. template name escaped
+    assert "${escapeHtml(template)}" in stripped_js
+
+
+
+
+
+def test_every_awaited_fetch_helper_is_defined():
+    """A call to an undefined fetch helper (e.g. 'fetchWithAuth') ships as a
+    ReferenceError that node --check cannot see: it broke the recording upload
+    and the job list in production (Pieza 51/52). Every `await <name>Fetch(`
+    or `await fetch<Name>(` helper used in app.js must be defined in app.js."""
+    js = APP_JS_PATH.read_text(encoding="utf-8")
+    called = set(re.findall(r"await\s+([A-Za-z_]\w*[Ff]etch\w*)\s*\(", js))
+    called |= set(re.findall(r"await\s+(fetch[A-Z]\w*)\s*\(", js))
+    called.discard("fetch")
+    missing = sorted(
+        name for name in called
+        if not re.search(rf"(async\s+)?function\s+{name}\s*\(|(const|let|var)\s+{name}\s*=", js)
+    )
+    assert missing == [], f"Fetch helpers called but never defined in app.js: {missing}"

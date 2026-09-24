@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: radial-gradient(ellipse at center, #1a1f2e 0%, #0d1017 100%);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px;
+      }
+      .list-container {
+        width: 100%;
+        max-width: 920px;
+      }
+      .list-title {
+        font-family: "Space Grotesk", Inter, sans-serif;
+        font-size: 56px;
+        font-weight: 600;
+        color: #E7EAF0;
+        margin-bottom: 60px;
+        letter-spacing: -0.02em;
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      .list-items {
+        display: flex;
+        flex-direction: column;
+        gap: 32px;
+      }
+      .list-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 24px;
+        opacity: 0;
+        transform: translateX(-50px);
+      }
+      .item-bullet {
+        width: 16px;
+        height: 16px;
+        background: #2B4CD8;
+        border-radius: 50%;
+        margin-top: 14px;
+        flex-shrink: 0;
+      }
+      .item-text {
+        font-size: 42px;
+        font-weight: 500;
+        color: #E7EAF0;
+        line-height: 1.4;
+        letter-spacing: -0.01em;
+      }
+      .accent-line {
+        width: 100px;
+        height: 4px;
+        background: linear-gradient(90deg, #2B4CD8, #6E86EE);
+        border-radius: 2px;
+        margin-top: 48px;
+        opacity: 0;
+        transform: scaleX(0);
+      }
+      .brand-mark {
+        position: absolute;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 32px;
+        height: 32px;
+        background: #2B4CD8;
+        border-radius: 8px;
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="list-container" data-composition-id="list" data-start="0" data-duration="{{DURATION_S}}" data-width="1080" data-height="1920">
+      <div class="list-title clip" data-start="0" data-duration="{{DURATION_S}}" data-track-index="0">{{HEADLINE}}</div>
+      <div class="list-items clip" data-start="0.3" data-duration="{{DURATION_S}}" data-track-index="1" id="listItems">
+        <!-- Items will be injected here -->
+      </div>
+      <div class="accent-line clip" data-start="1.0" data-duration="{{DURATION_S}}" data-track-index="2"></div>
+      <div class="brand-mark clip" data-start="1.2" data-duration="{{DURATION_S}}" data-track-index="3"></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Parse items from JSON
+      const itemsContainer = document.getElementById('listItems');
+      const items = {{ITEMS_JSON}};
+
+      // Items come from an LLM: build nodes with textContent, never innerHTML.
+      items.forEach((item, index) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'list-item';
+        const start = String(0.3 + index * 0.25);
+        const bullet = document.createElement('div');
+        bullet.className = 'item-bullet clip';
+        bullet.dataset.start = start;
+        bullet.dataset.duration = '{{DURATION_S}}';
+        bullet.dataset.trackIndex = String(index + 10);
+        const text = document.createElement('div');
+        text.className = 'item-text clip';
+        text.dataset.start = start;
+        text.dataset.duration = '{{DURATION_S}}';
+        text.dataset.trackIndex = String(index + 11);
+        text.textContent = String(item);
+        itemDiv.appendChild(bullet);
+        itemDiv.appendChild(text);
+        itemsContainer.appendChild(itemDiv);
+      });
+
+      // Title animation
+      gsap.set('.list-title', { y: 30, opacity: 0 });
+      tl.to('.list-title', { y: 0, opacity: 1, duration: 0.7, ease: 'power3.out' }, 0);
+
+      // Items staggered cascade
+      const listItems = document.querySelectorAll('.list-item');
+      const totalDuration = {{DURATION_S}};
+      const safeDuration = Math.min(totalDuration * 0.6, listItems.length * 0.4);
+      const itemStagger = Math.min(0.25, safeDuration / listItems.length);
+
+      gsap.set(listItems, { x: -50, opacity: 0 });
+      tl.to(listItems, {
+        x: 0,
+        opacity: 1,
+        duration: 0.5,
+        ease: 'power2.out',
+        stagger: itemStagger
+      }, 0.3);
+
+      // Bullets with scale pop
+      const bullets = document.querySelectorAll('.item-bullet');
+      gsap.set(bullets, { scale: 0 });
+      tl.to(bullets, {
+        scale: 1,
+        duration: 0.4,
+        ease: 'back.out(2)',
+        stagger: itemStagger
+      }, 0.3);
+
+      // Accent line
+      gsap.set('.accent-line', { scaleX: 0, opacity: 0 });
+      tl.to('.accent-line', { scaleX: 1, opacity: 1, duration: 0.5, ease: 'power2.out' }, 1.0);
+
+      // Brand mark
+      gsap.set('.brand-mark', { opacity: 0, y: 20 });
+      tl.to('.brand-mark', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 1.2);
+
+      window.__timelines['list'] = tl;
+    </script>
+  </body>
+</html>

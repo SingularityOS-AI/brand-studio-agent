@@ -2294,6 +2294,58 @@ async def deduct_voice_credits_loop(websocket: WebSocket, session_token: str):
         raise
 
 
+# =============================================================================
+# MOTION GRAPHIC ENDPOINTS (Pieza 54 — HyperFrames Motion Graphics Preview)
+# =============================================================================
+
+@app.get("/api/audiovisual/{idea_id}/motion/{scene_n}")
+async def get_motion_graphic_preview(
+    request: Request,
+    idea_id: str,
+    scene_n: int,
+):
+    """
+    Returns HTML preview of motion graphic composition for a scene.
+
+    This endpoint:
+    1. Validates JWT authentication
+    2. Verifies the motion_graphic job exists and is done
+    3. Returns the HTML content with CSP header allowing cdn.jsdelivr.net
+    4. Returns 404 if motion graphic not found or not ready
+    5. Never returns HTML for another founder's content
+
+    Requires JWT authentication.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+
+    from app.audiovisual.motion_graphics import get_motion_html
+
+    html_content, storage_path = get_motion_html(session_token, idea_id, scene_n)
+
+    if html_content is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Motion graphic not found for idea {idea_id} scene {scene_n}",
+        )
+
+    # Return HTML with CSP header allowing CDN scripts
+    headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+    return HTMLResponse(content=html_content, headers=headers)
+
+
 # Mount static folder
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

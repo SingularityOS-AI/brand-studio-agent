@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: radial-gradient(ellipse at center, #1a1f2e 0%, #0d1017 100%);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 100px 80px;
+      }
+      .quote-container {
+        width: 100%;
+        max-width: 920px;
+        position: relative;
+      }
+      .quote-mark {
+        position: absolute;
+        top: -60px;
+        left: -20px;
+        font-size: 200px;
+        font-family: Georgia, serif;
+        color: #2B4CD8;
+        opacity: 0.3;
+        line-height: 1;
+      }
+      .quote-text {
+        font-family: "Space Grotesk", Inter, sans-serif;
+        font-size: 72px;
+        font-weight: 600;
+        color: #E7EAF0;
+        line-height: 1.25;
+        letter-spacing: -0.02em;
+      }
+      .quote-word {
+        display: inline-block;
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      .quote-author {
+        margin-top: 48px;
+        font-size: 36px;
+        font-weight: 500;
+        color: #6E86EE;
+        opacity: 0;
+      }
+      .accent-line {
+        width: 80px;
+        height: 4px;
+        background: linear-gradient(90deg, #2B4CD8, #6E86EE);
+        border-radius: 2px;
+        margin-top: 40px;
+        opacity: 0;
+        transform: scaleX(0);
+      }
+      .brand-mark {
+        position: absolute;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 32px;
+        height: 32px;
+        background: #2B4CD8;
+        border-radius: 8px;
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="quote-container" data-composition-id="quote" data-start="0" data-duration="{{DURATION_S}}" data-width="1080" data-height="1920">
+      <div class="quote-mark clip" data-start="0" data-duration="{{DURATION_S}}" data-track-index="0">"</div>
+      <div class="quote-text clip" data-start="0.2" data-duration="{{DURATION_S}}" data-track-index="1" id="quoteText">{{HEADLINE}}</div>
+      <div class="accent-line clip" data-start="0.5" data-duration="{{DURATION_S}}" data-track-index="2"></div>
+      <div class="quote-author clip" data-start="0.8" data-duration="{{DURATION_S}}" data-track-index="3">{{SUBLINE}}</div>
+      <div class="brand-mark clip" data-start="1.0" data-duration="{{DURATION_S}}" data-track-index="4"></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Animate quote mark
+      gsap.set('.quote-mark', { opacity: 0, scale: 0.5, y: 30 });
+      tl.to('.quote-mark', { opacity: 0.3, scale: 1, y: 0, duration: 0.6, ease: 'back.out(1.7)' }, 0);
+
+      // Split text into words and animate word by word
+      const quoteText = document.getElementById('quoteText');
+      const rawText = quoteText.textContent.trim();
+      const words = rawText.split(/\s+/);
+
+      // Rebuild with spans
+      quoteText.innerHTML = words.map(word => `<span class="quote-word">${word}</span>`).join(' ');
+
+      const wordElements = quoteText.querySelectorAll('.quote-word');
+      const totalDuration = {{DURATION_S}};
+      const wordDuration = Math.min(0.15, (totalDuration * 0.6) / wordElements.length);
+      const stagger = Math.min(0.08, wordDuration * 0.7);
+
+      tl.to(wordElements, {
+        opacity: 1,
+        y: 0,
+        duration: wordDuration,
+        ease: 'power2.out',
+        stagger: stagger
+      }, 0.2);
+
+      // Accent line
+      gsap.set('.accent-line', { scaleX: 0, opacity: 0 });
+      tl.to('.accent-line', { scaleX: 1, opacity: 1, duration: 0.5, ease: 'power2.out' }, 0.5);
+
+      // Author fade in
+      gsap.set('.quote-author', { y: 20, opacity: 0 });
+      tl.to('.quote-author', { y: 0, opacity: 1, duration: 0.6, ease: 'power2.out' }, 0.8);
+
+      // Brand mark
+      gsap.set('.brand-mark', { opacity: 0, y: 20 });
+      tl.to('.brand-mark', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 1.0);
+
+      window.__timelines['quote'] = tl;
+    </script>
+  </body>
+</html>

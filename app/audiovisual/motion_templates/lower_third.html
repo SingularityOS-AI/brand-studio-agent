@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: radial-gradient(ellipse at center, #1a1f2e 0%, #0d1017 100%);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px;
+      }
+      .lower-third-container {
+        width: 100%;
+        max-width: 920px;
+        text-align: center;
+      }
+      .lower-accent-bar {
+        width: 0;
+        height: 6px;
+        background: linear-gradient(90deg, #2B4CD8, #6E86EE);
+        border-radius: 3px;
+        margin: 0 auto 40px;
+      }
+      .lower-headline {
+        font-family: "Space Grotesk", Inter, sans-serif;
+        font-size: 88px;
+        font-weight: 700;
+        color: #E7EAF0;
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+        margin-bottom: 32px;
+        opacity: 0;
+        transform: translateY(40px);
+      }
+      .lower-subline {
+        font-size: 44px;
+        font-weight: 500;
+        color: #A8B3C8;
+        line-height: 1.3;
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      .lower-accent-bottom {
+        width: 0;
+        height: 4px;
+        background: linear-gradient(90deg, transparent, #2B4CD8, transparent);
+        border-radius: 2px;
+        margin: 60px auto 0;
+      }
+      .brand-mark {
+        position: absolute;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 32px;
+        height: 32px;
+        background: #2B4CD8;
+        border-radius: 8px;
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="lower-third-container" data-composition-id="lower_third" data-start="0" data-duration="{{DURATION_S}}" data-width="1080" data-height="1920">
+      <div class="lower-accent-bar clip" data-start="0" data-duration="{{DURATION_S}}" data-track-index="0"></div>
+      <div class="lower-headline clip" data-start="0.15" data-duration="{{DURATION_S}}" data-track-index="1">{{HEADLINE}}</div>
+      <div class="lower-subline clip" data-start="0.5" data-duration="{{DURATION_S}}" data-track-index="2">{{SUBLINE}}</div>
+      <div class="lower-accent-bottom clip" data-start="0.8" data-duration="{{DURATION_S}}" data-track-index="3"></div>
+      <div class="brand-mark clip" data-start="1.0" data-duration="{{DURATION_S}}" data-track-index="4"></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Top accent bar
+      gsap.set('.lower-accent-bar', { width: 0, opacity: 0 });
+      tl.to('.lower-accent-bar', {
+        width: 120,
+        opacity: 1,
+        duration: 0.6,
+        ease: 'power2.out'
+      }, 0);
+
+      // Headline slide up
+      gsap.set('.lower-headline', { y: 40, opacity: 0 });
+      tl.to('.lower-headline', {
+        y: 0,
+        opacity: 1,
+        duration: 0.8,
+        ease: 'power3.out'
+      }, 0.15);
+
+      // Subline fade in
+      gsap.set('.lower-subline', { y: 30, opacity: 0 });
+      tl.to('.lower-subline', {
+        y: 0,
+        opacity: 1,
+        duration: 0.7,
+        ease: 'power2.out'
+      }, 0.5);
+
+      // Bottom accent line
+      gsap.set('.lower-accent-bottom', { width: 0, opacity: 0 });
+      tl.to('.lower-accent-bottom', {
+        width: 300,
+        opacity: 1,
+        duration: 0.7,
+        ease: 'power2.out'
+      }, 0.8);
+
+      // Brand mark
+      gsap.set('.brand-mark', { opacity: 0, y: 20 });
+      tl.to('.brand-mark', {
+        opacity: 1,
+        y: 0,
+        duration: 0.5,
+        ease: 'power2.out'
+      }, 1.0);
+
+      window.__timelines['lower_third'] = tl;
+    </script>
+  </body>
+</html>
