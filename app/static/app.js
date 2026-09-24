@@ -1523,25 +1523,26 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
   // Track credits state for depleted mode
   let creditsDepleted = false;
+  let maxCreditsSeenInSession = 0;
 
   // Update credits UI (helper function)
   function updateCreditsUI(remaining, initial) {
     // Update global credits variable for access in modals and gates
     credits = remaining;
 
+    const num = Number(remaining) || 0;
+    const initNum = Number(initial) || 0;
+    maxCreditsSeenInSession = Math.max(maxCreditsSeenInSession, initNum, num);
+    const denominator = Math.max(1, maxCreditsSeenInSession);
+
     const creditsLabel = document.getElementById('Credits-Label');
     const creditsBar = document.getElementById('Credits-Bar');
 
     if (creditsLabel) {
-      const num = Number(remaining) || 0;
       creditsLabel.textContent = `${num.toLocaleString('en-US')} credits`;
     }
 
-    // percentage se calcula FUERA del if: abajo se usa en el log, y declararla
-    // dentro del bloque lanzaba ReferenceError en cada llamada, abortando la
-    // funcion justo antes de la deteccion de saldo agotado. El paywall no se
-    // activaba nunca.
-    const percentage = Math.max(0, Math.min(100, (remaining / initial) * 100));
+    const percentage = Math.max(0, Math.min(100, (num / denominator) * 100));
 
     if (creditsBar) {
       creditsBar.style.width = `${percentage}%`;
@@ -1556,7 +1557,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       }
     }
 
-    console.log(`[Credits] ${remaining} of ${initial} (${percentage.toFixed(1)}%)`);
+    console.log(`[Credits] ${num} of ${denominator} (${percentage.toFixed(1)}%)`);
 
     // Check if depleted
     const wasDepleted = creditsDepleted;
@@ -3131,9 +3132,24 @@ ${htmlContent}
     return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>`;
   }
 
-  // Pieza 51: Teleprompter & Recording Studio state
+  // Pieza 51 / 58: Teleprompter & Audiovisual state
   let currentAudiovisualJobs = [];
+  let currentAudiovisualEstimate = null;
   let audiovisualPollInterval = null;
+
+  async function fetchAudiovisualEstimate(ideaId) {
+    if (!ideaId) return null;
+    try {
+      const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/estimate`);
+      if (res.ok) {
+        currentAudiovisualEstimate = await res.json();
+        return currentAudiovisualEstimate;
+      }
+    } catch (err) {
+      console.warn('[Audiovisual] Failed to fetch estimate:', err);
+    }
+    return null;
+  }
 
   // Pieza 54 / 54B: HyperFrames Motion Graphics preview caching and blob lifecycle
   let activeMotionBlobUrls = [];
@@ -3302,6 +3318,8 @@ ${htmlContent}
       if (!hasActiveJobs) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
+        await fetchAudiovisualEstimate(ideaId);
+        renderAudiovisualView();
       }
     }, 2500);
   }
@@ -3431,6 +3449,99 @@ ${htmlContent}
       `;
     }
 
+    // Asset Type Selector & SFX (Pieza 58)
+    const creditsByType = currentAudiovisualEstimate?.credits_by_type;
+    const isAiPaused = Boolean(currentAudiovisualEstimate?.ai_paused);
+    const isSceneGenerating = (currentAudiovisualJobs || []).some(j => j.scene_n === scene.n && (j.status === 'pending' || j.status === 'running'));
+    const otherAiVideoScene = (currentScriptData.scenes || []).find(s => s.n !== scene.n && s.asset_type === 'ai_video');
+
+    const assetTypeConfigs = [
+      { type: 'a_roll', label: '🎥 Camera (you)' },
+      { type: 'stock', label: '🎞 Stock' },
+      { type: 'motion_graphic', label: '✦ Motion graphic' },
+      { type: 'ai_image', label: '🖼 AI image' },
+      { type: 'ai_video', label: '🎬 AI video' }
+    ];
+
+    const SUGGESTED_NAMES = {
+      a_roll: 'Camera (you)',
+      stock: 'Stock',
+      motion_graphic: 'Motion graphic',
+      ai_image: 'AI image',
+      ai_video: 'AI video'
+    };
+
+    let selectorBtnsHtml = assetTypeConfigs.map(opt => {
+      let costLabel = '…';
+      let isDisabled = isSceneGenerating || !creditsByType;
+      let reasonTooltip = '';
+
+      if (creditsByType && creditsByType[opt.type] !== undefined) {
+        const cost = creditsByType[opt.type];
+        costLabel = cost === 0 ? 'free' : `${cost} credits`;
+      }
+
+      const isSelected = assetType === opt.type;
+
+      if (isAiPaused && (opt.type === 'ai_image' || opt.type === 'ai_video')) {
+        isDisabled = true;
+        reasonTooltip = 'AI generation is paused right now — Stock and Motion graphic are free';
+      } else if (otherAiVideoScene && opt.type === 'ai_video' && !isSelected) {
+        isDisabled = true;
+        reasonTooltip = `Only 1 AI video per script — scene ${otherAiVideoScene.n} has it`;
+      }
+
+      const activeStyle = isSelected
+        ? 'background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;'
+        : 'background:var(--surface);color:var(--ink);border-color:var(--line);';
+      const disabledStyle = isDisabled ? 'opacity:0.45;cursor:not-allowed;' : 'cursor:pointer;';
+
+      return `
+        <button type="button" class="av-asset-type-btn" data-asset-type="${opt.type}" ${isDisabled ? 'disabled' : ''} title="${escapeHtml(reasonTooltip)}" style="padding:6px 10px;font-size:11px;border:1px solid;border-radius:6px;transition:all 0.15s ease;display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;${activeStyle}${disabledStyle}">
+          ${escapeHtml(opt.label)} · ${escapeHtml(costLabel)}
+        </button>
+      `;
+    }).join('');
+
+    let selectorHelperText = '';
+    if (isSceneGenerating) {
+      selectorHelperText = `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Generating — wait to change type</div>`;
+    } else if (isAiPaused) {
+      selectorHelperText = `<div style="font-size:11px;color:#B45309;margin-top:4px;">AI generation is paused right now — Stock and Motion graphic are free</div>`;
+    } else if (otherAiVideoScene) {
+      selectorHelperText = `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Only 1 AI video per script — scene ${otherAiVideoScene.n} has it</div>`;
+    }
+
+    let suggestedTextHtml = '';
+    if (scene.suggested_asset_type && scene.suggested_asset_type !== assetType) {
+      const suggestedName = SUGGESTED_NAMES[scene.suggested_asset_type] || scene.suggested_asset_type;
+      suggestedTextHtml = `<div style="font-size:11.5px;color:var(--accent);font-weight:500;margin-top:4px;">Suggested by your script: ${escapeHtml(suggestedName)}</div>`;
+    }
+
+    const assetTypeSelectorSectionHtml = `
+      <div style="margin-bottom:14px;padding:12px;background:var(--surface-alt);border:1px solid var(--line);border-radius:8px;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:8px;">Asset Type for Scene #${scene.n || (sceneIdx + 1)}</div>
+        <div id="AV-AssetTypeSelector" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${selectorBtnsHtml}
+        </div>
+        ${suggestedTextHtml}
+        ${selectorHelperText}
+        <div id="AV-AssetTypeErrorInline" style="font-size:11.5px;color:#DC2626;font-weight:600;margin-top:6px;display:none;"></div>
+      </div>
+    `;
+
+    const sfxJob = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'sfx' && j.status === 'done');
+    let sfxInspectorHtml = '';
+    if (sfxJob) {
+      const sfxTitle = sfxJob.output_display?.tag || sfxJob.output_display?.title || sfxJob.output?.tag || 'sound effect';
+      sfxInspectorHtml = `
+        <div style="margin-top:12px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;">
+          <div style="font-weight:600;color:var(--ink);margin-bottom:4px;">Sound effect: ${escapeHtml(sfxTitle)}</div>
+          ${sfxJob.signed_url ? `<audio controls preload="none" src="${escapeHtml(sfxJob.signed_url)}" style="height:30px;width:100%;max-width:300px;display:block;margin-top:4px;"></audio>` : ''}
+        </div>
+      `;
+    }
+
     detailPanel.style.display = 'block';
     detailPanel.innerHTML = `
       <div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -3449,6 +3560,8 @@ ${htmlContent}
         </div>
       </div>
 
+      ${assetTypeSelectorSectionHtml}
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.5;">
         ${spokenTextSectionHtml}
         <div>
@@ -3460,6 +3573,7 @@ ${htmlContent}
       </div>
 
       ${videoPreviewHtml}
+      ${sfxInspectorHtml}
 
       <div style="margin-top:12px;font-size:13px;line-height:1.5;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Prompt & Direction Details</div>
@@ -3477,6 +3591,57 @@ ${htmlContent}
         <span>Record takes at step 1. Arranging, trimming, and reordering clips take place in Step 5 (Editing).</span>
       </div>
     `;
+
+    // Wire asset type selector buttons
+    const selectorBtns = detailPanel.querySelectorAll('.av-asset-type-btn');
+    selectorBtns.forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const newType = btn.dataset.assetType;
+        if (newType === assetType) return;
+
+        selectorBtns.forEach(b => b.disabled = true);
+        const errEl = detailPanel.querySelector('#AV-AssetTypeErrorInline');
+        if (errEl) errEl.style.display = 'none';
+
+        const ideaId = currentScriptData.idea_id;
+        try {
+          const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/scenes/${scene.n}/asset_type`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asset_type: newType })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            // TRAMPA REPO: Actualizar PRIMERO currentScriptData.scenes[sceneIdx] con data.scene
+            if (data.scene) {
+              currentScriptData.scenes[sceneIdx] = data.scene;
+            }
+            if (data.estimate) {
+              currentAudiovisualEstimate = data.estimate;
+            } else {
+              await fetchAudiovisualEstimate(ideaId);
+            }
+            renderAudiovisualView();
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            if (errEl) {
+              errEl.textContent = errData.error || 'Failed to change asset type';
+              errEl.style.display = 'block';
+            }
+            selectorBtns.forEach(b => b.disabled = false);
+          }
+        } catch (err) {
+          if (err.message !== 'PAYWALL_402') {
+            if (errEl) {
+              errEl.textContent = err.message || 'Error changing asset type';
+              errEl.style.display = 'block';
+            }
+          }
+          selectorBtns.forEach(b => b.disabled = false);
+        }
+      });
+    });
 
     // Wire record button in detail panel if present
     const recordBtnInDetail = detailPanel.querySelector('.btn-aroll-record');
@@ -3517,6 +3682,8 @@ ${htmlContent}
     const renderId = ++currentAudiovisualRenderId;
     const container = document.getElementById('Audiovisual-Content');
     if (!container || !currentScriptData) return;
+
+    const creditsByType = currentAudiovisualEstimate?.credits_by_type;
 
     const matchedIdea = currentCatalog?.ideas?.find(i => i.id === currentScriptData.idea_id);
     const scriptTitle = currentScriptData.title || matchedIdea?.title || 'Video Script';
@@ -3863,22 +4030,44 @@ ${htmlContent}
       let cardRegenHtml = '';
       if (!isARoll) {
         const bRollJob = (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === assetType && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+        const cost = creditsByType ? creditsByType[assetType] : undefined;
+        const costUnknown = cost === undefined;
+        const costAttr = costUnknown ? '' : cost;
         if (bRollJob && (bRollJob.status === 'done' || bRollJob.status === 'failed')) {
-          const regenCost = (assetType === 'ai_video' ? 90 : (assetType === 'ai_image' ? 5 : 0));
-          const regenLabel = regenCost === 0 ? '⟳ Another option · free' : `⟳ Regenerate · ${regenCost} credits`;
+          const regenLabel = costUnknown ? '⟳ Regenerate · …' : (cost === 0 ? '⟳ Another option · free' : `⟳ Regenerate · ${cost} credits`);
           cardRegenHtml = `
-            <div class="av-card-regen-wrap" data-scene-n="${scene.n}" data-cost="${regenCost}" style="margin-top:auto;padding-top:2px;">
-              <button type="button" class="btn-card-regen" data-scene-n="${scene.n}" data-cost="${regenCost}" style="width:100%;padding:4px 6px;font-size:10px;font-weight:600;border-radius:4px;border:1px solid var(--line);background:var(--surface-alt);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;box-sizing:border-box;">
+            <div class="av-card-regen-wrap" data-scene-n="${scene.n}" data-cost="${costAttr}" style="margin-top:auto;padding-top:2px;">
+              <button type="button" class="btn-card-regen" data-scene-n="${scene.n}" data-cost="${costAttr}" ${costUnknown ? 'disabled' : ''} style="width:100%;padding:4px 6px;font-size:10px;font-weight:600;border-radius:4px;border:1px solid var(--line);background:var(--surface-alt);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;box-sizing:border-box;">
                 ${escapeHtml(regenLabel)}
               </button>
               <div class="av-card-regen-confirm" style="display:none;align-items:center;justify-content:center;gap:4px;padding:3px;background:var(--surface-alt);border-radius:4px;border:1px solid var(--line);font-size:10px;">
-                <span style="font-weight:600;color:var(--ink-soft);font-size:9.5px;">${regenCost > 0 ? `${regenCost} cr?` : 'Another?'}</span>
-                <button type="button" class="btn-card-regen-confirm-yes" data-scene-n="${scene.n}" data-cost="${regenCost}" style="padding:2px 6px;background:var(--accent);color:#fff;border:none;border-radius:3px;font-size:9.5px;font-weight:700;cursor:pointer;">Yes</button>
+                <span style="font-weight:600;color:var(--ink-soft);font-size:9.5px;">${cost > 0 ? `${cost} cr?` : 'Another?'}</span>
+                <button type="button" class="btn-card-regen-confirm-yes" data-scene-n="${scene.n}" data-cost="${costAttr}" style="padding:2px 6px;background:var(--accent);color:#fff;border:none;border-radius:3px;font-size:9.5px;font-weight:700;cursor:pointer;">Yes</button>
                 <button type="button" class="btn-card-regen-confirm-no" style="padding:2px 5px;background:transparent;color:var(--ink-soft);border:1px solid var(--line);border-radius:3px;font-size:9.5px;cursor:pointer;">✕</button>
               </div>
             </div>
           `;
+        } else if (!bRollJob || (bRollJob.status !== 'pending' && bRollJob.status !== 'running')) {
+          const genBtnLabel = costUnknown ? 'Generate · …' : (cost === 0 ? 'Generate · free' : `Generate · ${cost} credits`);
+          cardRegenHtml = `
+            <div class="av-card-gen-wrap" data-scene-n="${scene.n}" style="margin-top:auto;padding-top:2px;">
+              <button type="button" class="btn-card-gen-direct" data-scene-n="${scene.n}" ${costUnknown ? 'disabled' : ''} style="width:100%;padding:4px 6px;font-size:10px;font-weight:600;border-radius:4px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;box-sizing:border-box;">
+                ✨ ${escapeHtml(genBtnLabel)}
+              </button>
+            </div>
+          `;
         }
+      }
+
+      const sfxJob = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'sfx' && j.status === 'done');
+      let cardSfxChipHtml = '';
+      if (sfxJob) {
+        const tag = sfxJob.output_display?.tag || sfxJob.output_display?.title || sfxJob.output?.tag || 'sound effect';
+        cardSfxChipHtml = `
+          <div class="av-sfx-chip" data-signed-url="${escapeHtml(sfxJob.signed_url || '')}" style="margin-top:4px;font-size:10px;font-weight:600;color:var(--ink);display:inline-flex;align-items:center;gap:3px;background:var(--surface-alt);padding:2px 6px;border-radius:4px;border:1px solid var(--line);cursor:pointer;" title="Click to play sound effect">
+            🔊 ${escapeHtml(tag)}
+          </div>
+        `;
       }
 
       timelineCardsHtml += `
@@ -3898,6 +4087,7 @@ ${htmlContent}
             <span style="font-weight:600;color:var(--ink);">${escapeHtml(queryLabel)}:</span> ${escapeHtml(fullQuery)}
           </div>
           ${stockAttributionHtml}
+          ${cardSfxChipHtml}
           ${cardRegenHtml}
         </div>
       `;
@@ -3933,11 +4123,77 @@ ${htmlContent}
 
     const bRollJobs = (currentAudiovisualJobs || []).filter(j => j.kind !== 'a_roll_take' && j.kind !== 'transcript' && j.kind !== 'music' && j.kind !== 'sfx');
     const isGeneratingAny = bRollJobs.some(j => j.status === 'pending' || j.status === 'running');
+    const hasPendingAiVideo = (currentAudiovisualJobs || []).some(j => j.kind === 'ai_video' && (j.status === 'pending' || j.status === 'running'));
     const failedBRollScenes = bRollScenes.filter(s => {
       const j = (currentAudiovisualJobs || []).filter(job => job.scene_n === s.n && job.kind === s.asset_type && job.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
       return j && j.status === 'failed';
     });
     const allBRollDone = totalBroll > 0 && readyBroll === totalBroll;
+
+    const progressPct = totalBroll > 0 ? Math.round((readyBroll / totalBroll) * 100) : 0;
+    let progressBarText = `${readyBroll} of ${totalBroll} assets ready`;
+    if (!isGeneratingAny && readyBroll === totalBroll && totalBroll > 0) {
+      progressBarText = 'Assets generated ✓';
+    } else if (!isGeneratingAny && failedBRollScenes.length > 0) {
+      progressBarText = `Retry failed (${failedBRollScenes.length})`;
+    }
+
+    const progressBarHtml = totalBroll > 0 ? `
+      <div style="margin-top:14px;width:100%;max-width:520px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px;">
+          <span>${escapeHtml(progressBarText)}</span>
+          ${hasPendingAiVideo ? '<span style="font-size:11.5px;font-weight:500;color:var(--accent);">AI video takes 1–3 minutes — you can keep working.</span>' : ''}
+        </div>
+        <div style="width:100%;height:8px;background:var(--surface-alt);border-radius:4px;overflow:hidden;border:1px solid var(--line);">
+          <div style="height:100%;width:${progressPct}%;background:${readyBroll === totalBroll ? '#16A34A' : '#2B4CD8'};transition:width 0.4s ease;"></div>
+        </div>
+      </div>
+    ` : '';
+
+    const musicJob = (currentAudiovisualJobs || []).find(j => j.kind === 'music' && j.status !== 'cancelled');
+    let soundtrackHtml = '';
+    if (!musicJob || musicJob.status === 'pending' || musicJob.status === 'running') {
+      soundtrackHtml = `
+        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;">
+          <span style="font-weight:600;color:var(--ink);">♪ Soundtrack:</span> <span style="color:var(--ink-soft);font-style:italic;">choosing…</span>
+        </div>
+      `;
+    } else if (musicJob.status === 'done') {
+      const isNoMusic = musicJob.output?.use_music === false || musicJob.output_display?.use_music === false;
+      if (isNoMusic) {
+        const reason = musicJob.output_display?.reason || musicJob.output?.reason || 'No background music requested';
+        soundtrackHtml = `
+          <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:var(--ink-soft);">
+            <span style="font-weight:600;color:var(--ink);">♪ No background music</span> — ${escapeHtml(reason)}
+          </div>
+        `;
+      } else {
+        const title = musicJob.output_display?.title || musicJob.output?.title || 'Background Track';
+        const mood = musicJob.output_display?.mood || musicJob.output?.mood || '';
+        const energy = musicJob.output_display?.energy || musicJob.output?.energy || '';
+        const reason = musicJob.output_display?.reason || musicJob.output?.reason || '';
+        const signedUrl = musicJob.signed_url || musicJob.output?.signed_url || '';
+
+        const moodEnergyText = [mood, energy].filter(Boolean).join(', ');
+        const trackDetails = moodEnergyText ? ` — ${moodEnergyText}` : '';
+
+        soundtrackHtml = `
+          <div style="margin-top:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;">
+            <div style="font-weight:600;color:var(--ink);margin-bottom:4px;">
+              ♪ Soundtrack: ${escapeHtml(title)}${escapeHtml(trackDetails)}
+            </div>
+            ${signedUrl ? `<audio controls preload="none" src="${escapeHtml(signedUrl)}" style="height:32px;width:100%;max-width:360px;margin-top:4px;display:block;"></audio>` : ''}
+            ${reason ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">${escapeHtml(reason)}</div>` : ''}
+          </div>
+        `;
+      }
+    } else if (musicJob.status === 'failed') {
+      soundtrackHtml = `
+        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:var(--ink-soft);">
+          <span style="font-weight:600;color:var(--ink);">♪ No background music</span> — Selection failed
+        </div>
+      `;
+    }
 
     let mainActionBtnHtml = '';
     if (totalBroll === 0) {
@@ -4074,6 +4330,8 @@ ${htmlContent}
             ${mainActionBtnHtml}
           </div>
         </div>
+        ${progressBarHtml}
+        ${soundtrackHtml}
         <!-- Estimate & Confirmation Panel (Pieza 55) -->
         <div id="AV-ConfirmPanel" style="display:none;margin-top:18px;padding:20px;background:var(--surface);border:1px solid var(--line);border-radius:8px;"></div>
       </div>
@@ -4093,53 +4351,24 @@ ${htmlContent}
       }
     });
 
-    // Wire card regenerate buttons (Pieza 55)
-    container.querySelectorAll('.btn-card-regen').forEach((btn) => {
+    // Wire direct generate buttons on cards
+    container.querySelectorAll('.btn-card-gen-direct').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const scN = parseInt(btn.dataset.sceneN, 10);
-        const cost = parseInt(btn.dataset.cost, 10) || 0;
-        const wrap = btn.closest('.av-card-regen-wrap');
-        if (!wrap) return;
-
-        if (cost > 0) {
-          const confirmBox = wrap.querySelector('.av-card-regen-confirm');
-          btn.style.display = 'none';
-          if (confirmBox) confirmBox.style.display = 'inline-flex';
-        } else {
-          triggerRegenerateScene(scN, btn);
-        }
+        triggerRegenerateScene(scN, btn);
       });
     });
 
-    container.querySelectorAll('.btn-card-regen-confirm-no').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+    // Wire SFX chips on cards
+    container.querySelectorAll('.av-sfx-chip').forEach((chip) => {
+      chip.addEventListener('click', (e) => {
         e.stopPropagation();
-        const wrap = btn.closest('.av-card-regen-wrap');
-        if (!wrap) return;
-        const mainBtn = wrap.querySelector('.btn-card-regen');
-        const confirmBox = wrap.querySelector('.av-card-regen-confirm');
-        if (confirmBox) confirmBox.style.display = 'none';
-        if (mainBtn) mainBtn.style.display = 'inline-flex';
-      });
-    });
-
-    container.querySelectorAll('.btn-card-regen-confirm-yes').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const scN = parseInt(btn.dataset.sceneN, 10);
-        const wrap = btn.closest('.av-card-regen-wrap');
-        const mainBtn = wrap ? wrap.querySelector('.btn-card-regen') : null;
-        if (wrap) {
-          const confirmBox = wrap.querySelector('.av-card-regen-confirm');
-          if (confirmBox) confirmBox.style.display = 'none';
-          if (mainBtn) {
-            mainBtn.style.display = 'inline-flex';
-            mainBtn.disabled = true;
-            mainBtn.textContent = 'Regenerating…';
-          }
+        const url = chip.dataset.signedUrl;
+        if (url) {
+          const audio = new Audio(url);
+          audio.play().catch(console.warn);
         }
-        triggerRegenerateScene(scN, mainBtn);
       });
     });
 
@@ -4303,6 +4532,9 @@ ${htmlContent}
   }
 
   function renderAudiovisualEstimatePanel(container, estData, ideaId) {
+    if (estData) {
+      currentAudiovisualEstimate = estData;
+    }
     const confirmPanel = container.querySelector('#AV-ConfirmPanel');
     if (!confirmPanel) return;
 
@@ -4312,9 +4544,11 @@ ${htmlContent}
     const balanceAfter = userBalance - totalCredits;
     const hasEnoughBalance = balanceAfter >= 0;
 
+    const isAiPaused = Boolean(estData.ai_paused || currentAudiovisualEstimate?.ai_paused);
+    const hasAiScenes = (estData.scenes || []).some(s => s.asset_type === 'ai_image' || s.asset_type === 'ai_video');
     const overAiVideo = Boolean(estData.over_ai_video_limit);
     const overCeiling = Boolean(estData.over_ceiling);
-    const isBlocked = overAiVideo || overCeiling || !hasEnoughBalance;
+    const isBlocked = overAiVideo || overCeiling || !hasEnoughBalance || (isAiPaused && hasAiScenes);
 
     let rowsHtml = scenesList.map(s => {
       const phaseName = PHASE_NAMES[s.phase] || (s.phase ? s.phase.replace(/_/g, ' ') : 'Scene');
@@ -4330,7 +4564,13 @@ ${htmlContent}
     }).join('');
 
     let warningHtml = '';
-    if (overAiVideo) {
+    if (isAiPaused && hasAiScenes) {
+      warningHtml = `
+        <div style="margin-bottom:12px;padding:10px 14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:6px;font-size:12.5px;color:#991B1B;font-weight:600;">
+          AI generation is paused right now. Switch AI scenes to Stock or Motion graphic (free) to continue.
+        </div>
+      `;
+    } else if (overAiVideo) {
       warningHtml = `
         <div style="margin-bottom:12px;padding:8px 12px;background:#FEE2E2;border:1px solid #FECACA;border-radius:6px;font-size:12px;color:#DC2626;font-weight:500;">
           AI video limit exceeded: maximum 1 AI video scene allowed per script.
@@ -4425,8 +4665,14 @@ ${htmlContent}
             renderAudiovisualView();
           } else {
             const errData = await genRes.json().catch(() => ({}));
-            alert(errData.error || 'Failed to generate assets');
-            renderAudiovisualView();
+            if (genRes.status === 503 && (errData.code === 'ai_paused' || errData.ai_paused)) {
+              estData.ai_paused = true;
+              if (currentAudiovisualEstimate) currentAudiovisualEstimate.ai_paused = true;
+              renderAudiovisualEstimatePanel(container, estData, ideaId);
+            } else {
+              alert(errData.error || 'Failed to generate assets');
+              renderAudiovisualView();
+            }
           }
         } catch (err) {
           if (err.message !== 'PAYWALL_402') {
@@ -4494,11 +4740,15 @@ ${htmlContent}
       if (guardEl) guardEl.style.display = 'none';
       if (contentEl) {
         contentEl.style.display = 'block';
-        loadAudiovisualJobs(currentScriptData.idea_id).then((jobs) => {
+        const ideaId = currentScriptData.idea_id;
+        fetchAudiovisualEstimate(ideaId).then(() => {
           renderAudiovisualView();
-          const hasActiveTranscript = (jobs || []).some(j => j.kind === 'transcript' && (j.status === 'pending' || j.status === 'running'));
-          if (hasActiveTranscript) {
-            pollAudiovisualJobs(currentScriptData.idea_id);
+        });
+        loadAudiovisualJobs(ideaId).then((jobs) => {
+          renderAudiovisualView();
+          const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic') && (j.status === 'pending' || j.status === 'running'));
+          if (hasActiveJobs) {
+            pollAudiovisualJobs(ideaId);
           }
         });
         renderAudiovisualView();
