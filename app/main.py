@@ -1511,12 +1511,6 @@ async def get_take_upload_url_endpoint(request: Request, idea_id: str, scene_n: 
             content={"error": f"Scene {scene_n} not found in script"},
         )
 
-    if scene.asset_type != "a_roll":
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Scene {scene_n} is not an A-roll scene (asset_type is {scene.asset_type})"},
-        )
-
     ext = "webm"
     if request.query_params.get("ext"):
         ext = request.query_params.get("ext")
@@ -1540,9 +1534,10 @@ async def get_take_upload_url_endpoint(request: Request, idea_id: str, scene_n: 
 @app.post("/api/audiovisual/{idea_id}/takes/{scene_n}/commit", response_class=JSONResponse)
 async def commit_take_endpoint(request: Request, idea_id: str, scene_n: int):
     """
-    Commits an uploaded A-roll take for a scene:
+    Commits an uploaded take for a scene (a_roll or B-roll per Pieza 56):
     - Verifies that storage_path belongs to this founder/idea/scene (403 if invalid).
-    - Validates script is locked and scene is a_roll.
+    - Validates script is locked and scene exists in script.
+    - Sets role="on_camera" for a_roll scenes, role="voiceover" for B-roll scenes.
     - Cancels any previous take/transcript jobs for this scene.
     - Creates job 'a_roll_take' with status 'done' (0 credits).
     - Enqueues job 'transcript' with status 'pending' (0 credits).
@@ -1607,11 +1602,7 @@ async def commit_take_endpoint(request: Request, idea_id: str, scene_n: int):
             content={"error": f"Scene {scene_n} not found in script"},
         )
 
-    if scene.asset_type != "a_roll":
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Scene {scene_n} is not an A-roll scene"},
-        )
+    role = "on_camera" if (scene.asset_type or "a_roll") == "a_roll" else "voiceover"
 
     # Cancel previous take & transcript jobs for this scene
     existing_jobs = list_jobs(session_token, idea_id)
@@ -1632,6 +1623,7 @@ async def commit_take_endpoint(request: Request, idea_id: str, scene_n: int):
             "storage_path": storage_path,
             "mime": mime,
             "duration_s": duration_s,
+            "role": role,
         },
     )
 
@@ -1641,6 +1633,7 @@ async def commit_take_endpoint(request: Request, idea_id: str, scene_n: int):
             "storage_path": storage_path,
             "mime": mime,
             "duration_s": duration_s,
+            "role": role,
         },
         cost_usd=0.0,
         charged=False,

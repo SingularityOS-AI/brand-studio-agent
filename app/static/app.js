@@ -3341,15 +3341,33 @@ ${htmlContent}
 
     const isARoll = assetType === 'a_roll';
     const isStock = assetType === 'stock';
-    const takeJob = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
-    const transcriptJob = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
+    const isAIImage = assetType === 'ai_image';
+    const isAIVideo = assetType === 'ai_video';
+    const isMotionGraphic = assetType === 'motion_graphic';
+
+    const takeJob = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done');
+    const transcriptJob = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled');
     const stockJob = isStock ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'stock' && j.status === 'done') : null;
+    const aiImageJob = isAIImage ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_image' && j.status === 'done') : null;
+    const aiVideoJob = isAIVideo ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'ai_video' && j.status === 'done') : null;
+    const motionGraphicJob = isMotionGraphic ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'motion_graphic' && j.status === 'done') : null;
 
     let badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;">Pending</span>';
     if (isARoll && takeJob) {
       badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">Recorded ✓</span>';
     } else if (isStock && stockJob) {
       badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">Stock ✓</span>';
+    } else if (isAIImage && aiImageJob) {
+      badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">AI Image ✓</span>';
+    } else if (isAIVideo && aiVideoJob) {
+      badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">AI Video ✓</span>';
+    } else if (isMotionGraphic && motionGraphicJob) {
+      badgeStatusHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">Motion ✓</span>';
+    }
+
+    let takeBadgeHtml = '';
+    if (!isARoll && takeJob) {
+      takeBadgeHtml = '<span style="padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;">🎙 Your take ✓</span>';
     }
 
     let spokenTextSectionHtml = `
@@ -3361,7 +3379,7 @@ ${htmlContent}
       </div>
     `;
 
-    if (isARoll && transcriptJob && transcriptJob.status === 'done' && transcriptJob.output?.text) {
+    if (transcriptJob && transcriptJob.status === 'done' && transcriptJob.output?.text) {
       spokenTextSectionHtml = `
         <div>
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Original Guide Script</div>
@@ -3376,26 +3394,39 @@ ${htmlContent}
       `;
     }
 
-    let takeActionBtn = '';
-    if (isARoll) {
-      const label = takeJob ? '🎥 Retake (free)' : '🎥 Record Scene';
-      takeActionBtn = `<button type="button" class="btn btn--secondary btn-aroll-record" data-scene-n="${scene.n || (sceneIdx + 1)}" style="padding:4px 10px;font-size:11px;">${label}</button>`;
-    }
+    const label = takeJob ? '🎥 Retake (free)' : '🎥 Record Scene';
+    const takeActionBtn = `<button type="button" class="btn btn--secondary btn-aroll-record" data-scene-n="${scene.n || (sceneIdx + 1)}" style="padding:4px 10px;font-size:11px;">${label}</button>`;
 
     let videoPreviewHtml = '';
-    if (isARoll && takeJob && takeJob.signed_url) {
-      videoPreviewHtml = `
+    if (takeJob && takeJob.signed_url) {
+      const takeTitle = isARoll ? 'Recorded Take Preview' : 'Your Take Preview (Voiceover / Backup)';
+      videoPreviewHtml += `
         <div style="margin-top:12px;">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">Recorded Take Preview</div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">${takeTitle}</div>
           <video src="${escapeHtml(takeJob.signed_url)}" controls playsinline style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
         </div>
       `;
-    } else if (isStock && stockJob && stockJob.output?.video_url) {
-      videoPreviewHtml = `
+    }
+    if (isStock && stockJob && stockJob.output?.video_url) {
+      videoPreviewHtml += `
         <div style="margin-top:12px;">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">Stock Video Preview</div>
           <video src="${escapeHtml(stockJob.output.video_url)}" controls playsinline style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
           <div id="AV-InspectorStockAttribution" style="font-size:11px;color:var(--ink-soft);margin-top:4px;"></div>
+        </div>
+      `;
+    } else if (isAIImage && aiImageJob && aiImageJob.signed_url) {
+      videoPreviewHtml += `
+        <div style="margin-top:12px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">AI Image Preview</div>
+          <img src="${escapeHtml(aiImageJob.signed_url)}" alt="AI Image" style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);display:block;">
+        </div>
+      `;
+    } else if (isAIVideo && aiVideoJob && aiVideoJob.signed_url) {
+      videoPreviewHtml += `
+        <div style="margin-top:12px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:6px;">AI Video Preview</div>
+          <video src="${escapeHtml(aiVideoJob.signed_url)}" controls playsinline style="max-width:240px;max-height:160px;border-radius:6px;border:1px solid var(--line);background:#000;display:block;"></video>
         </div>
       `;
     }
@@ -3413,6 +3444,7 @@ ${htmlContent}
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="padding:3px 8px;border-radius:4px;font-size:10px;${badgeInfo.style}">${badgeInfo.label}</span>
           ${badgeStatusHtml}
+          ${takeBadgeHtml}
           ${takeActionBtn}
         </div>
       </div>
@@ -3492,13 +3524,18 @@ ${htmlContent}
     const durationText = getEstimatedDurationText(currentScriptData);
     const scenes = currentScriptData.scenes || [];
 
-    // Step 1: A-roll scenes
-    const aRollScenes = scenes.filter(s => s.asset_type === 'a_roll');
-    let aRollListHtml = '';
-    if (aRollScenes.length === 0) {
-      aRollListHtml = `<div style="padding:12px 14px;background:var(--surface);border:1px dashed var(--line);border-radius:6px;font-size:13px;color:var(--ink-soft);font-style:italic;">No A-roll scenes in this script. All scenes are visual B-roll or AI assets.</div>`;
+    // Step 1: All scenes for takes (Pieza 56)
+    const totalTakesCount = scenes.length;
+    const recordedTakesCount = scenes.filter(s => {
+      return (currentAudiovisualJobs || []).some(j => j.scene_n === s.n && j.kind === 'a_roll_take' && j.status === 'done');
+    }).length;
+
+    let takesListHtml = '';
+    if (scenes.length === 0) {
+      takesListHtml = `<div style="padding:12px 14px;background:var(--surface);border:1px dashed var(--line);border-radius:6px;font-size:13px;color:var(--ink-soft);font-style:italic;">No scenes in this script.</div>`;
     } else {
-      aRollListHtml = aRollScenes.map((scene, idx) => {
+      takesListHtml = scenes.map((scene, idx) => {
+        const isARoll = (scene.asset_type || 'a_roll') === 'a_roll';
         const phaseName = PHASE_NAMES[scene.phase] || (scene.phase ? scene.phase.replace(/_/g, ' ') : 'Scene');
         const startTime = formatTime(scene.start_s);
         const endTime = formatTime(scene.end_s);
@@ -3511,6 +3548,10 @@ ${htmlContent}
         const hasTake = !!takeJob;
         const btnLabel = hasTake ? 'Recorded ✓ · Retake' : '🎥 Record';
         const btnClass = hasTake ? 'btn btn--secondary btn-aroll-record' : 'btn btn--primary btn-aroll-record';
+
+        const roleLabelHtml = isARoll
+          ? `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(43,76,216,0.08);color:var(--accent);border:1px solid rgba(43,76,216,0.2);">On camera</span>`
+          : `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;">Voice over B-roll — you may or may not appear (decided in Editing)</span>`;
 
         let takeDetailsHtml = '';
         if (hasTake) {
@@ -3553,8 +3594,11 @@ ${htmlContent}
               <div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(timeRange)} <span style="font-size:9px;">est.</span></div>
             </div>
             <div style="flex:1;min-width:0;">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-                <div style="font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(phaseName)}</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <span style="font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(phaseName)}</span>
+                  ${roleLabelHtml}
+                </div>
                 <button type="button" class="${btnClass}" data-scene-n="${scene.n || (idx + 1)}" style="padding:5px 12px;font-size:12px;">
                   ${btnLabel}
                 </button>
@@ -3581,9 +3625,18 @@ ${htmlContent}
 
       const isARoll = assetType === 'a_roll';
       const isStock = assetType === 'stock';
-      const aRollTake = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done') : null;
-      const aRollTranscript = isARoll ? (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled') : null;
+      const sceneTake = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'a_roll_take' && j.status === 'done');
+      const sceneTranscript = (currentAudiovisualJobs || []).find(j => j.scene_n === scene.n && j.kind === 'transcript' && j.status !== 'cancelled');
       const stockJob = isStock ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'stock' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
+
+      let bRollTakeBadgeHtml = '';
+      if (!isARoll && sceneTake) {
+        bRollTakeBadgeHtml = `
+          <div style="position:absolute;top:6px;left:6px;z-index:4;padding:2px 6px;border-radius:4px;background:rgba(21,128,61,0.92);color:#fff;font-size:9.5px;font-weight:700;letter-spacing:0.02em;box-shadow:0 1px 3px rgba(0,0,0,0.3);display:inline-flex;align-items:center;gap:3px;" title="Take recorded (voiceover under visual)">
+            🎙 Your take ✓
+          </div>
+        `;
+      }
 
       let cardBadgeHtml = `
         <div style="margin-top:10px;padding:2px 8px;border-radius:10px;background:#F1F5F9;border:1px solid #CBD5E1;font-size:10px;font-weight:600;color:#64748B;letter-spacing:0.04em;">
@@ -3606,15 +3659,15 @@ ${htmlContent}
       const aiVideoJob = isAIVideo ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'ai_video' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
       const motionGraphicJob = isMotionGraphic ? (currentAudiovisualJobs || []).filter(j => j.scene_n === scene.n && j.kind === 'motion_graphic' && j.status !== 'cancelled').sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] : null;
 
-      if (isARoll && aRollTake) {
+      if (isARoll && sceneTake) {
         cardBadgeHtml = `
           <div style="margin-top:auto;position:relative;z-index:2;padding:2px 8px;border-radius:10px;background:#DCFCE7;border:1px solid #86EFAC;font-size:10px;font-weight:700;color:#15803D;letter-spacing:0.04em;">
             Recorded ✓
           </div>
         `;
-        if (aRollTake.signed_url) {
+        if (sceneTake.signed_url) {
           visualContentHtml = `
-            <video src="${escapeHtml(aRollTake.signed_url)}" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;"></video>
+            <video src="${escapeHtml(sceneTake.signed_url)}" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:5px;"></video>
             <div style="position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:2;">▶</div>
           `;
         }
@@ -3787,8 +3840,8 @@ ${htmlContent}
         fullQuery = scene.visual_prompt || scene.spoken_text || '—';
       } else if (assetType === 'a_roll') {
         queryLabel = 'A-roll';
-        if (aRollTranscript && aRollTranscript.status === 'done' && aRollTranscript.output?.text) {
-          fullQuery = aRollTranscript.output.text;
+        if (sceneTranscript && sceneTranscript.status === 'done' && sceneTranscript.output?.text) {
+          fullQuery = sceneTranscript.output.text;
         } else {
           fullQuery = scene.spoken_text || 'Founder spoken take';
         }
@@ -3836,6 +3889,7 @@ ${htmlContent}
           </div>
 
           <div style="width:100%;aspect-ratio:9/16;border-radius:6px;background:var(--surface-alt);border:1px dashed ${badgeInfo.borderStyle};display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:10px 8px;text-align:center;box-sizing:border-box;overflow:hidden;">
+            ${bRollTakeBadgeHtml}
             ${visualContentHtml}
             ${cardBadgeHtml}
           </div>
@@ -3942,23 +3996,29 @@ ${htmlContent}
         </div>
       </div>
 
-      <!-- Paso 1: Record your A-roll -->
+      <!-- Paso 1: Record your takes -->
       <div style="padding:24px 40px;border-bottom:1px solid var(--line);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
           <div>
             <h2 style="font-size:16px;font-weight:600;color:var(--ink);margin:0 0 4px;display:flex;align-items:center;gap:8px;">
               <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;">1</span>
-              <span>Record your A-roll</span>
+              <span>Record your takes</span>
+              <span id="AV-TakesCounter" style="font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:12px;background:${recordedTakesCount === totalTakesCount && totalTakesCount > 0 ? '#DCFCE7' : 'var(--surface-alt)'};color:${recordedTakesCount === totalTakesCount && totalTakesCount > 0 ? '#15803D' : 'var(--ink-soft)'};border:1px solid ${recordedTakesCount === totalTakesCount && totalTakesCount > 0 ? '#86EFAC' : 'var(--line)'};margin-left:6px;">
+                Takes recorded: ${recordedTakesCount} of ${totalTakesCount}
+              </span>
             </h2>
             <div style="font-size:13px;color:var(--ink-soft);">Recorded takes cost nothing. Record before generating AI assets.</div>
           </div>
-          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#1B7F4C;background:rgba(27,127,76,0.08);padding:3px 8px;border-radius:4px;border:1px solid rgba(27,127,76,0.2);">
-            Step 1 of 2
-          </span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11.5px;font-weight:600;color:#1B7F4C;">Takes recorded: ${recordedTakesCount} of ${totalTakesCount}</span>
+            <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#1B7F4C;background:rgba(27,127,76,0.08);padding:3px 8px;border-radius:4px;border:1px solid rgba(27,127,76,0.2);">
+              Step 1 of 2
+            </span>
+          </div>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
-          ${aRollListHtml}
+          ${takesListHtml}
         </div>
 
         <div style="padding:10px 14px;background:#FFF9EB;border:1px solid #FDE68A;border-radius:6px;font-size:12.5px;color:#92400E;line-height:1.5;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">
@@ -4472,10 +4532,10 @@ ${htmlContent}
 
   async function openRecordingStudio(sceneN) {
     if (!currentScriptData || !currentScriptData.scenes) return;
-    const aRollScenes = currentScriptData.scenes.filter(s => s.asset_type === 'a_roll');
-    if (!aRollScenes.length) return;
+    const allScenes = currentScriptData.scenes;
+    if (!allScenes.length) return;
 
-    const targetScene = aRollScenes.find(s => s.n === sceneN) || aRollScenes[0];
+    const targetScene = allScenes.find(s => s.n === sceneN) || allScenes[0];
     studioActiveSceneN = targetScene.n;
 
     const overlay = document.getElementById('Recording-Studio-Overlay');
@@ -4484,7 +4544,7 @@ ${htmlContent}
     overlay.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 
-    updateStudioSceneUI(targetScene, aRollScenes);
+    updateStudioSceneUI(targetScene, allScenes);
     resetStudioTeleprompter();
     resetStudioRecordingState();
 
@@ -4844,23 +4904,23 @@ ${htmlContent}
     }
   }
 
-  function updateStudioSceneUI(scene, aRollScenes) {
+  function updateStudioSceneUI(scene, allScenes) {
     const sceneInfoEl = document.getElementById('Studio-SceneInfo');
     const prevBtn = document.getElementById('Studio-PrevSceneBtn');
     const nextBtn = document.getElementById('Studio-NextSceneBtn');
     const spokenTextEl = document.getElementById('Studio-SpokenText');
     const actingNoteEl = document.getElementById('Studio-ActingNote');
 
-    const sceneIdx = aRollScenes.findIndex(s => s.n === scene.n);
+    const sceneIdx = allScenes.findIndex(s => s.n === scene.n);
     const phaseName = PHASE_NAMES[scene.phase] || (scene.phase ? scene.phase.replace(/_/g, ' ') : 'Scene');
 
     if (sceneInfoEl) {
       const takeNum = (sceneIdx >= 0 ? sceneIdx : 0) + 1;
-      const totalTakes = aRollScenes.length || 1;
+      const totalTakes = allScenes.length || 1;
       sceneInfoEl.textContent = `Take ${takeNum} of ${totalTakes} · Scene ${scene.n} · ${phaseName}`;
     }
     if (prevBtn) prevBtn.disabled = sceneIdx <= 0;
-    if (nextBtn) nextBtn.disabled = sceneIdx >= aRollScenes.length - 1;
+    if (nextBtn) nextBtn.disabled = sceneIdx >= allScenes.length - 1;
 
     if (spokenTextEl) {
       spokenTextEl.textContent = scene.spoken_text || '—';
@@ -5029,12 +5089,12 @@ ${htmlContent}
     if (prevSceneBtn) {
       prevSceneBtn.onclick = () => {
         if (!currentScriptData || !currentScriptData.scenes) return;
-        const aRollScenes = currentScriptData.scenes.filter(s => s.asset_type === 'a_roll');
-        const currIdx = aRollScenes.findIndex(s => s.n === studioActiveSceneN);
+        const allScenes = currentScriptData.scenes;
+        const currIdx = allScenes.findIndex(s => s.n === studioActiveSceneN);
         if (currIdx > 0) {
-          const prevScene = aRollScenes[currIdx - 1];
+          const prevScene = allScenes[currIdx - 1];
           studioActiveSceneN = prevScene.n;
-          updateStudioSceneUI(prevScene, aRollScenes);
+          updateStudioSceneUI(prevScene, allScenes);
           resetStudioTeleprompter();
           resetStudioRecordingState();
         }
@@ -5043,12 +5103,12 @@ ${htmlContent}
     if (nextSceneBtn) {
       nextSceneBtn.onclick = () => {
         if (!currentScriptData || !currentScriptData.scenes) return;
-        const aRollScenes = currentScriptData.scenes.filter(s => s.asset_type === 'a_roll');
-        const currIdx = aRollScenes.findIndex(s => s.n === studioActiveSceneN);
-        if (currIdx >= 0 && currIdx < aRollScenes.length - 1) {
-          const nextScene = aRollScenes[currIdx + 1];
+        const allScenes = currentScriptData.scenes;
+        const currIdx = allScenes.findIndex(s => s.n === studioActiveSceneN);
+        if (currIdx >= 0 && currIdx < allScenes.length - 1) {
+          const nextScene = allScenes[currIdx + 1];
           studioActiveSceneN = nextScene.n;
-          updateStudioSceneUI(nextScene, aRollScenes);
+          updateStudioSceneUI(nextScene, allScenes);
           resetStudioTeleprompter();
           resetStudioRecordingState();
         }

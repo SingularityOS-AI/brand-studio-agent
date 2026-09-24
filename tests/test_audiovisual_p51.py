@@ -27,7 +27,6 @@ from app.audiovisual.jobs import (
 from app.audiovisual.worker import (
     RESOLVERS,
     process_one_job,
-    register_default_resolvers,
 )
 from app.guard import guard
 from app.scripting.scripts import (
@@ -139,8 +138,8 @@ def test_upload_url_unlocked_script_rejected(authenticated_client, sample_frame_
     assert "locked" in res.json()["error"].lower()
 
 
-def test_upload_url_non_a_roll_scene_rejected(authenticated_client, sample_frame_zero):
-    """POST /takes/{scene_n}/upload-url returns 400 if scene is not a_roll or does not exist."""
+def test_upload_url_scene_validation(authenticated_client, sample_frame_zero):
+    """POST /takes/{scene_n}/upload-url accepts stock scenes (Pieza 56) and returns 404 for nonexistent scenes."""
     session_token = authenticated_client._test_session_token
     idea_id = "idea_non_aroll_test"
 
@@ -150,11 +149,10 @@ def test_upload_url_non_a_roll_scene_rejected(authenticated_client, sample_frame
     )
     _save_script(script)
 
-    # Scene 3 is stock -> 400
+    # Scene 3 is stock -> accepts per Pieza 56 (200)
     res_stock = authenticated_client.post(f"/api/audiovisual/{idea_id}/takes/3/upload-url")
-    assert res_stock.status_code == 400
-    err = res_stock.json()["error"].lower()
-    assert "a-roll" in err or "a_roll" in err
+    assert res_stock.status_code == 200
+    assert "storage_path" in res_stock.json()
 
     # Scene 99 does not exist -> 404
     res_nonexistent = authenticated_client.post(f"/api/audiovisual/{idea_id}/takes/99/upload-url")
