@@ -1,13 +1,25 @@
 """RenderIR v1 stage 1: block captions and frame zero construction (Bloque E)."""
 
-from __future__ import annotations
-
+import random
 import re
+from pathlib import Path
 from typing import Any
 
-from render_service.manifest import CaptionEvent, CaptionToken, FrameZero, RenderIR
+from app.audiovisual.sfx import load_sfx_library
+from render_service.manifest import (
+    CaptionEvent,
+    CaptionToken,
+    FrameZero,
+    RenderIR,
+    SfxCue,
+    TransitionCue,
+    ZoomKey,
+)
 
 _PUNCT_END = re.compile(r"(\.|\?|\!|…|\.\.\.)$")
+TRANSITION_DURATIONS = {"flash": 200, "zoom_through": 330, "whip": 270}
+ZOOM_INTENSITIES = {"soft": 1.08, "medium": 1.15, "strong": 1.25}
+
 
 
 def _format_token(word: dict[str, Any]) -> dict[str, Any]:
@@ -209,3 +221,487 @@ def build_ir_stage1(
 
     RenderIR.model_validate(ir_dict)
     return ir_dict
+
+
+def _next_transition_in_cycle(tr: str) -> str:
+    if tr == "flash":
+        return "zoom_through"
+    if tr == "zoom_through":
+        return "whip"
+    if tr == "whip":
+        return "flash"
+    return "flash"
+
+
+def _clip_zoom_block(
+    keys: list[dict[str, Any]], fin_escena: int
+) -> list[dict[str, Any]]:
+    if not keys:
+        return []
+    kept = [dict(k) for k in keys if k["t_ms"] < fin_escena]
+    if len(kept) < len(keys):
+        if kept:
+            target_t = fin_escena - 1
+            if target_t > kept[-1]["t_ms"]:
+                kept.append({
+                    "t_ms": target_t,
+                    "scale": 1.0,
+                    "cx": 0.5,
+                    "cy": 0.4,
+                    "ease": "linear",
+                })
+            else:
+                kept[-1]["scale"] = 1.0
+                kept[-1]["ease"] = "linear"
+    return kept
+
+
+def build_ir_stage2(
+    timeline: dict[str, Any],
+    captions_words: list[dict[str, Any]],
+    frame_zero_text: str | None,
+    style: dict[str, Any],
+    dressing: dict[str, Any],
+    *,
+    sfx_library: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build stage 2 RenderIR dictionary with zoom_keys, transitions, sfx, and emphasis.
+
+    Returns:
+        {"ir": RenderIR dict validado, "sfx_inputs": {input_id: {"storage_path": "library/sfx/<file>", "kind": "audio"}}}
+    """
+    ir_stage1 = build_ir_stage1(timeline, captions_words, frame_zero_text, style)
+    duration_ms = ir_stage1["duration_ms"]
+
+    if sfx_library is None:
+        sfx_library = load_sfx_library()
+
+    timeline_scenes = timeline.get("scenes", [])
+    dressing_scenes = dressing.get("scenes", [])
+    dressing_by_n = {
+        int(s["n"]): s
+        for s in dressing_scenes
+        if isinstance(s, dict) and "n" in s and isinstance(s.get("n"), int)
+    }
+
+    # 1. Transitions
+    resolved_transitions: list[str] = []
+    transition_cues: list[dict[str, Any]] = []
+
+    for idx, scene in enumerate(timeline_scenes):
+        n = int(scene.get("n", idx + 1))
+        phase = str(scene.get("phase", ""))
+        out_start_ms = int(scene.get("out_start_ms", 0))
+        ds = dressing_by_n.get(n, {})
+        raw_tr = str(ds.get("transition_in", "cut"))
+
+        if idx == 0:
+            tr = "cut"
+        else:
+            prev_phase = str(timeline_scenes[idx - 1].get("phase", ""))
+            allowed_phase_change = (prev_phase == "hook") or (
+                phase in ("rehook", "close_cta")
+            )
+            if allowed_phase_change:
+                tr = raw_tr
+            else:
+                tr = "cut"
+
+        if tr != "cut":
+            if (
+                resolved_transitions
+                and resolved_transitions[-1] != "cut"
+                and tr == resolved_transitions[-1]
+            ):
+                tr = _next_transition_in_cycle(tr)
+
+        resolved_transitions.append(tr)
+
+        if tr != "cut":
+            dur_ms = TRANSITION_DURATIONS.get(tr, 200)
+            cue_dict = {
+                "at_ms": out_start_ms,
+                "type": tr,
+                "dur_ms": dur_ms,
+            }
+            TransitionCue.model_validate(cue_dict)
+            transition_cues.append(cue_dict)
+
+    # 2. SFX
+    sfx_enabled = bool(timeline.get("settings", {}).get("sfx_enabled", False))
+    sfx_cues: list[dict[str, Any]] = []
+    sfx_inputs: dict[str, dict[str, str]] = {}
+
+    if sfx_enabled:
+        sfx_candidate_events = []
+        for idx, scene in enumerate(timeline_scenes):
+            n = int(scene.get("n", idx + 1))
+            phase = str(scene.get("phase", ""))
+            out_start_ms = int(scene.get("out_start_ms", 0))
+            ds = dressing_by_n.get(n, {})
+            seed = int(ds.get("seed", n))
+            sfx_tags = ds.get("sfx_tags", {})
+            tr_tag = (
+                str(sfx_tags.get("transition", "whoosh"))
+                if isinstance(sfx_tags, dict)
+                else "whoosh"
+            )
+
+            tr = resolved_transitions[idx]
+
+            # Transition SFX
+            if tr != "cut" and tr_tag != "none":
+                sfx_candidate_events.append({
+                    "raw_at": out_start_ms - 150,
+                    "tag": tr_tag,
+                    "seed": seed,
+                    "gain_db": -8.0,
+                    "scene_n": n,
+                    "type": "transition",
+                })
+
+            # Riser SFX
+            if phase == "rehook":
+                sfx_candidate_events.append({
+                    "raw_at": out_start_ms - 800,
+                    "tag": "riser",
+                    "seed": seed,
+                    "gain_db": -10.0,
+                    "scene_n": n,
+                    "type": "riser",
+                })
+
+            # Ding SFX
+            if phase == "close_cta":
+                sfx_candidate_events.append({
+                    "raw_at": out_start_ms,
+                    "tag": "ding",
+                    "seed": seed,
+                    "gain_db": -8.0,
+                    "scene_n": n,
+                    "type": "ding",
+                })
+
+        sfx_candidate_events.sort(
+            key=lambda ev: (ev["raw_at"], ev["scene_n"], ev["type"])
+        )
+
+        last_file: str | None = None
+        for ev in sfx_candidate_events:
+            at_ms = min(max(0, ev["raw_at"]), duration_ms)
+            tag = ev["tag"].lower()
+            seed = ev["seed"]
+            gain_db = ev["gain_db"]
+
+            c_files = []
+            for item in sfx_library:
+                file_name = str(item.get("file", ""))
+                tags = [str(t).lower() for t in item.get("tags", [])]
+                if tag in tags or tag in file_name.lower():
+                    c_files.append(file_name)
+
+            c_files = sorted(list(set(c_files)))
+            if not c_files:
+                continue
+
+            if last_file in c_files and len(c_files) > 1:
+                available = [f for f in c_files if f != last_file]
+            else:
+                available = c_files
+
+            available.sort()
+            rng = random.Random(seed)
+            chosen_file = rng.choice(available)
+            last_file = chosen_file
+
+            stem = Path(chosen_file).stem.lower()
+            clean_stem = re.sub(r"[^a-z0-9_]", "_", stem)
+            input_id = f"sfx_{clean_stem}"
+
+            cue_dict = {
+                "at_ms": at_ms,
+                "input_id": input_id,
+                "gain_db": gain_db,
+            }
+            SfxCue.model_validate(cue_dict)
+            sfx_cues.append(cue_dict)
+
+            sfx_inputs[input_id] = {
+                "storage_path": f"library/sfx/{chosen_file}",
+                "kind": "audio",
+            }
+
+    # 3. Zoom Keys
+    all_zoom_keys: list[dict[str, Any]] = []
+
+    for idx, scene in enumerate(timeline_scenes):
+        n = int(scene.get("n", idx + 1))
+        visual = str(scene.get("visual", "face"))
+        out_start_ms = int(scene.get("out_start_ms", 0))
+        out_end_ms = int(scene.get("out_end_ms", 0))
+        tr = resolved_transitions[idx]
+
+        if tr == "zoom_through":
+            dur = 330
+            zt_keys = [
+                {
+                    "t_ms": max(0, out_start_ms - 1),
+                    "scale": 1.0,
+                    "cx": 0.5,
+                    "cy": 0.4,
+                    "ease": "linear",
+                },
+                {
+                    "t_ms": out_start_ms,
+                    "scale": 1.5,
+                    "cx": 0.5,
+                    "cy": 0.4,
+                    "ease": "linear",
+                },
+                {
+                    "t_ms": out_start_ms + dur,
+                    "scale": 1.0,
+                    "cx": 0.5,
+                    "cy": 0.4,
+                    "ease": "out",
+                },
+            ]
+            all_zoom_keys.extend(_clip_zoom_block(zt_keys, out_end_ms))
+
+        if visual == "broll":
+            continue
+
+        scene_cw = [cw for cw in captions_words if int(cw.get("scene_n", -1)) == n]
+        scene_cw.sort(key=lambda cw: int(cw.get("start_ms", 0)))
+
+        ds = dressing_by_n.get(n, {})
+        dressing_zooms = (
+            ds.get("zooms", []) if isinstance(ds.get("zooms"), list) else []
+        )
+
+        candidate_zooms: list[tuple[int, str, str]] = []
+        for z in dressing_zooms:
+            if isinstance(z, dict):
+                z_type = str(z.get("type", "punch_in"))
+                z_intensity = str(z.get("intensity", "medium"))
+                w_idx = z.get("word_idx")
+                if isinstance(w_idx, int) and 0 <= w_idx < len(scene_cw):
+                    w_start = int(scene_cw[w_idx].get("start_ms", 0))
+                    candidate_zooms.append((w_start, z_type, z_intensity))
+
+        candidate_zooms.sort(key=lambda x: x[0])
+
+        accepted_zooms: list[tuple[int, str, str]] = []
+        for t_zoom, z_type, z_intensity in candidate_zooms:
+            if tr == "zoom_through" and t_zoom < out_start_ms + 400:
+                continue
+            if accepted_zooms and (t_zoom - accepted_zooms[-1][0] < 2500):
+                continue
+            accepted_zooms.append((t_zoom, z_type, z_intensity))
+
+        # Gap filling > 6000 ms
+        final_scene_zooms: list[tuple[int, str, str]] = []
+        current_ref = out_start_ms
+        zoom_idx = 0
+        n_zooms = len(accepted_zooms)
+
+        while True:
+            if zoom_idx < n_zooms:
+                next_t = accepted_zooms[zoom_idx][0]
+                gap = next_t - current_ref
+                if gap > 6000:
+                    target_t = current_ref + 3000
+                    found_w = None
+                    for cw in scene_cw:
+                        cw_start = int(cw.get("start_ms", 0))
+                        if target_t <= cw_start < next_t:
+                            found_w = cw_start
+                            break
+                    if found_w is not None and (
+                        not final_scene_zooms
+                        or found_w - final_scene_zooms[-1][0] >= 2500
+                    ):
+                        filler = (found_w, "slow_push", "soft")
+                        final_scene_zooms.append(filler)
+                        current_ref = found_w
+                        continue
+                final_scene_zooms.append(accepted_zooms[zoom_idx])
+                current_ref = next_t
+                zoom_idx += 1
+            else:
+                gap = out_end_ms - current_ref
+                if gap > 6000:
+                    target_t = current_ref + 3000
+                    found_w = None
+                    for cw in scene_cw:
+                        cw_start = int(cw.get("start_ms", 0))
+                        if target_t <= cw_start < out_end_ms:
+                            found_w = cw_start
+                            break
+                    if found_w is not None and (
+                        not final_scene_zooms
+                        or found_w - final_scene_zooms[-1][0] >= 2500
+                    ):
+                        filler = (found_w, "slow_push", "soft")
+                        final_scene_zooms.append(filler)
+                        current_ref = found_w
+                        continue
+                break
+
+        for t_zoom, z_type, z_intensity in final_scene_zooms:
+            S = ZOOM_INTENSITIES.get(z_intensity, 1.15)
+            if z_type == "punch_in":
+                raw_keys = [
+                    {
+                        "t_ms": max(0, t_zoom),
+                        "scale": 1.0,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "out",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom + 180),
+                        "scale": S,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "out",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom + 1600),
+                        "scale": S,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "linear",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom + 2000),
+                        "scale": 1.0,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "linear",
+                    },
+                ]
+            elif z_type == "punch_out":
+                raw_keys = [
+                    {
+                        "t_ms": max(0, t_zoom - 1),
+                        "scale": 1.0,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "linear",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom),
+                        "scale": S,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "linear",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom + 300),
+                        "scale": 1.0,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "out",
+                    },
+                ]
+            elif z_type == "slow_push":
+                raw_keys = [
+                    {
+                        "t_ms": max(0, t_zoom),
+                        "scale": 1.0,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "linear",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom + 3000),
+                        "scale": S,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "linear",
+                    },
+                    {
+                        "t_ms": max(0, t_zoom + 3300),
+                        "scale": 1.0,
+                        "cx": 0.5,
+                        "cy": 0.4,
+                        "ease": "out",
+                    },
+                ]
+            else:
+                raw_keys = []
+
+            all_zoom_keys.extend(_clip_zoom_block(raw_keys, out_end_ms))
+
+    # Sort and deduplicate zoom keys
+    all_zoom_keys.sort(key=lambda k: (k["t_ms"], k["scale"], k["ease"]))
+    for idx in range(1, len(all_zoom_keys)):
+        if all_zoom_keys[idx]["t_ms"] <= all_zoom_keys[idx - 1]["t_ms"]:
+            all_zoom_keys[idx]["t_ms"] = all_zoom_keys[idx - 1]["t_ms"] + 1
+
+    all_zoom_keys = [k for k in all_zoom_keys if k["t_ms"] <= duration_ms]
+    for k in all_zoom_keys:
+        ZoomKey.model_validate(k)
+
+    # 4. Emphasis
+    emp_words_set: set[tuple[int, int, str]] = set()
+    for scene in timeline_scenes:
+        n = int(scene.get("n", 1))
+        ds = dressing_by_n.get(n, {})
+        emp_indices = (
+            ds.get("emphasis_word_idx", [])
+            if isinstance(ds.get("emphasis_word_idx"), list)
+            else []
+        )
+
+        scene_cw = [cw for cw in captions_words if int(cw.get("scene_n", -1)) == n]
+        scene_cw.sort(key=lambda cw: int(cw.get("start_ms", 0)))
+
+        for idx in emp_indices:
+            if isinstance(idx, int) and 0 <= idx < len(scene_cw):
+                cw = scene_cw[idx]
+                edited = cw.get("edited_text")
+                txt = str(
+                    edited
+                    if edited is not None and str(edited).strip()
+                    else cw.get("text", "")
+                ).strip()[:40]
+                start_m = max(0, int(cw.get("start_ms", 0)))
+                emp_words_set.add((n, start_m, txt))
+
+    events = ir_stage1["captions"]
+    for ev in events:
+        tokens = [tok for line in ev["lines"] for tok in line]
+        emp_list: list[int] = []
+        for tok_idx, tok in enumerate(tokens):
+            tok_start = tok["start_ms"]
+            tok_txt = tok["text"]
+            for cw in captions_words:
+                start_m = max(0, int(cw.get("start_ms", 0)))
+                if start_m == tok_start:
+                    scene_n = int(cw.get("scene_n", 1))
+                    if (scene_n, tok_start, tok_txt) in emp_words_set:
+                        emp_list.append(tok_idx)
+                    break
+        ev["emphasis"] = emp_list
+        CaptionEvent.model_validate(ev)
+
+    ir_dict: dict[str, Any] = {
+        "schema": "brandstudio.ir.v1",
+        "duration_ms": duration_ms,
+        "frame_zero": ir_stage1["frame_zero"],
+        "captions": events,
+        "zoom_keys": all_zoom_keys,
+        "transitions": transition_cues,
+        "overlays": [],
+        "sfx": sfx_cues,
+        "style": style,
+    }
+
+    RenderIR.model_validate(ir_dict)
+    return {
+        "ir": ir_dict,
+        "sfx_inputs": sfx_inputs,
+    }
+
