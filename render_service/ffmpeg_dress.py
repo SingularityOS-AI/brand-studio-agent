@@ -9,7 +9,8 @@ from pathlib import Path
 import subprocess
 from typing import Any
 
-from render_service.manifest import RenderIR, RenderRequest, ZoomKey, hex_to_ass
+from render_service.cards import render_card_png
+from render_service.manifest import OverlayCue, RenderIR, RenderRequest, ZoomKey, hex_to_ass
 
 logger = logging.getLogger(__name__)
 
@@ -240,15 +241,8 @@ def write_ass(ir: RenderIR, path: Path) -> None:
     path.write_text(content, encoding="utf-8-sig")
 
 
-def _video_filters(
-    ir: RenderIR,
-    ass_rel_str: str = "subs.ass",
-    fonts_rel_str: str | None = None,
-) -> list[str]:
-    """Builds video filter list for FFmpeg.
-
-    Sequence: zoom (scale, crop) -> transitions -> ass.
-    """
+def _base_video_filters(ir: RenderIR) -> list[str]:
+    """Builds base video filters (zooms + transitions) without ASS subtitle overlay."""
     filters: list[str] = []
 
     # 1. Zoom filters
@@ -281,6 +275,20 @@ def _video_filters(
             end_sec = fmt_num((tr.at_ms + tr.dur_ms / 2.0) / 1000.0)
             filters.append(f"avgblur=sizeX=40:sizeY=1:enable='between(t,{start_sec},{end_sec})'")
 
+    return filters
+
+
+def _video_filters(
+    ir: RenderIR,
+    ass_rel_str: str = "subs.ass",
+    fonts_rel_str: str | None = None,
+) -> list[str]:
+    """Builds video filter list for FFmpeg.
+
+    Sequence: zoom (scale, crop) -> transitions -> ass.
+    """
+    filters = _base_video_filters(ir)
+
     # 3. ASS filter
     esc_ass = ass_rel_str.replace("\\", "/").replace(":", "\\:")
     if fonts_rel_str:
@@ -300,6 +308,7 @@ def build_final_args(
     ass_name: str,
     fonts_dir: Path,
     workdir: Path,
+    overlay_files: dict[str, Path] | None = None,
 ) -> list[str]:
     """Builds FFmpeg argument list for final render (pure function, does not execute)."""
     if request.mode != "final":
@@ -325,11 +334,29 @@ def build_final_args(
                     (dest_fonts / f.name).write_bytes(f.read_bytes())
             fonts_rel = "fonts"
 
-    filters = _video_filters(request.ir, ass_name, fonts_rel)
-    vf_text = ",".join(filters)
+    # Resolve overlays
+    valid_overlays: list[tuple[OverlayCue, Path]] = []
+    if request.ir.overlays:
+        for ov in request.ir.overlays:
+            img_path: Path | None = None
+            if overlay_files and ov.id in overlay_files:
+                img_path = overlay_files[ov.id]
+            elif ov.kind == "broll_card" and ov.asset and ov.asset in local_inputs:
+                img_path = local_inputs[ov.asset]
+            elif (workdir / f"overlay_{ov.id}.png").is_file():
+                img_path = workdir / f"overlay_{ov.id}.png"
+
+            if img_path and img_path.is_file():
+                valid_overlays.append((ov, img_path))
+            else:
+                logger.warning("Overlay %s image file missing, skipping", ov.id)
 
     sfx_cues = request.ir.sfx
-    if not sfx_cues:
+
+    # 1. Path without overlays and without SFX: uses -vf (backward compatible)
+    if not valid_overlays and not sfx_cues:
+        filters = _video_filters(request.ir, ass_name, fonts_rel)
+        vf_text = ",".join(filters)
         args = [
             "-hide_banner",
             "-nostdin",
@@ -370,41 +397,7 @@ def build_final_args(
         ]
         return args
 
-    unique_sfx_ids: list[str] = []
-    for cue in sfx_cues:
-        if cue.input_id not in local_inputs:
-            raise KeyError(f"sfx input_id '{cue.input_id}' not found in local_inputs")
-        if cue.input_id not in unique_sfx_ids:
-            unique_sfx_ids.append(cue.input_id)
-
-    input_idx_map = {input_id: i + 1 for i, input_id in enumerate(unique_sfx_ids)}
-    n_sfx = len(sfx_cues)
-
-    filter_complex_parts: list[str] = []
-    filter_complex_parts.append(f"[0:v]{vf_text}[vout]")
-
-    for input_id in unique_sfx_ids:
-        idx = input_idx_map[input_id]
-        cues_using = [i for i, c in enumerate(sfx_cues) if c.input_id == input_id]
-        if len(cues_using) > 1:
-            out_labels = "".join(f"[sfx_src_{i}]" for i in cues_using)
-            filter_complex_parts.append(f"[{idx}:a]asplit={len(cues_using)}{out_labels}")
-
-    for i, cue in enumerate(sfx_cues):
-        cues_using = [idx for idx, c in enumerate(sfx_cues) if c.input_id == cue.input_id]
-        if len(cues_using) > 1:
-            src_label = f"[sfx_src_{i}]"
-        else:
-            src_label = f"[{input_idx_map[cue.input_id]}:a]"
-        gain_str = fmt_num(cue.gain_db)
-        filter_complex_parts.append(f"{src_label}adelay={cue.at_ms}|{cue.at_ms},volume={gain_str}dB[sfx{i}]")
-
-    mix_inputs = 1 + n_sfx
-    sfx_labels = "".join(f"[sfx{i}]" for i in range(n_sfx))
-    filter_complex_parts.append(f"[0:a]{sfx_labels}amix=inputs={mix_inputs}:duration=first:normalize=0[aout]")
-
-    filter_complex_str = ";".join(filter_complex_parts)
-
+    # 2. Path with overlays or SFX: uses -filter_complex
     args = [
         "-hide_banner",
         "-nostdin",
@@ -413,16 +406,124 @@ def build_final_args(
         "-i",
         str(raw_path),
     ]
+
+    dur_s = fmt_num(request.ir.duration_ms / 1000.0)
+
+    # Add overlay inputs
+    for _ov, img_path in valid_overlays:
+        args.extend(["-loop", "1", "-t", dur_s, "-i", str(img_path)])
+
+    # Add SFX inputs
+    unique_sfx_ids: list[str] = []
+    for cue in sfx_cues:
+        if cue.input_id not in local_inputs:
+            raise KeyError(f"sfx input_id '{cue.input_id}' not found in local_inputs")
+        if cue.input_id not in unique_sfx_ids:
+            unique_sfx_ids.append(cue.input_id)
+
     for input_id in unique_sfx_ids:
         args.extend(["-i", str(local_inputs[input_id])])
+
+    filter_complex_parts: list[str] = []
+
+    # Video stream graph construction
+    base_vfilters = _base_video_filters(request.ir)
+    if base_vfilters:
+        filter_complex_parts.append(f"[0:v]{','.join(base_vfilters)}[vbase]")
+        v_curr = "[vbase]"
+    else:
+        v_curr = "[0:v]"
+
+    if valid_overlays:
+        for idx, (ov, _img_path) in enumerate(valid_overlays):
+            input_k = 1 + idx
+            S = fmt_num(ov.start_ms / 1000.0)
+            E = fmt_num(ov.end_ms / 1000.0)
+            st_out = fmt_num(max(ov.start_ms, ov.end_ms - 150) / 1000.0)
+
+            if ov.kind == "broll_card":
+                w_crop = max(1, ov.w - 12)
+                h_crop = max(1, ov.h - 12)
+                prep_filter = (
+                    f"scale={ov.w}:{ov.h}:force_original_aspect_ratio=increase,"
+                    f"crop={w_crop}:{h_crop},pad={ov.w}:{ov.h}:6:6:white,"
+                    f"format=rgba,fade=t=in:st={S}:d=0.2:alpha=1,fade=t=out:st={st_out}:d=0.15:alpha=1"
+                )
+            else:
+                prep_filter = (
+                    f"format=rgba,fade=t=in:st={S}:d=0.2:alpha=1,fade=t=out:st={st_out}:d=0.15:alpha=1"
+                )
+
+            ov_label = f"[ov{idx}]"
+            filter_complex_parts.append(f"[{input_k}:v]{prep_filter}{ov_label}")
+
+            v_next = f"[v_ov{idx}]"
+            filter_complex_parts.append(
+                f"{v_curr}{ov_label}overlay=x={ov.x}:y={ov.y}:enable='between(t,{S},{E})'{v_next}"
+            )
+            v_curr = v_next
+
+    # ASS subtitle filter after last overlay (or after base video)
+    esc_ass = ass_name.replace("\\", "/").replace(":", "\\:")
+    if fonts_rel:
+        esc_fonts = fonts_rel.replace("\\", "/").replace(":", "\\:")
+        ass_filter_str = f"ass={esc_ass}:fontsdir={esc_fonts}"
+    else:
+        ass_filter_str = f"ass={esc_ass}"
+
+    filter_complex_parts.append(f"{v_curr}{ass_filter_str}[vout]")
+
+    # Audio stream graph construction (if SFX present)
+    if sfx_cues:
+        sfx_base_idx = 1 + len(valid_overlays)
+        input_idx_map = {
+            input_id: sfx_base_idx + i for i, input_id in enumerate(unique_sfx_ids)
+        }
+        n_sfx = len(sfx_cues)
+
+        for input_id in unique_sfx_ids:
+            idx = input_idx_map[input_id]
+            cues_using = [i for i, c in enumerate(sfx_cues) if c.input_id == input_id]
+            if len(cues_using) > 1:
+                out_labels = "".join(f"[sfx_src_{i}]" for i in cues_using)
+                filter_complex_parts.append(
+                    f"[{idx}:a]asplit={len(cues_using)}{out_labels}"
+                )
+
+        for i, cue in enumerate(sfx_cues):
+            cues_using = [
+                idx for idx, c in enumerate(sfx_cues) if c.input_id == cue.input_id
+            ]
+            if len(cues_using) > 1:
+                src_label = f"[sfx_src_{i}]"
+            else:
+                src_label = f"[{input_idx_map[cue.input_id]}:a]"
+            gain_str = fmt_num(cue.gain_db)
+            filter_complex_parts.append(
+                f"{src_label}adelay={cue.at_ms}|{cue.at_ms},volume={gain_str}dB[sfx{i}]"
+            )
+
+        mix_inputs = 1 + n_sfx
+        sfx_labels = "".join(f"[sfx{i}]" for i in range(n_sfx))
+        filter_complex_parts.append(
+            f"[0:a]{sfx_labels}amix=inputs={mix_inputs}:duration=first:normalize=0[aout]"
+        )
+
+    filter_complex_str = ";".join(filter_complex_parts)
 
     args.extend([
         "-filter_complex",
         filter_complex_str,
         "-map",
         "[vout]",
-        "-map",
-        "[aout]",
+    ])
+
+    if sfx_cues:
+        args.extend(["-map", "[aout]"])
+    else:
+        args.extend(["-map", "0:a?"])
+
+    args.extend([
         "-r",
         "30",
         "-c:v",
@@ -470,12 +571,36 @@ def build_final(
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
+    overlay_files: dict[str, Path] = {}
+    if request.ir.overlays:
+        for ov in request.ir.overlays:
+            if ov.kind == "broll_card":
+                if ov.asset and ov.asset in local_inputs:
+                    overlay_files[ov.id] = local_inputs[ov.asset]
+                else:
+                    logger.warning("broll_card asset '%s' not found in local_inputs", ov.asset)
+            else:
+                out_png = workdir / f"overlay_{ov.id}.png"
+                try:
+                    render_card_png(ov, request.ir.style, out_png, workdir)
+                    overlay_files[ov.id] = out_png
+                except Exception as e:
+                    logger.warning("Failed to render overlay card %s: %s", ov.id, e)
+
     ass_name = "subs.ass"
     ass_path = workdir / ass_name
     write_ass(request.ir, ass_path)
 
     out_path = workdir / "final_out.mp4"
-    args = build_final_args(request, local_inputs, out_path, ass_name, FONTS_DIR, workdir)
+    args = build_final_args(
+        request,
+        local_inputs,
+        out_path,
+        ass_name,
+        FONTS_DIR,
+        workdir,
+        overlay_files=overlay_files,
+    )
 
     cmd = ["ffmpeg"] + args
     subprocess.run(
@@ -491,3 +616,4 @@ def build_final(
         "duration_ms": request.ir.duration_ms,
         "scene_marks_ms": [],
     }
+
