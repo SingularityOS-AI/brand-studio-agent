@@ -132,6 +132,7 @@ CONVERTER: Callable[..., Path | None] = _default_converter
 
 
 @app.get("/healthz")
+@app.get("/health")  # Cloud Run's front end reserves paths ending in "z": /healthz never arrives
 def healthz() -> dict[str, Any]:
     return {"ok": True, "ffmpeg": bool(shutil.which("ffmpeg"))}
 
