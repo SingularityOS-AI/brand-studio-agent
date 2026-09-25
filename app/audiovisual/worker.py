@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Callable, Coroutine
 
 from app.audiovisual.jobs import (
@@ -89,6 +90,9 @@ async def resolve_transcript(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+EDITING_KINDS: tuple[str, ...] = ("raw_render", "render")
+REFUND_SWEEP_SECONDS: float = 60.0
+
 # Registry of resolvers: kind -> async callable(job: dict) -> dict (output)
 # P51: transcript. P52: stock, music, sfx. P53: ai_image, ai_video. P54: motion_graphic.
 RESOLVERS: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]] = {
@@ -118,13 +122,22 @@ def register_default_resolvers() -> None:
         RESOLVERS["ai_video"] = resolve_ai_video
     if "motion_graphic" not in RESOLVERS:
         RESOLVERS["motion_graphic"] = resolve_motion_graphic
+    if "raw_render" not in RESOLVERS:
+        from app.editing.dispatch import resolve_raw_render
+
+        RESOLVERS["raw_render"] = resolve_raw_render
+    if "render" not in RESOLVERS:
+        from app.editing.dispatch import resolve_render
+
+        RESOLVERS["render"] = resolve_render
 
 
 _worker_task: asyncio.Task[None] | None = None
+_editing_task: asyncio.Task[None] | None = None
 _running: bool = False
 
 
-async def process_one_job() -> bool:
+async def process_one_job(kinds: list[str] | None = None) -> bool:
     """
     Attempts to claim and execute one pending job.
 
@@ -134,7 +147,15 @@ async def process_one_job() -> bool:
     if not RESOLVERS:
         return False
 
-    job = claim_next_pending(supported_kinds=list(RESOLVERS.keys()))
+    if kinds is None:
+        supported = [k for k in RESOLVERS.keys() if k not in EDITING_KINDS]
+    else:
+        supported = [k for k in kinds if k in RESOLVERS]
+
+    if not supported:
+        return False
+
+    job = claim_next_pending(supported_kinds=supported)
     if not job:
         return False
 
@@ -150,6 +171,14 @@ async def process_one_job() -> bool:
                 f"[worker] Job {job['id']} ({kind}) failed: monthly AI spend cap exceeded."
             )
             mark_failed(job_id_or_job=job["id"], error="AI generation paused (platform spend limit)")
+            return True
+
+    if kind in EDITING_KINDS:
+        if not can_spend(0.01):
+            logger.warning(
+                f"[worker] Job {job['id']} ({kind}) failed: platform spend limit reached."
+            )
+            mark_failed(job_id_or_job=job["id"], error="Render paused (platform spend limit)")
             return True
 
     if kind in ("ai_image", "ai_video"):
@@ -213,7 +242,7 @@ async def process_one_job() -> bool:
     return True
 
 
-async def worker_loop(poll_interval: float = 3.0) -> None:
+async def worker_loop(poll_interval: float = 3.0, kinds: list[str] | None = None) -> None:
     """
     Background worker loop executing every poll_interval seconds.
 
@@ -221,15 +250,29 @@ async def worker_loop(poll_interval: float = 3.0) -> None:
     """
     global _running
     _running = True
-    logger.info("[worker] Audiovisual worker loop started.")
+    logger.info(f"[worker] Audiovisual worker loop started (kinds={kinds}).")
     try:
         resumed = resume_stale()
         if resumed > 0:
             logger.info(f"[worker] Resumed {resumed} stale jobs on worker startup.")
 
+        is_editing_loop = kinds is not None and set(kinds) == set(EDITING_KINDS)
+        # The refund sweep is a synchronous Supabase query on the only process
+        # (it also serves Brandy's voice): once a minute is plenty, not every tick.
+        last_refund_sweep = 0.0
+
         while _running:
             try:
-                claimed = await process_one_job()
+                if is_editing_loop and time.monotonic() - last_refund_sweep >= REFUND_SWEEP_SECONDS:
+                    last_refund_sweep = time.monotonic()
+                    try:
+                        from app.editing.dispatch import refund_failed_prepaid
+
+                        refund_failed_prepaid()
+                    except Exception as e:
+                        logger.error(f"[worker] Error in refund_failed_prepaid tick: {e}")
+
+                claimed = await process_one_job(kinds=kinds)
                 if not claimed:
                     await asyncio.sleep(poll_interval)
             except asyncio.CancelledError:
@@ -239,12 +282,12 @@ async def worker_loop(poll_interval: float = 3.0) -> None:
                 await asyncio.sleep(poll_interval)
     finally:
         _running = False
-        logger.info("[worker] Audiovisual worker loop stopped.")
+        logger.info(f"[worker] Audiovisual worker loop stopped (kinds={kinds}).")
 
 
 def start_worker(poll_interval: float = 3.0) -> asyncio.Task[None] | None:
     """Starts the background worker task if not already running."""
-    global _worker_task, _running
+    global _worker_task, _editing_task, _running
     register_default_resolvers()
     if _running or (_worker_task and not _worker_task.done()):
         return _worker_task
@@ -254,18 +297,25 @@ def start_worker(poll_interval: float = 3.0) -> asyncio.Task[None] | None:
     except RuntimeError:
         loop = asyncio.get_event_loop()
 
-    _worker_task = loop.create_task(worker_loop(poll_interval=poll_interval))
+    _worker_task = loop.create_task(worker_loop(poll_interval=poll_interval, kinds=None))
+    _editing_task = loop.create_task(
+        worker_loop(poll_interval=poll_interval, kinds=list(EDITING_KINDS))
+    )
     return _worker_task
 
 
 async def stop_worker() -> None:
     """Stops the background worker task gracefully."""
-    global _worker_task, _running
+    global _worker_task, _editing_task, _running
     _running = False
-    if _worker_task and not _worker_task.done():
-        _worker_task.cancel()
+    tasks = [t for t in (_worker_task, _editing_task) if t and not t.done()]
+    for t in tasks:
+        t.cancel()
+    for t in tasks:
         try:
-            await _worker_task
+            await t
         except asyncio.CancelledError:
             pass
     _worker_task = None
+    _editing_task = None
+
