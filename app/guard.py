@@ -7,7 +7,6 @@ import time
 import secrets
 from typing import Optional, Dict
 from fastapi import HTTPException, status
-from fastapi.responses import JSONResponse
 from app.config import settings
 
 
@@ -279,6 +278,33 @@ class Guard:
                 )
 
             session["credits"] -= amount
+            return session["credits"]
+
+    def refund_credits(self, token: str, amount: int, source: str = "refund") -> Optional[int]:
+        """
+        Refunds credits to a session by token.
+        Returns new remaining credits, or None if token invalid.
+        """
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        print(f"[GUARD] refund {amount} to session …{token[-6:]} ({source})")
+
+        if self._use_supabase:
+            response = self._supabase.rpc(
+                "refund_credits",
+                params={
+                    "p_token": token,
+                    "p_amount": amount,
+                },
+            ).execute()
+            return response.data
+        else:
+            session = self._sessions.get(token)
+            if not session:
+                return None
+
+            session["credits"] += amount
             return session["credits"]
 
     def get_remaining_credits(self, token: str) -> Optional[int]:

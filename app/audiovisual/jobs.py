@@ -448,6 +448,36 @@ def revert_charged(job_id_or_job: str | dict[str, Any]) -> None:
             job["updated_at"] = datetime.now(timezone.utc).isoformat()
 
 
+def release_charge(job_id_or_job: str | dict[str, Any]) -> bool:
+    """
+    Inverse charge lock: atomically sets charged=False where id=job_id and charged=True.
+    Returns True if 1 row was updated (charge lock released).
+    Returns False if 0 rows were updated (already False or job not found).
+    """
+    job_id = job_id_or_job["id"] if isinstance(job_id_or_job, dict) else str(job_id_or_job)
+    client = _get_jobs_client()
+    if client is not None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res = (
+            client.table("asset_jobs")
+            .update({"charged": False, "updated_at": now_iso})
+            .eq("id", job_id)
+            .eq("charged", True)
+            .execute()
+        )
+        return bool(res.data and len(res.data) > 0)
+
+    with _jobs_lock:
+        job = _local_jobs.get(job_id)
+        if not job:
+            return False
+        if not job.get("charged", False):
+            return False
+        job["charged"] = False
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return True
+
+
 def list_jobs(session_token: str, idea_id: str) -> list[dict[str, Any]]:
     """List all jobs for a given session and idea."""
     client = _get_jobs_client()
@@ -476,6 +506,44 @@ def list_jobs(session_token: str, idea_id: str) -> list[dict[str, Any]]:
             )
         )
         return matching
+
+
+def find_jobs(
+    kinds: list[str] | set[str],
+    statuses: list[str] | set[str],
+    charged: bool | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """
+    Find jobs matching kinds and statuses, optionally filtered by charged status.
+    Ordered by created_at ascending up to limit items.
+    """
+    kinds_list = list(kinds)
+    statuses_list = list(statuses)
+    client = _get_jobs_client()
+    if client is not None:
+        query = (
+            client.table("asset_jobs")
+            .select("*")
+            .in_("kind", kinds_list)
+            .in_("status", statuses_list)
+        )
+        if charged is not None:
+            query = query.eq("charged", charged)
+        res = query.order("created_at").limit(limit).execute()
+        return res.data or []
+
+    with _jobs_lock:
+        kinds_set = set(kinds)
+        statuses_set = set(statuses)
+        matching = []
+        for j in _local_jobs.values():
+            if j.get("kind") in kinds_set and j.get("status") in statuses_set:
+                if charged is not None and j.get("charged") != charged:
+                    continue
+                matching.append(copy.deepcopy(j))
+        matching.sort(key=lambda x: x.get("created_at", ""))
+        return matching[:limit]
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:

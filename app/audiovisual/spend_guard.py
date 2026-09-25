@@ -14,18 +14,20 @@ logger = logging.getLogger(__name__)
 
 AI_KINDS: set[str] = {"ai_image", "ai_video", "music_lyria"}
 AI_STATUSES: set[str] = {"pending", "running", "done"}
+EDITING_SPEND_KINDS: set[str] = {"raw_render", "render"}
+SPEND_KINDS: set[str] = AI_KINDS | EDITING_SPEND_KINDS
 
 
 def monthly_ai_spend_usd() -> float:
     """
-    Computes total USD committed/spent on AI assets for the current UTC month.
+    Computes total USD committed/spent on AI + render CPU assets for the current UTC month.
     Includes pending, running, and done jobs to prevent burst limit bypasses.
     """
     now_utc = datetime.now(timezone.utc)
     first_of_month_iso = now_utc.replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     ).isoformat()
-    return sum_cost_usd_since(AI_KINDS, AI_STATUSES, first_of_month_iso)
+    return sum_cost_usd_since(SPEND_KINDS, AI_STATUSES, first_of_month_iso)
 
 
 def can_spend(extra_usd: float) -> bool:

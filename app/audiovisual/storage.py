@@ -6,11 +6,14 @@ from __future__ import annotations
 import hashlib
 import mimetypes
 import os
+import re
 from typing import Any
 import uuid
 
 from app.audiovisual.config import AV_STORAGE_BUCKET
 from app.config import settings
+
+_VALID_PATH_REGEX = re.compile(r"^[A-Za-z0-9_./-]+$")
 
 MIME_TO_EXT: dict[str, str] = {
     "video/mp4": "mp4",
@@ -168,4 +171,56 @@ def create_signed_upload_url(
             "signed_upload_url": f"https://local-storage.test/{AV_STORAGE_BUCKET}/{storage_path}?token=mock_upload_token",
             "token": "mock_upload_token",
         }
+
+
+def create_signed_upload_url_at(storage_path: str) -> dict[str, str]:
+    """
+    Creates a signed upload URL for a specific storage path.
+    Validates storage_path format before creation.
+    """
+    if (
+        ".." in storage_path
+        or storage_path.startswith("/")
+        or "\\" in storage_path
+        or not _VALID_PATH_REGEX.match(storage_path)
+        or not storage_path.endswith((".mp4", ".png", ".webm"))
+    ):
+        raise ValueError(f"Invalid storage path: {storage_path}")
+
+    client = _get_storage_client()
+    if client is not None:
+        try:
+            res = client.storage.from_(AV_STORAGE_BUCKET).create_signed_upload_url(storage_path)
+            signed_url_val = res.get("signed_url") or res.get("signedUrl") or ""
+            token_val = res.get("token") or ""
+            return {
+                "storage_path": storage_path,
+                "signed_upload_url": signed_url_val,
+                "token": token_val,
+            }
+        except Exception as e:
+            raise RuntimeError(f"Failed to create signed upload URL from Supabase: {e}") from e
+    else:
+        return {
+            "storage_path": storage_path,
+            "signed_upload_url": f"https://local-storage.test/{AV_STORAGE_BUCKET}/{storage_path}?token=mock_upload_token",
+            "token": "mock_upload_token",
+        }
+
+
+def editing_output_path(
+    session_token: str,
+    idea_id: str,
+    job_id: str,
+    attempt: int,
+    ext: str = "mp4",
+) -> str:
+    """
+    Generates deterministic output storage path for editing job attempts.
+    Format: {token_hash}/{idea_id}/video/{job_id}_a{attempt}.{ext}
+    """
+    token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()[:16]
+    clean_ext = ext.lstrip(".")
+    return f"{token_hash}/{idea_id}/video/{job_id}_a{attempt}.{clean_ext}"
+
 
