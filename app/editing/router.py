@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hmac
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -17,6 +18,9 @@ from app.audiovisual.jobs import (
     list_jobs,
     mark_cancelled,
     mark_charged,
+    mark_done,
+    mark_failed,
+    release_charge,
     revert_charged,
     set_job_progress,
 )
@@ -24,8 +28,20 @@ from app.audiovisual.spend_guard import can_spend
 from app.audiovisual.storage import signed_url
 from app.editing import config as dispatch_config
 from app.editing.brand_style import derive_caption_style
-from app.editing.dressing import dress_all, scene_contexts
+from app.editing.dressing import (
+    RedressError,
+    dress_all,
+    redress_scene,
+    scene_contexts,
+)
 from app.editing.ir import build_ir_stage1, build_ir_stage2
+from app.editing.metadata import (
+    LIMITS,
+    PLATFORMS,
+    generate_metadata,
+    sanitize_hashtags,
+    sanitize_text,
+)
 from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
 from app.editing.timeline import build_timeline
 from app.guard import guard
@@ -33,6 +49,7 @@ from app.scripting.scripts import _check_script
 from app.tools.brand_brain.store import get_brand_brain
 
 router = APIRouter(prefix="/api/editing")
+
 
 
 class EditingError(Exception):
@@ -130,8 +147,10 @@ def _state(
         frame_zero = script.get("frame_zero") or {}
         fz_text = frame_zero.get("on_screen_text")
         if dressing_fresh:
+            # script + jobs give overlays their text and the broll_card images (P90A)
             stage2_res = build_ir_stage2(
-                timeline, captions_words, fz_text, style, dressing_data
+                timeline, captions_words, fz_text, style, dressing_data,
+                script=script, jobs=jobs,
             )
             ir = stage2_res["ir"]
             sfx_inputs = stage2_res.get("sfx_inputs", {}) or {}
@@ -192,6 +211,12 @@ def _state(
     else:
         render_dict = {}
 
+    sfx_urls = {
+        inp_id: signed_url(inp_data["storage_path"], ttl=3600)
+        for inp_id, inp_data in sfx_inputs.items()
+        if isinstance(inp_data, dict) and inp_data.get("storage_path")
+    }
+
     return {
         "edit_version": edit["version"],
         "timeline": timeline,
@@ -208,9 +233,12 @@ def _state(
             "fresh": dressing_fresh,
             "stale": bool(dressing_scenes) and not dressing_fresh,
         },
+        "metadata": edit.get("metadata") or {},
+        "sfx_urls": sfx_urls,
         "_inputs": inputs,
         "_sfx_inputs": sfx_inputs,
     }
+
 
 
 @router.get("/{idea_id}")
@@ -681,3 +709,231 @@ async def update_job_progress_endpoint(
 
     set_job_progress(job_id, {"pct": body.pct})
     return Response(status_code=204)
+
+
+@router.post("/{idea_id}/metadata")
+async def post_metadata(request: Request, idea_id: str) -> JSONResponse:
+    """POST metadata endpoint — generates platform publication metadata."""
+    try:
+        session_token, script, jobs, edit = _load(request, idea_id)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
+
+    try:
+        brand_brain = get_brand_brain(session_token)
+    except Exception:
+        brand_brain = None
+
+    meta = await generate_metadata(script, brand_brain)
+
+    try:
+        updated_edit = save_edit(
+            session_token,
+            idea_id,
+            fields={"metadata": meta},
+            expected_version=edit["version"],
+        )
+    except EditVersionConflict:
+        fresh_edit = get_or_create_edit(session_token, idea_id)
+        updated_edit = save_edit(
+            session_token,
+            idea_id,
+            fields={"metadata": meta},
+            expected_version=fresh_edit["version"],
+        )
+
+    state = _state(session_token, idea_id, script, jobs, updated_edit)
+    state.pop("_inputs", None)
+    state.pop("_sfx_inputs", None)
+    return JSONResponse(status_code=200, content=state)
+
+
+class MetadataPatchBody(BaseModel):
+    platform: str
+    field: str
+    value: Any = None
+    expected_version: int
+
+
+@router.patch("/{idea_id}/metadata")
+async def patch_metadata(request: Request, idea_id: str) -> JSONResponse:
+    """PATCH metadata endpoint — updates a specific metadata field."""
+    try:
+        session_token, script, jobs, edit = _load(request, idea_id)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
+
+    try:
+        raw_body = await request.json()
+        body = MetadataPatchBody.model_validate(raw_body)
+    except Exception:
+        return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+
+    if body.platform not in PLATFORMS:
+        return JSONResponse(
+            status_code=422, content={"detail": f"Invalid platform: {body.platform}"}
+        )
+
+    allowed_fields = {"title", "description", "hashtags", "first_comment"}
+    if body.field not in allowed_fields:
+        return JSONResponse(
+            status_code=422, content={"detail": f"Invalid field: {body.field}"}
+        )
+
+    existing_meta = edit.get("metadata")
+    if (
+        not existing_meta
+        or not isinstance(existing_meta, dict)
+        or not existing_meta.get("platforms")
+    ):
+        return JSONResponse(
+            status_code=409, content={"code": "metadata_not_generated"}
+        )
+
+    meta_dict = copy.deepcopy(existing_meta)
+    platforms_dict = meta_dict.setdefault("platforms", {})
+    p_dict = platforms_dict.setdefault(body.platform, {})
+
+    if body.field == "hashtags":
+        clean_val = sanitize_hashtags(body.value)
+    elif body.field == "first_comment":
+        clean_val = sanitize_text(body.value, 300)
+    else:
+        limit = LIMITS[body.platform][body.field]
+        clean_val = sanitize_text(body.value, limit)
+
+    p_dict[body.field] = clean_val
+
+    try:
+        updated_edit = save_edit(
+            session_token,
+            idea_id,
+            fields={"metadata": meta_dict},
+            expected_version=body.expected_version,
+        )
+    except EditVersionConflict as err:
+        return JSONResponse(
+            status_code=409,
+            content={"code": "version_conflict", "current": err.current},
+        )
+
+    state = _state(session_token, idea_id, script, jobs, updated_edit)
+    state.pop("_inputs", None)
+    state.pop("_sfx_inputs", None)
+    return JSONResponse(status_code=200, content=state)
+
+
+class RedressBody(BaseModel):
+    request_id: str
+
+
+@router.post("/{idea_id}/scenes/{scene_n}/redress")
+async def post_redress_scene(
+    request: Request, idea_id: str, scene_n: int
+) -> JSONResponse:
+    """POST redress scene endpoint — redresses scene_n with a new take."""
+    try:
+        session_token, script, jobs, edit = _load(request, idea_id)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
+
+    try:
+        raw_body = await request.json()
+        body = RedressBody.model_validate(raw_body)
+    except Exception:
+        return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+
+    req_id = body.request_id
+    if not isinstance(req_id, str) or not re.match(r"^[A-Za-z0-9_-]{8,80}$", req_id):
+        return JSONResponse(
+            status_code=422, content={"detail": "Invalid request_id format"}
+        )
+
+    state = _state(session_token, idea_id, script, jobs, edit)
+    if not state.get("dressing", {}).get("fresh"):
+        return JSONResponse(status_code=409, content={"code": "dress_first"})
+
+    timeline_scenes = (state.get("timeline") or {}).get("scenes", [])
+    existing_ns = {int(s["n"]) for s in timeline_scenes if "n" in s}
+    if scene_n not in existing_ns:
+        return JSONResponse(
+            status_code=404, content={"detail": f"Scene {scene_n} not found"}
+        )
+
+    contexts = scene_contexts(state["timeline"], state["captions_words"], script)
+    seed = (int(time.time()) % 100000) * 1000 + scene_n
+
+    try:
+        new_dressing = await redress_scene(
+            contexts, edit.get("dressing") or {}, scene_n, seed
+        )
+    except RedressError:
+        return JSONResponse(status_code=503, content={"code": "brandy_unavailable"})
+
+    redress_credits = getattr(dispatch_config, "REDRESS_CREDITS", 2)
+    job, created = create_job(
+        session_token=session_token,
+        idea_id=idea_id,
+        scene_n=scene_n,
+        kind="redress",
+        credits=redress_credits,
+        cost_usd=0.002,
+        input={"request_id": req_id},
+        idempotency_key=f"{session_token}:{idea_id}:redress:{req_id}",
+        return_created=True,
+    )
+
+    if not created:
+        state.pop("_inputs", None)
+        state.pop("_sfx_inputs", None)
+        return JSONResponse(status_code=200, content=state)
+
+    mark_charged(job)
+    try:
+        guard.deduct_credits(session_token, redress_credits)
+    except HTTPException as e:
+        release_charge(job)
+        mark_failed(job, "Payment failed")
+        return JSONResponse(
+            status_code=e.status_code,
+            content=e.detail if isinstance(e.detail, dict) else {"detail": e.detail},
+        )
+    except Exception as e:
+        release_charge(job)
+        mark_failed(job, str(e))
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+    try:
+        updated_edit = save_edit(
+            session_token,
+            idea_id,
+            fields={"dressing": new_dressing},
+            expected_version=edit["version"],
+        )
+    except EditVersionConflict as err:
+        release_charge(job)
+        guard.refund_credits(
+            session_token, redress_credits, source=f"refund:{job['id']}"
+        )
+        mark_failed(job, f"EditVersionConflict: {err}")
+        return JSONResponse(
+            status_code=409,
+            content={"code": "version_conflict", "current": err.current},
+        )
+    except Exception as err:
+        release_charge(job)
+        guard.refund_credits(
+            session_token, redress_credits, source=f"refund:{job['id']}"
+        )
+        mark_failed(job, str(err))
+        return JSONResponse(status_code=500, content={"detail": str(err)})
+
+    mark_done(job, output={"scene_n": scene_n}, cost_usd=0.002, charged=True)
+
+    remaining = guard.get_remaining_credits(session_token)
+    new_state = _state(session_token, idea_id, script, jobs, updated_edit)
+    new_state.pop("_inputs", None)
+    new_state.pop("_sfx_inputs", None)
+    new_state["credits_remaining"] = remaining
+    return JSONResponse(status_code=200, content=new_state)
+

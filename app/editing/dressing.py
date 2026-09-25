@@ -7,6 +7,7 @@ using closed catalog catalog_v1.json.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 from pathlib import Path
@@ -18,6 +19,13 @@ from app.audiovisual.genai_client import get_genai_client
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class RedressError(Exception):
+    """Exception raised when redressing a scene fails."""
+
+    pass
+
 
 
 class Zoom(BaseModel):
@@ -560,3 +568,87 @@ async def dress_all(
 
     Dressing.model_validate(result)
     return result
+
+
+async def redress_scene(
+    contexts: list[dict],
+    dressing: dict,
+    scene_n: int,
+    seed: int,
+    *,
+    timeout_s: float | None = None,
+) -> dict:
+    """Re-dresses a single scene with a different take while leaving all other scenes untouched."""
+    target_ctx = next((c for c in contexts if int(c.get("n", -1)) == scene_n), None)
+    if target_ctx is None:
+        raise RedressError(f"Scene {scene_n} not found in contexts")
+
+    catalog = load_catalog()
+    raw_hash = dressing.get("raw_hash", "")
+
+    prev_scenes = dressing.get("scenes", [])
+    prev_scene_dict = next(
+        (s for s in prev_scenes if isinstance(s, dict) and int(s.get("n", -1)) == scene_n),
+        None,
+    )
+
+    prompt = build_prompt([target_ctx], catalog)
+    prompt += (
+        "\n\nGive a DIFFERENT take from this previous dressing:\n"
+        f"{json.dumps(prev_scene_dict, indent=2, ensure_ascii=False)}"
+    )
+
+    from app.editing.config import LLM_TIMEOUT_REDRESS
+
+    timeout = timeout_s if timeout_s is not None else float(LLM_TIMEOUT_REDRESS)
+
+    try:
+        client = get_genai_client()
+        model_name = getattr(settings, "vertex_ai_model", "gemini-2.5-flash")
+
+        try:
+            from google.genai import types
+
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.9,
+            )
+        except Exception:
+            config = {
+                "response_mime_type": "application/json",
+                "temperature": 0.9,
+            }
+
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            ),
+            timeout=timeout,
+        )
+        raw_text = getattr(resp, "text", "") or ""
+        raw_json = json.loads(raw_text)
+
+        single_dressing = validate_dressing(
+            raw_json, [target_ctx], catalog, raw_hash, {scene_n: seed}, source="llm"
+        )
+        new_scene_dict = single_dressing["scenes"][0]
+    except Exception as exc:
+        logger.info(f"Redress LLM failed or invalid: {exc}")
+        raise RedressError(f"Redress failed: {exc}") from exc
+
+    new_dressing = copy.deepcopy(dressing)
+    scenes_list = new_dressing.get("scenes", [])
+    replaced = False
+    for idx, sc in enumerate(scenes_list):
+        if isinstance(sc, dict) and int(sc.get("n", -1)) == scene_n:
+            scenes_list[idx] = new_scene_dict
+            replaced = True
+            break
+    if not replaced:
+        scenes_list.append(new_scene_dict)
+
+    Dressing.model_validate(new_dressing)
+    return new_dressing
+

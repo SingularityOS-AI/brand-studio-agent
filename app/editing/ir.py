@@ -10,6 +10,7 @@ from render_service.manifest import (
     CaptionEvent,
     CaptionToken,
     FrameZero,
+    OverlayCue,
     RenderIR,
     SfxCue,
     TransitionCue,
@@ -256,6 +257,21 @@ def _clip_zoom_block(
     return kept
 
 
+def _format_card_stat_text(base_text: str) -> str:
+    m = re.search(r"\d+(?:[.,]\d+)?\s*%?", base_text)
+    if not m:
+        return base_text
+    num_str = m.group(0).strip()
+    rest_before = base_text[: m.start()]
+    rest_after = base_text[m.end() :]
+    rest = f"{rest_before} {rest_after}".strip()
+    rest = re.sub(r"^\s*[-·.,:]+\s*", "", rest).strip()
+    rest = re.sub(r"\s+", " ", rest)
+    if rest:
+        return f"{num_str} · {rest}"
+    return num_str
+
+
 def build_ir_stage2(
     timeline: dict[str, Any],
     captions_words: list[dict[str, Any]],
@@ -264,11 +280,13 @@ def build_ir_stage2(
     dressing: dict[str, Any],
     *,
     sfx_library: list[dict[str, Any]] | None = None,
+    script: dict[str, Any] | None = None,
+    jobs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build stage 2 RenderIR dictionary with zoom_keys, transitions, sfx, and emphasis.
+    """Build stage 2 RenderIR dictionary with zoom_keys, transitions, overlays, sfx, and emphasis.
 
     Returns:
-        {"ir": RenderIR dict validado, "sfx_inputs": {input_id: {"storage_path": "library/sfx/<file>", "kind": "audio"}}}
+        {"ir": RenderIR dict validado, "sfx_inputs": {input_id: {"storage_path": "...", "kind": "audio" | "image"}}}
     """
     ir_stage1 = build_ir_stage1(timeline, captions_words, frame_zero_text, style)
     duration_ms = ir_stage1["duration_ms"]
@@ -283,6 +301,40 @@ def build_ir_stage2(
         for s in dressing_scenes
         if isinstance(s, dict) and "n" in s and isinstance(s.get("n"), int)
     }
+
+    script_scenes_map: dict[int, dict[str, Any]] = {}
+    if isinstance(script, dict) and isinstance(script.get("scenes"), list):
+        for ss in script["scenes"]:
+            if isinstance(ss, dict) and "n" in ss:
+                try:
+                    script_scenes_map[int(ss["n"])] = ss
+                except (ValueError, TypeError):
+                    pass
+
+    def _get_ai_image_storage_path(scene_m: int) -> str | None:
+        if not isinstance(jobs, list):
+            return None
+        matching = []
+        for j in jobs:
+            if not isinstance(j, dict):
+                continue
+            if j.get("kind") == "ai_image" and j.get("status") == "done":
+                j_scene = j.get("scene_n")
+                if j_scene is not None:
+                    try:
+                        if int(j_scene) == scene_m:
+                            matching.append(j)
+                    except (ValueError, TypeError):
+                        pass
+        if not matching:
+            return None
+        latest = matching[-1]
+        out = latest.get("output", {})
+        if isinstance(out, dict):
+            sp = out.get("storage_path")
+            if sp and str(sp).strip():
+                return str(sp).strip()
+        return None
 
     # 1. Transitions
     resolved_transitions: list[str] = []
@@ -327,10 +379,168 @@ def build_ir_stage2(
             TransitionCue.model_validate(cue_dict)
             transition_cues.append(cue_dict)
 
-    # 2. SFX
+    # 2. Overlays
+    POSITION_BOXES = {
+        "top": (90, 260, 900, 300),
+        "center": (90, 760, 900, 400),
+        "lower_third": (90, 1300, 900, 200),
+        "left": (60, 700, 420, 420),
+        "right": (600, 700, 420, 420),
+    }
+
+    raw_overlay_candidates: list[dict[str, Any]] = []
+
+    for idx, scene in enumerate(timeline_scenes):
+        n = int(scene.get("n", idx + 1))
+        out_end_ms = int(scene.get("out_end_ms", 0))
+        ds = dressing_by_n.get(n, {})
+        dressing_overlays = (
+            ds.get("overlays", []) if isinstance(ds.get("overlays"), list) else []
+        )
+        sfx_tags = ds.get("sfx_tags", {})
+        sfx_ov_tag = (
+            str(sfx_tags.get("overlay", "pop"))
+            if isinstance(sfx_tags, dict)
+            else "pop"
+        )
+        seed = int(ds.get("seed", n))
+
+        scene_cw = [cw for cw in captions_words if int(cw.get("scene_n", -1)) == n]
+        scene_cw.sort(key=lambda cw: int(cw.get("start_ms", 0)))
+
+        script_s = script_scenes_map.get(n, {})
+        ost = str(script_s.get("on_screen_text", "") or "").strip()
+        spk = str(script_s.get("spoken_text", "") or "").strip()
+
+        for k, ov in enumerate(dressing_overlays):
+            if not isinstance(ov, dict):
+                continue
+            kind = str(ov.get("kind", ""))
+            w_idx = ov.get("word_idx")
+            ov_dur_ms = int(ov.get("duration_ms", 1200))
+            position = str(ov.get("position", "lower_third"))
+
+            if not isinstance(w_idx, int) or not (0 <= w_idx < len(scene_cw)):
+                continue
+
+            start_ms = int(scene_cw[w_idx].get("start_ms", 0))
+
+            if start_ms < 1500:
+                continue
+
+            raw_end_ms = start_ms + ov_dur_ms
+            end_ms = min(raw_end_ms, out_end_ms)
+
+            if end_ms - start_ms < 600:
+                continue
+
+            bx, by, bw, bh = POSITION_BOXES.get(position, (90, 1300, 900, 200))
+            if kind == "emoji":
+                w = 220
+                h = 220
+                x = bx + (bw - 220) // 2
+                y = by + (bh - 220) // 2
+            else:
+                x, y, w, h = bx, by, bw, bh
+
+            text: str | None = None
+            asset: str | None = None
+            extra_image: tuple[str, str] | None = None
+
+            if kind == "broll_card":
+                broll_scene = ov.get("broll_scene")
+                if not isinstance(broll_scene, int):
+                    continue
+                sp = _get_ai_image_storage_path(broll_scene)
+                if not sp:
+                    continue
+                asset_id = f"card_img_s{broll_scene}"
+                asset = asset_id
+                text = None
+                extra_image = (asset_id, sp)
+            elif kind == "emoji":
+                emoji_val = ov.get("emoji")
+                if not emoji_val or not isinstance(emoji_val, str):
+                    continue
+                asset = emoji_val
+                text = None
+            else:
+                asset = None
+                base_text = ost
+                if not base_text and spk:
+                    words_spk = spk.split()[:8]
+                    base_text = " ".join(words_spk)
+
+                if not base_text:
+                    continue
+
+                if kind == "card_stat":
+                    text_formatted = _format_card_stat_text(base_text)
+                else:
+                    text_formatted = base_text
+
+                text = text_formatted[:80]
+
+            ov_id = f"ov_s{n}_{k}"
+            cue_dict = {
+                "id": ov_id,
+                "kind": kind,
+                "asset": asset,
+                "text": text,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "x": x,
+                "y": y,
+                "w": w,
+                "h": h,
+                "anim": "pop",
+            }
+
+            raw_overlay_candidates.append({
+                "cue": cue_dict,
+                "extra_image": extra_image,
+                "scene_n": n,
+                "seed": seed,
+                "sfx_ov_tag": sfx_ov_tag,
+            })
+
+    raw_overlay_candidates.sort(key=lambda c: (c["cue"]["start_ms"], c["scene_n"]))
+
+    overlay_cues: list[dict[str, Any]] = []
+    sfx_inputs: dict[str, dict[str, str]] = {}
+    last_accepted_end = -1
+    overlay_sfx_candidates: list[dict[str, Any]] = []
+
+    for item in raw_overlay_candidates:
+        cue = item["cue"]
+        if cue["start_ms"] < last_accepted_end:
+            continue
+
+        OverlayCue.model_validate(cue)
+        overlay_cues.append(cue)
+        last_accepted_end = cue["end_ms"]
+
+        if item["extra_image"]:
+            asset_id, sp = item["extra_image"]
+            sfx_inputs[asset_id] = {
+                "storage_path": sp,
+                "kind": "image",
+            }
+
+        sfx_ov_tag = item["sfx_ov_tag"]
+        if sfx_ov_tag != "none":
+            overlay_sfx_candidates.append({
+                "raw_at": cue["start_ms"],
+                "tag": sfx_ov_tag,
+                "seed": item["seed"],
+                "gain_db": -8.0,
+                "scene_n": item["scene_n"],
+                "type": "overlay",
+            })
+
+    # 3. SFX
     sfx_enabled = bool(timeline.get("settings", {}).get("sfx_enabled", False))
     sfx_cues: list[dict[str, Any]] = []
-    sfx_inputs: dict[str, dict[str, str]] = {}
 
     if sfx_enabled:
         sfx_candidate_events = []
@@ -382,6 +592,9 @@ def build_ir_stage2(
                     "type": "ding",
                 })
 
+        if overlay_sfx_candidates:
+            sfx_candidate_events.extend(overlay_sfx_candidates)
+
         sfx_candidate_events.sort(
             key=lambda ev: (ev["raw_at"], ev["scene_n"], ev["type"])
         )
@@ -431,7 +644,7 @@ def build_ir_stage2(
                 "kind": "audio",
             }
 
-    # 3. Zoom Keys
+    # 4. Zoom Keys
     all_zoom_keys: list[dict[str, Any]] = []
 
     for idx, scene in enumerate(timeline_scenes):
@@ -644,7 +857,7 @@ def build_ir_stage2(
     for k in all_zoom_keys:
         ZoomKey.model_validate(k)
 
-    # 4. Emphasis
+    # 5. Emphasis
     emp_words_set: set[tuple[int, int, str]] = set()
     for scene in timeline_scenes:
         n = int(scene.get("n", 1))
@@ -694,7 +907,7 @@ def build_ir_stage2(
         "captions": events,
         "zoom_keys": all_zoom_keys,
         "transitions": transition_cues,
-        "overlays": [],
+        "overlays": overlay_cues,
         "sfx": sfx_cues,
         "style": style,
     }
@@ -704,4 +917,5 @@ def build_ir_stage2(
         "ir": ir_dict,
         "sfx_inputs": sfx_inputs,
     }
+
 
