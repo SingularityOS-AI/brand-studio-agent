@@ -674,6 +674,11 @@ def _check_no_not_x_its_y(script: Script) -> bool:
         "not only a ",
         "not only an ",
         "not only ",
+        "no se trata de ",
+        "no es solo ",
+        "no es sólo ",
+        "no solo ",
+        "no sólo ",
     ]
     for scene in script.scenes:
         text_lower = scene.spoken_text.lower()
@@ -681,6 +686,7 @@ def _check_no_not_x_its_y(script: Script) -> bool:
             if pattern in text_lower:
                 return False
     return True
+
 
 
 def _check_no_ai_counterexamples(script: Script) -> bool:
@@ -924,6 +930,31 @@ _ASSET_TYPE_NORMALIZATION: dict[str, str] = {
 }
 
 
+_RECORDING_FORMATS = {
+    "selfie_natural",
+    "pov",
+    "dramatization",
+    "teleprompter_clean",
+    "dynamic",
+}
+
+
+def _clean_optional_text(value: Any) -> str | None:
+    """
+    Clean optional text fields (stock_query, visual_prompt, b_roll).
+
+    Returns None if value is None, not a str, empty after strip(),
+    or if strip().lower() is in {"null", "none", "n/a", "na", "undefined"}.
+    Otherwise returns stripped string.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() in {"null", "none", "n/a", "na", "undefined"}:
+        return None
+    return cleaned
+
+
 def _normalize_asset_type(value: Any) -> Any:
     """Normalize obvious, documented model slips in asset_type before validation."""
     if isinstance(value, str):
@@ -938,7 +969,7 @@ def _normalize_b_roll(value: Any) -> str | None:
     Normalize b_roll field from LLM response before Scene validation (Pieza 48).
 
     - None / "" -> None
-    - str -> tal cual (strip)
+    - str -> _clean_optional_text(value)
     - dict -> primer valor de texto útil entre description, text, visual, query;
               si no hay, los valores de texto unidos con " — "
     - list -> elementos de texto unidos con "; "
@@ -947,32 +978,32 @@ def _normalize_b_roll(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
-        cleaned = value.strip()
-        return cleaned if cleaned else None
+        return _clean_optional_text(value)
     if isinstance(value, dict):
         for key in ("description", "text", "visual", "query"):
             val = value.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
+            if isinstance(val, str):
+                cleaned = _clean_optional_text(val)
+                if cleaned:
+                    return cleaned
         text_vals = [
-            v.strip()
+            cleaned
             for v in value.values()
-            if isinstance(v, str) and v.strip()
+            if isinstance(v, str) and (cleaned := _clean_optional_text(v))
         ]
         if text_vals:
             return " — ".join(text_vals)
         return None
     if isinstance(value, list):
         items = [
-            x.strip()
+            cleaned
             for x in value
-            if isinstance(x, str) and x.strip()
+            if isinstance(x, str) and (cleaned := _clean_optional_text(x))
         ]
         if items:
             return "; ".join(items)
         return None
-    cleaned = str(value).strip()
-    return cleaned if cleaned else None
+    return _clean_optional_text(str(value))
 
 
 def _summarize_validation_error(e: Exception) -> str:
@@ -1032,24 +1063,40 @@ def _build_validated_scene(
     asset_type = _normalize_asset_type(asset_type_raw)
     b_roll = _normalize_b_roll(scene_data.get("b_roll"))
 
+    raw_stock = scene_data.get("stock_query")
+    stock_query = _clean_optional_text(raw_stock)
+    if stock_query is None and fallback and fallback.stock_query is not None:
+        stock_query = _clean_optional_text(fallback.stock_query)
+
+    raw_visual = scene_data.get("visual_prompt")
+    visual_prompt = _clean_optional_text(raw_visual)
+    if visual_prompt is None and fallback and fallback.visual_prompt is not None:
+        visual_prompt = _clean_optional_text(fallback.visual_prompt)
+
+    raw_shot = scene_data.get("shot")
+    shot = raw_shot
+    if isinstance(raw_shot, str):
+        normalized_shot = raw_shot.strip().lower().replace(" ", "_").replace("-", "_")
+        if normalized_shot in _RECORDING_FORMATS:
+            if fallback and fallback.shot:
+                shot = fallback.shot
+            else:
+                shot = "Medium shot"
+
     payload = {
         "n": n,
         "start_s": start_s,
         "end_s": end_s,
         "phase": phase,
         "spoken_text": scene_data.get("spoken_text"),
-        "shot": scene_data.get("shot"),
+        "shot": shot,
         "b_roll": b_roll,
         "on_screen_text": scene_data.get("on_screen_text"),
         "acting_note": scene_data.get("acting_note"),
         "sound": scene_data.get("sound"),
         "asset_type": asset_type,
-        "stock_query": scene_data.get(
-            "stock_query", fallback.stock_query if fallback else None
-        ),
-        "visual_prompt": scene_data.get(
-            "visual_prompt", fallback.visual_prompt if fallback else None
-        ),
+        "stock_query": stock_query,
+        "visual_prompt": visual_prompt,
     }
     try:
         return Scene.model_validate(payload)
@@ -1587,7 +1634,13 @@ async def regenerate_scene(
             # Pieza 39: Use neutral instruction if None/empty to avoid "None" literal in prompt
             effective_instruction = instruction if instruction else "improve this scene"
 
-            # Build regeneration prompt with BLUEPRINT fields (Pieza 39)
+            # Build regeneration prompt with BLUEPRINT fields (Pieza 39, Pieza 59)
+            other_scenes_text = "\n".join(
+                f"{s.n}. {s.phase}: {s.spoken_text}"
+                for s in script.scenes
+                if s.n != scene_n
+            )
+
             prompt = f"""You are regenerating a single scene of a B2B short-form video script.
 
 CONTEXT:
@@ -1601,11 +1654,15 @@ Original scene:
 - Acting note: {target_scene.acting_note}
 - Asset type: {target_scene.asset_type}
 
+OTHER SCENES (read-only — do NOT repeat their content, do NOT move their lines into this scene):
+{other_scenes_text}
+
 Instruction: {effective_instruction}
 
 RULES:
 - Keep the SAME phase ({target_scene.phase})
-- Use the SAME recording format ({script.recording_format}) for shot and acting_note
+- Write spoken_text, on_screen_text and acting_note in the SAME language as the original scene text. The instruction may be written in a different language — that NEVER changes the output language.
+- The recording format is {script.recording_format}: acting_note must fit it. shot is a camera framing, not the format name.
 - On-screen text: max 8 words
 - HUMANIZATION: NEVER use these words: delve, crucial, tapestry, landscape, ever-evolving, unlock the potential, revolutionary, vital, in conclusion, in summary, discover how, optimize
 - BURSTINESS: alternate long sentences with micro-phrases of 2-4 words
@@ -1614,14 +1671,14 @@ RULES:
 OUTPUT schema (INCLUDE BLUEPRINT FIELDS for Block D):
 {{
   "spoken_text": "what the founder says",
-  "shot": "camera angle matching {script.recording_format} format",
+  "shot": "camera framing such as 'Medium shot', 'Close-up' or 'Wide shot' — never the recording format name",
   "b_roll": "overlay (or null)",
   "on_screen_text": "subtitle max 8 words",
   "acting_note": "specific direction: rhythm, emphasis, pauses, gaze",
   "sound": "mood or SFX",
   "asset_type": "a_roll|stock|ai_image|ai_video|motion_graphic",
-  "stock_query": "search query IN ENGLISH for stock (or null)",
-  "visual_prompt": "generation prompt IN ENGLISH for AI (or null)"
+  "stock_query": "search query IN ENGLISH for stock (or JSON null — never the string \"null\")",
+  "visual_prompt": "generation prompt IN ENGLISH for AI (or JSON null — never the string \"null\")"
 }}
 
 Return ONLY valid JSON.
