@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -283,7 +284,23 @@ def _row_to_script(row: dict[str, Any]) -> Script | None:
     data = row.get("data") or {}
     try:
         frame_zero = FrameZero(**data.get("frame_zero", {}))
-        scenes = [Scene(**scene_data) for scene_data in data.get("scenes", [])]
+        raw_scenes = data.get("scenes", [])
+        cleaned_scenes = []
+        for s_data in raw_scenes:
+            s_dict = dict(s_data) if isinstance(s_data, dict) else s_data
+            if isinstance(s_dict, dict):
+                cleaned_vp = _clean_optional_text(s_dict.get("visual_prompt"))
+                s_dict["visual_prompt"] = cleaned_vp
+
+                cleaned_sq = _clean_optional_text(s_dict.get("stock_query"))
+                s_dict["stock_query"] = (
+                    _sanitize_stock_query(cleaned_sq) if cleaned_sq is not None else None
+                )
+
+                if s_dict.get("shot") in _RECORDING_FORMATS:
+                    s_dict["shot"] = "Medium shot"
+            cleaned_scenes.append(Scene(**s_dict))
+        scenes = cleaned_scenes
         audit = [AuditFinding(**finding_data) for finding_data in data.get("audit", [])]
 
         timestamp_str = data.get("timestamp")
@@ -955,6 +972,44 @@ def _clean_optional_text(value: Any) -> str | None:
     return cleaned
 
 
+def _sanitize_stock_query(text: Any) -> str | None:
+    """
+    Sanitize stock search query to 2-5 clean English words for Pexels.
+
+    - Splits in lines, discards empty lines and lines ending with ':'
+    - Takes first remaining line
+    - Removes initial list numbering (1., 1), -, *), asterisks, #, quotes
+    - Keeps only letters, digits, spaces, and hyphens
+    - Collapses spaces and cuts to max 5 words
+    - Returns None if nothing remains
+    """
+    if not isinstance(text, str):
+        return None
+
+    lines = text.splitlines()
+    valid_line = None
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.endswith(":"):
+            continue
+        valid_line = stripped
+        break
+
+    if not valid_line:
+        return None
+
+    cleaned = re.sub(r"^(?:[\d]+[\.\)]|[-*])\s*", "", valid_line)
+    cleaned = re.sub(r"[^a-zA-Z0-9\s-]", "", cleaned)
+
+    words = cleaned.split()
+    if not words:
+        return None
+
+    words = words[:5]
+    result = " ".join(words)
+    return result if result else None
+
+
 def _normalize_asset_type(value: Any) -> Any:
     """Normalize obvious, documented model slips in asset_type before validation."""
     if isinstance(value, str):
@@ -1065,8 +1120,12 @@ def _build_validated_scene(
 
     raw_stock = scene_data.get("stock_query")
     stock_query = _clean_optional_text(raw_stock)
+    if stock_query is not None:
+        stock_query = _sanitize_stock_query(stock_query)
     if stock_query is None and fallback and fallback.stock_query is not None:
         stock_query = _clean_optional_text(fallback.stock_query)
+        if stock_query is not None:
+            stock_query = _sanitize_stock_query(stock_query)
 
     raw_visual = scene_data.get("visual_prompt")
     visual_prompt = _clean_optional_text(raw_visual)
@@ -1222,10 +1281,10 @@ Based on the idea's master_category and subcategory, PROPOSE one of these 5 form
 The shot and acting_note MUST match the chosen format.
 
 AUDIOVISUAL BLUEPRINT (for automated Block D):
-For EACH scene, include:
+For EACH scene, regardless of asset_type (including a_roll):
 - asset_type: Choose from "a_roll" (founder on camera), "stock" (stock footage), "ai_image" (AI generated image), "ai_video" (AI generated video), "motion_graphic" (motion graphic overlay)
-- stock_query: Search query IN ENGLISH for Pexels/Pixabay (null if asset_type is "a_roll")
-- visual_prompt: Generation prompt IN ENGLISH for AI image/video (null if asset_type is "a_roll")
+- stock_query: 2 to 5 concrete filmable search words IN ENGLISH for Pexels (e.g. "doctor video call tablet clinic"), no lists or explanation
+- visual_prompt: Generation prompt IN ENGLISH (max 40 words, vertical 9:16, no text/letters/logos, no identifiable real faces of people)
 
 For SCRIPT-LEVEL:
 - music_prompt: Search query IN ENGLISH for background music (mood + genre, e.g., "upbeat corporate electronic" or "cinematic suspense piano")
@@ -1264,8 +1323,8 @@ OUTPUT: Valid JSON with this exact schema:
       "acting_note": "specific direction: rhythm, emphasis, pauses, gaze",
       "sound": "mood or SFX",
       "asset_type": "a_roll|stock|ai_image|ai_video|motion_graphic",
-      "stock_query": "search query in ENGLISH for stock (or null)",
-      "visual_prompt": "generation prompt in ENGLISH for AI (or null)"
+      "stock_query": "2 to 5 concrete filmable search words in ENGLISH for Pexels, no lists or explanation",
+      "visual_prompt": "generation prompt in ENGLISH (max 40 words, 9:16 vertical, no text/logos/real faces)"
     }}
   ],
   "sources": ["citation text from brand context or demand signal"]
@@ -1677,8 +1736,8 @@ OUTPUT schema (INCLUDE BLUEPRINT FIELDS for Block D):
   "acting_note": "specific direction: rhythm, emphasis, pauses, gaze",
   "sound": "mood or SFX",
   "asset_type": "a_roll|stock|ai_image|ai_video|motion_graphic",
-  "stock_query": "search query IN ENGLISH for stock (or JSON null — never the string \"null\")",
-  "visual_prompt": "generation prompt IN ENGLISH for AI (or JSON null — never the string \"null\")"
+  "stock_query": "2 to 5 concrete filmable search words IN ENGLISH for Pexels, no lists or explanation",
+  "visual_prompt": "generation prompt IN ENGLISH (max 40 words, 9:16 vertical, no text/logos/real faces)"
 }}
 
 Return ONLY valid JSON.

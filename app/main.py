@@ -1608,7 +1608,10 @@ async def _generate_asset_prompt(target_type: str, scene: Any, script_angle: str
                 f"B-roll: {b_roll}\n"
             )
         elif target_type == "stock":
-            system_instruction = "Write 2 to 5 search words in English searchable on Pexels for stock video footage."
+            system_instruction = (
+                "Reply with ONLY 2 to 5 English search words separated by spaces for Pexels stock video. "
+                "No list, no numbering, no quotes, no explanation."
+            )
             contents = f"On-screen text: {on_screen_text}\nB-roll: {b_roll}\nSpoken text: {spoken_text}"
         else:
             return ""
@@ -1625,9 +1628,22 @@ async def _generate_asset_prompt(target_type: str, scene: Any, script_angle: str
             ),
             timeout=8.0,
         )
-        text = (getattr(resp, "text", "") or "").strip().strip('"').strip("'")
-        if text:
-            return text[:400]
+        raw_text = (getattr(resp, "text", "") or "").strip()
+        if target_type == "stock":
+            from app.scripting.scripts import _sanitize_stock_query
+            sanitized = _sanitize_stock_query(raw_text)
+            if sanitized:
+                return sanitized
+        elif target_type in ("ai_image", "ai_video"):
+            lines = raw_text.splitlines()
+            if lines and lines[0].strip().endswith(":"):
+                lines = lines[1:]
+            clean_str = "\n".join(lines).strip()
+            paragraphs = [p.strip() for p in clean_str.split("\n\n") if p.strip()]
+            first_para = paragraphs[0] if paragraphs else ""
+            cleaned_text = first_para.strip('"').strip("'").strip()
+            if cleaned_text:
+                return cleaned_text[:400]
     except Exception as e:
         logger.warning(f"[patch_scene_asset_type] LLM prompt generation failed: {e}")
 
