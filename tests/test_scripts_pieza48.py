@@ -25,6 +25,18 @@ from app.scripting.scripts import (
 from app.tools.brand_brain.models import BrandBrain, Section
 
 
+@pytest.fixture(autouse=True)
+def _isolate_p66_prompt_fill(monkeypatch):
+    """P66 fills missing asset prompts with one extra LLM call after generation.
+    These tests count the generation/retry calls only, so that step is stubbed here
+    (its own behavior is covered in tests/test_scripts_pieza66.py)."""
+    from unittest.mock import AsyncMock
+
+    import app.scripting.scripts as scripts_mod
+
+    monkeypatch.setattr(scripts_mod, "_fill_missing_asset_prompts", AsyncMock(return_value=False))
+
+
 @pytest.fixture
 def api_client():
     """TestClient against app with mocked auth matching test_scripts_pieza45.py pattern."""
