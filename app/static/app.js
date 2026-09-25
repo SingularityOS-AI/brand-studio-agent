@@ -5591,7 +5591,7 @@ ${htmlContent}
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
           <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5C6675">Script State</span>
           <span style="padding:4px 12px;border-radius:4px;background:${stateColor};color:#fff;font-weight:600;font-size:13px">${escapeHtml(stateName)}</span>
-          ${state === 'locked' ? '<span style="font-size:13px;color:#1B7F4C;font-weight:500">✓ Ready for recording</span>' : ''}
+          ${state === 'locked' ? '<span style="font-size:13px;color:#1B7F4C;font-weight:500">✓ Ready for recording</span><button id="Script-OpenAudiovisualBtn" class="btn btn--go" style="padding:6px 14px;font-size:12px;margin-left:auto">Open in Audiovisual →</button>' : ''}
         </div>
         <div style="font-size:13px;color:#5C6675;line-height:1.5">
           ${escapeHtml(stateHint)}
@@ -5662,6 +5662,14 @@ ${htmlContent}
     `;
 
     scriptMeta.innerHTML = metaHtml;
+
+    // PIEZA 61: Wire up button to open Audiovisual view if present
+    const openAudiovisualBtn = document.getElementById('Script-OpenAudiovisualBtn');
+    if (openAudiovisualBtn) {
+      openAudiovisualBtn.addEventListener('click', () => {
+        showAudiovisualView();
+      });
+    }
 
     // PIEZA 42: Wire up review panel confirm button if present
     const confirmBtn = document.getElementById('Review-ConfirmBtn');
@@ -6008,13 +6016,23 @@ ${htmlContent}
   }
 
   function updateScriptLockButton() {
+    let hintEl = document.getElementById('Script-LockHint');
+    if (!hintEl && scriptLockBtn && scriptLockBtn.parentNode) {
+      hintEl = document.createElement('span');
+      hintEl.id = 'Script-LockHint';
+      hintEl.style.cssText = 'font-size:12px;color:#5C6675';
+      scriptLockBtn.parentNode.insertBefore(hintEl, scriptLockBtn);
+    }
+
     if (!currentScriptData) {
       scriptLockBtn.disabled = true;
+      if (hintEl) hintEl.textContent = '';
       return;
     }
 
-    const isLocked = currentScriptData.state === 'locked';
-    const isReviewed = currentScriptData.state === 'reviewed';
+    const state = currentScriptData.state || 'draft';
+    const isLocked = state === 'locked';
+    const isReviewed = state === 'reviewed';
 
     // PIEZA 42B: Lock is final - when locked, button shows "Locked" and is disabled
     if (isLocked) {
@@ -6022,6 +6040,7 @@ ${htmlContent}
       scriptLockBtn.disabled = true;
       scriptLockBtn.dataset.locked = 'true';
       scriptLockBtn.title = 'Script is locked for recording';
+      if (hintEl) hintEl.textContent = '';
       return;
     }
 
@@ -6032,6 +6051,7 @@ ${htmlContent}
     if (!isReviewed) {
       scriptLockBtn.disabled = true;
       scriptLockBtn.title = 'Confirm funnel stage and recording format before locking';
+      if (hintEl) hintEl.textContent = 'Step 1 of 2: confirm funnel stage and format below';
       return;
     }
 
@@ -6048,9 +6068,11 @@ ${htmlContent}
     if (failedCriticalRule) {
       scriptLockBtn.disabled = true;
       scriptLockBtn.title = `Cannot lock: ${failedCriticalRule} must pass`;
+      if (hintEl) hintEl.textContent = `Fix the critical rule (${failedCriticalRule}) to lock`;
     } else {
       scriptLockBtn.disabled = false;
       scriptLockBtn.title = '';
+      if (hintEl) hintEl.textContent = 'Step 2 of 2: lock to start recording';
     }
   }
 
@@ -6719,6 +6741,35 @@ ${htmlContent}
       scriptGenerateBtn.disabled = true;
       scriptGenerateBtn.innerHTML = 'Generating...';
 
+      const scriptEmptyState = document.getElementById('Script-EmptyState');
+      let scriptLoadingState = document.getElementById('Script-LoadingState');
+      if (!scriptLoadingState && scriptEmptyState && scriptEmptyState.parentNode) {
+        scriptLoadingState = document.createElement('div');
+        scriptLoadingState.id = 'Script-LoadingState';
+        scriptLoadingState.style.cssText = 'padding:48px 0;text-align:center';
+        scriptLoadingState.innerHTML = `
+          <div style="display:flex;justify-content:center;margin-bottom:20px">
+            <div class="spinner" style="width:36px;height:36px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+          </div>
+          <div style="font-size:18px;font-weight:600;color:#14181F;margin-bottom:8px">Brandy is writing your script…</div>
+          <div style="font-size:13px;color:#5C6675;margin-bottom:16px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5">Usually 30–90 seconds. She checks 13 rules before showing it to you.</div>
+          <div id="Script-LoadingTimer" style="font-size:14px;font-weight:600;color:var(--accent)">0s elapsed</div>
+        `;
+        scriptEmptyState.parentNode.insertBefore(scriptLoadingState, scriptEmptyState.nextSibling);
+      }
+
+      if (scriptEmptyState) scriptEmptyState.style.display = 'none';
+      if (scriptLoadingState) scriptLoadingState.style.display = 'block';
+
+      let elapsedSeconds = 0;
+      const scriptLoadingTimer = document.getElementById('Script-LoadingTimer');
+      if (scriptLoadingTimer) scriptLoadingTimer.textContent = '0s elapsed';
+      const timerInterval = setInterval(() => {
+        elapsedSeconds++;
+        const timerEl = document.getElementById('Script-LoadingTimer');
+        if (timerEl) timerEl.textContent = `${elapsedSeconds}s elapsed`;
+      }, 1000);
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 135000);
 
@@ -6744,6 +6795,7 @@ ${htmlContent}
 
         if (!response.ok) {
           alert(`Failed to generate script: ${data.error || data.detail || response.status}`);
+          if (scriptEmptyState) scriptEmptyState.style.display = 'block';
           scriptGenerateBtn.disabled = false;
           scriptGenerateBtn.innerHTML = originalText;
           return;
@@ -6782,8 +6834,12 @@ ${htmlContent}
             alert(`Failed to generate script: ${error.message}`);
           }
         }
+        if (scriptEmptyState) scriptEmptyState.style.display = 'block';
         scriptGenerateBtn.disabled = false;
         scriptGenerateBtn.innerHTML = originalText;
+      } finally {
+        clearInterval(timerInterval);
+        if (scriptLoadingState) scriptLoadingState.style.display = 'none';
       }
     });
   }
