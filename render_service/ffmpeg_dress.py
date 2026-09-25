@@ -1,4 +1,4 @@
-"""FFmpeg dress video rendering module for ASS subtitle overlay and final builder (PIEZA 80)."""
+"""FFmpeg dress video rendering module for ASS subtitle overlay, zooms, transitions, SFX, and final builder (PIEZA 86)."""
 
 from __future__ import annotations
 
@@ -9,11 +9,120 @@ from pathlib import Path
 import subprocess
 from typing import Any
 
-from render_service.manifest import RenderIR, RenderRequest, hex_to_ass
+from render_service.manifest import RenderIR, RenderRequest, ZoomKey, hex_to_ass
 
 logger = logging.getLogger(__name__)
 
 FONTS_DIR: Path = Path(__file__).parent / "fonts"
+
+
+def fmt_num(v: float) -> str:
+    """Formats a float to string with up to 4 decimal places, trimming trailing zeros."""
+    r = round(v, 4)
+    if r == int(r):
+        return str(int(r))
+    s = f"{r:.4f}".rstrip("0").rstrip(".")
+    return s
+
+
+def zoom_at(keys: list[ZoomKey], t_ms: int | float) -> tuple[float, float, float]:
+    """Pure python evaluation of zoom interpolation at time t_ms.
+
+    Returns tuple (scale, cx, cy). Sin claves -> (1.0, 0.5, 0.5).
+    """
+    if not keys:
+        return (1.0, 0.5, 0.5)
+
+    sorted_keys = sorted(keys, key=lambda k: k.t_ms)
+    if t_ms <= sorted_keys[0].t_ms:
+        k0 = sorted_keys[0]
+        return (float(k0.scale), float(k0.cx), float(k0.cy))
+    if t_ms >= sorted_keys[-1].t_ms:
+        kn = sorted_keys[-1]
+        return (float(kn.scale), float(kn.cx), float(kn.cy))
+
+    for i in range(len(sorted_keys) - 1):
+        k1 = sorted_keys[i]
+        k2 = sorted_keys[i + 1]
+        if k1.t_ms <= t_ms <= k2.t_ms:
+            dt = k2.t_ms - k1.t_ms
+            if dt <= 0:
+                return (float(k2.scale), float(k2.cx), float(k2.cy))
+            p = (t_ms - k1.t_ms) / dt
+            ease = getattr(k2, "ease", "linear")
+            if ease == "out":
+                e = 1.0 - (1.0 - p) ** 2
+            else:
+                e = float(p)
+
+            scale = k1.scale + (k2.scale - k1.scale) * e
+            cx = k1.cx + (k2.cx - k1.cx) * e
+            cy = k1.cy + (k2.cy - k1.cy) * e
+            return (float(scale), float(cx), float(cy))
+
+    kn = sorted_keys[-1]
+    return (float(kn.scale), float(kn.cx), float(kn.cy))
+
+
+def zoom_expr(keys: list[ZoomKey], var: str = "t") -> tuple[str, str, str]:
+    """Generates FFmpeg expression strings (scale, cx, cy) as functions of time in seconds (var).
+
+    Returns 3 strings. Sin claves -> ("1", "0.5", "0.5"). Redondea a 4 decimales.
+    """
+    if not keys:
+        return ("1", "0.5", "0.5")
+
+    sorted_keys = sorted(keys, key=lambda k: k.t_ms)
+    if len(sorted_keys) == 1:
+        k = sorted_keys[0]
+        return (fmt_num(k.scale), fmt_num(k.cx), fmt_num(k.cy))
+
+    def build_param_expr(attr_name: str) -> str:
+        expr = fmt_num(getattr(sorted_keys[-1], attr_name))
+        for i in range(len(sorted_keys) - 2, -1, -1):
+            k1 = sorted_keys[i]
+            k2 = sorted_keys[i + 1]
+            t1_sec = k1.t_ms / 1000.0
+            t2_sec = k2.t_ms / 1000.0
+            dt = t2_sec - t1_sec
+
+            v1 = getattr(k1, attr_name)
+            v2 = getattr(k2, attr_name)
+
+            if dt <= 0 or round(v1, 4) == round(v2, 4):
+                seg_expr = fmt_num(v1)
+            else:
+                v1_str = fmt_num(v1)
+                dv = v2 - v1
+                dv_str = fmt_num(dv)
+                t1_str = fmt_num(t1_sec)
+                dt_str = fmt_num(dt)
+
+                p_str = f"(({var}-{t1_str})/{dt_str})"
+                ease = getattr(k2, "ease", "linear")
+                if ease == "out":
+                    e_str = f"(1-(1-{p_str})*(1-{p_str}))"
+                else:
+                    e_str = p_str
+
+                seg_expr = f"({v1_str}+{dv_str}*{e_str})"
+
+            t2_str = fmt_num(t2_sec)
+            expr = f"if(lt({var},{t2_str}),{seg_expr},{expr})"
+
+        t0_sec = sorted_keys[0].t_ms / 1000.0
+        if t0_sec > 0:
+            t0_str = fmt_num(t0_sec)
+            v0_str = fmt_num(getattr(sorted_keys[0], attr_name))
+            expr = f"if(lt({var},{t0_str}),{v0_str},{expr})"
+
+        return expr
+
+    return (
+        build_param_expr("scale"),
+        build_param_expr("cx"),
+        build_param_expr("cy"),
+    )
 
 
 def ass_escape(text: str) -> str:
@@ -138,17 +247,50 @@ def _video_filters(
 ) -> list[str]:
     """Builds video filter list for FFmpeg.
 
-    Extensible for future stages (zoom, transitions, overlays).
-    Today returns single ass filter.
+    Sequence: zoom (scale, crop) -> transitions -> ass.
     """
+    filters: list[str] = []
+
+    # 1. Zoom filters
+    if ir.zoom_keys:
+        s_expr, cx_expr, cy_expr = zoom_expr(ir.zoom_keys, var="t")
+        scale_filter = (
+            f"scale=w='trunc(1080*({s_expr})/2)*2':h='trunc(1920*({s_expr})/2)*2':eval=frame"
+        )
+        crop_filter = (
+            f"crop=1080:1920:x='(in_w-1080)*({cx_expr})':y='(in_h-1920)*({cy_expr})'"
+        )
+        filters.append(scale_filter)
+        filters.append(crop_filter)
+
+    # 2. Transition filters
+    for tr in ir.transitions:
+        if tr.type == "flash":
+            a_sec = fmt_num(tr.at_ms / 1000.0)
+            d_sec = fmt_num(tr.dur_ms / 1000.0)
+            ad_sec = fmt_num((tr.at_ms + tr.dur_ms) / 1000.0)
+            filters.append(
+                f"eq=brightness='if(between(t,{a_sec},{ad_sec}),0.8*(1-(t-{a_sec})/{d_sec}),0)':eval=frame"
+            )
+        elif tr.type == "zoom_through":
+            a_sec = fmt_num(tr.at_ms / 1000.0)
+            ad2_sec = fmt_num((tr.at_ms + tr.dur_ms / 2.0) / 1000.0)
+            filters.append(f"gblur=sigma=12:enable='between(t,{a_sec},{ad2_sec})'")
+        elif tr.type == "whip":
+            start_sec = fmt_num(max(0.0, (tr.at_ms - tr.dur_ms / 2.0) / 1000.0))
+            end_sec = fmt_num((tr.at_ms + tr.dur_ms / 2.0) / 1000.0)
+            filters.append(f"avgblur=sizeX=40:sizeY=1:enable='between(t,{start_sec},{end_sec})'")
+
+    # 3. ASS filter
     esc_ass = ass_rel_str.replace("\\", "/").replace(":", "\\:")
     if fonts_rel_str:
         esc_fonts = fonts_rel_str.replace("\\", "/").replace(":", "\\:")
-        filter_expr = f"ass={esc_ass}:fontsdir={esc_fonts}"
+        ass_filter = f"ass={esc_ass}:fontsdir={esc_fonts}"
     else:
-        filter_expr = f"ass={esc_ass}"
+        ass_filter = f"ass={esc_ass}"
 
-    return [filter_expr]
+    filters.append(ass_filter)
+    return filters
 
 
 def build_final_args(
@@ -186,6 +328,83 @@ def build_final_args(
     filters = _video_filters(request.ir, ass_name, fonts_rel)
     vf_text = ",".join(filters)
 
+    sfx_cues = request.ir.sfx
+    if not sfx_cues:
+        args = [
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            str(raw_path),
+            "-vf",
+            vf_text,
+            "-map",
+            "0:v",
+            "-map",
+            "0:a?",
+            "-r",
+            "30",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-maxrate",
+            "3.5M",
+            "-bufsize",
+            "7M",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "48000",
+            "-movflags",
+            "+faststart",
+            "-y",
+            str(out_path),
+        ]
+        return args
+
+    unique_sfx_ids: list[str] = []
+    for cue in sfx_cues:
+        if cue.input_id not in local_inputs:
+            raise KeyError(f"sfx input_id '{cue.input_id}' not found in local_inputs")
+        if cue.input_id not in unique_sfx_ids:
+            unique_sfx_ids.append(cue.input_id)
+
+    input_idx_map = {input_id: i + 1 for i, input_id in enumerate(unique_sfx_ids)}
+    n_sfx = len(sfx_cues)
+
+    filter_complex_parts: list[str] = []
+    filter_complex_parts.append(f"[0:v]{vf_text}[vout]")
+
+    for input_id in unique_sfx_ids:
+        idx = input_idx_map[input_id]
+        cues_using = [i for i, c in enumerate(sfx_cues) if c.input_id == input_id]
+        if len(cues_using) > 1:
+            out_labels = "".join(f"[sfx_src_{i}]" for i in cues_using)
+            filter_complex_parts.append(f"[{idx}:a]asplit={len(cues_using)}{out_labels}")
+
+    for i, cue in enumerate(sfx_cues):
+        cues_using = [idx for idx, c in enumerate(sfx_cues) if c.input_id == cue.input_id]
+        if len(cues_using) > 1:
+            src_label = f"[sfx_src_{i}]"
+        else:
+            src_label = f"[{input_idx_map[cue.input_id]}:a]"
+        gain_str = fmt_num(cue.gain_db)
+        filter_complex_parts.append(f"{src_label}adelay={cue.at_ms}|{cue.at_ms},volume={gain_str}dB[sfx{i}]")
+
+    mix_inputs = 1 + n_sfx
+    sfx_labels = "".join(f"[sfx{i}]" for i in range(n_sfx))
+    filter_complex_parts.append(f"[0:a]{sfx_labels}amix=inputs={mix_inputs}:duration=first:normalize=0[aout]")
+
+    filter_complex_str = ";".join(filter_complex_parts)
+
     args = [
         "-hide_banner",
         "-nostdin",
@@ -193,12 +412,17 @@ def build_final_args(
         "error",
         "-i",
         str(raw_path),
-        "-vf",
-        vf_text,
+    ]
+    for input_id in unique_sfx_ids:
+        args.extend(["-i", str(local_inputs[input_id])])
+
+    args.extend([
+        "-filter_complex",
+        filter_complex_str,
         "-map",
-        "0:v",
+        "[vout]",
         "-map",
-        "0:a?",
+        "[aout]",
         "-r",
         "30",
         "-c:v",
@@ -223,7 +447,7 @@ def build_final_args(
         "+faststart",
         "-y",
         str(out_path),
-    ]
+    ])
 
     return args
 
