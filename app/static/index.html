@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Brand Studio Agent</title>
   <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Inter:wght@400;500;600;700;900&family=Montserrat:wght@400;600;700;900&family=Poppins:wght@400;600;700;900&family=Roboto:wght@400;500;700;900&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
   :root{
     --ground:#E7EAF0; --surface:#FFFFFF; --surface-alt:#F5F7FB; --ink:#14181F; --ink-soft:#5C6675;
     --line:#D5DAE4; --accent:#2B4CD8; --accent-soft:#6E86EE; --warn:#B5791C;
@@ -1229,6 +1229,25 @@
       <!-- Main Audiovisual Studio Content Container -->
       <div id="Audiovisual-Content" style="display:none"></div>
     </div>
+
+    <!-- Editing Studio View (Pieza 82) -->
+    <div id="Editing-View" class="view-panel" style="display:none">
+      <!-- Guard when takes are missing or audiovisual not ready -->
+      <div id="Editing-Guard" style="display:none;margin:40px auto;max-width:520px;text-align:center;padding:48px 32px;border:1px dashed var(--line);border-radius:8px;background:var(--surface-alt)">
+        <div style="width:48px;height:48px;margin:0 auto 16px;border-radius:50%;background:rgba(181,121,28,0.1);display:flex;align-items:center;justify-content:center;color:var(--warn)">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <h3 style="font-size:18px;font-weight:600;color:var(--ink);margin:0 0 8px" id="Editing-Guard-Title">Lock your audiovisual assets first</h3>
+        <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0 0 20px" id="Editing-Guard-Text">Editing requires recorded takes for all on-camera scenes before assembling the timeline.</p>
+        <button class="btn btn--primary" id="Editing-Guard-GoAvBtn">Go to Audiovisual</button>
+      </div>
+
+      <!-- Main Editing Content Container -->
+      <div id="Editing-Content" style="display:none;padding:24px 32px;max-width:1080px;margin:0 auto;"></div>
+    </div>
   </main>
 
   <!-- Resizer 2: doc ↔ prod -->
@@ -2028,5 +2047,8 @@
 <!-- HyperFrames Player for Motion Graphics Preview (Pieza 54) -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/@hyperframes/player@0/+esm"></script>
 <script src="/static/app.js"></script>
+<!-- Editing modules (Pieza 82) -->
+<script src="/static/editing_preview.js"></script>
+<script src="/static/editing.js"></script>
 </body>
 </html>

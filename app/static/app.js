@@ -2997,8 +2997,28 @@ ${htmlContent}
   // Current active view tracking for Pipeline Rail ('brain' | 'catalog' | 'script' | 'audiovisual')
   let currentOpenView = 'brain';
 
+  function hideEditingView() {
+    const el = document.getElementById('Editing-View');
+    if (el) el.style.display = 'none';
+    if (window.BrandStudioEditing && typeof window.BrandStudioEditing.onHide === 'function') {
+      window.BrandStudioEditing.onHide();
+    }
+  }
+
+  function hideMainViews() {
+    if (blockAView) blockAView.style.display = 'none';
+    if (blockBView) blockBView.style.display = 'none';
+    if (blockCView) blockCView.style.display = 'none';
+    if (audiovisualView) audiovisualView.style.display = 'none';
+    currentOpenView = 'editing';
+    if (typeof renderPipelineRail === 'function') {
+      renderPipelineRail();
+    }
+  }
+
   // Show BlockA view (brand soul)
   async function showBlockAView() {
+    hideEditingView();
     if (typeof cleanupAudiovisualBlobUrls === 'function') {
       cleanupAudiovisualBlobUrls();
     }
@@ -3028,6 +3048,7 @@ ${htmlContent}
 
   // Show BlockB view (catalog)
   function showBlockBView() {
+    hideEditingView();
     if (typeof cleanupAudiovisualBlobUrls === 'function') {
       cleanupAudiovisualBlobUrls();
     }
@@ -3043,6 +3064,7 @@ ${htmlContent}
 
   // Show BlockC view (script) with empty state for interview mode
   function showBlockCView(ideaId) {
+    hideEditingView();
     if (typeof cleanupAudiovisualBlobUrls === 'function') {
       cleanupAudiovisualBlobUrls();
     }
@@ -4799,6 +4821,7 @@ ${htmlContent}
 
   // Show Audiovisual view (Pieza 46 / Pieza 51)
   function showAudiovisualView() {
+    hideEditingView();
     showDocLoading('Loading audiovisual studio…');
     try {
       currentOpenView = 'audiovisual';
@@ -6617,8 +6640,37 @@ ${htmlContent}
         });
       }
     } else if (stepId === 'editing') {
-      showRailNotice('Editing — coming soon', null, null);
+      if (scriptComplete && currentScriptIdeaId) {
+        hideRailNotice();
+        hideMainViews();
+        if (window.BrandStudioEditing && typeof window.BrandStudioEditing.show === 'function') {
+          window.BrandStudioEditing.show(currentScriptIdeaId);
+        }
+      } else {
+        showRailNotice('Lock your script first', 'Go to Script', () => {
+          hideRailNotice();
+          if (currentScriptIdeaId) {
+            showBlockCView(currentScriptIdeaId);
+          } else {
+            loadCatalogCache().then(() => showBlockBView());
+          }
+        });
+      }
     }
+  }
+
+  function isAudiovisualComplete() {
+    if (!currentScriptData || currentScriptData.state !== 'locked') return false;
+    if (!currentAudiovisualJobs || currentAudiovisualJobs.length === 0) return false;
+    const scenes = currentScriptData.scenes || [];
+    if (scenes.length === 0) return false;
+    for (const scene of scenes) {
+      const hasTake = currentAudiovisualJobs.some(j =>
+        j.kind === 'a_roll_take' && j.scene_n === scene.n && j.status === 'done'
+      );
+      if (!hasTake) return false;
+    }
+    return true;
   }
 
   function renderPipelineRail() {
@@ -6630,8 +6682,8 @@ ${htmlContent}
     const brainComplete = brainCount >= 9;
     const catalogComplete = Boolean(currentCatalog && currentCatalog.catalog_locked);
     const scriptComplete = Boolean(currentScriptData && currentScriptData.state === 'locked');
-    const audiovisualComplete = false;
-    const editingComplete = false;
+    const audiovisualComplete = isAudiovisualComplete();
+    const editingComplete = Boolean(window.BrandStudioEditing && typeof window.BrandStudioEditing.hasFinalRender === 'function' && window.BrandStudioEditing.hasFinalRender());
 
     const completed = [brainComplete, catalogComplete, scriptComplete, audiovisualComplete, editingComplete];
     const completedCount = completed.filter(Boolean).length;
@@ -6655,7 +6707,7 @@ ${htmlContent}
       { id: 'catalog', name: 'Catalog', complete: catalogComplete, prevComplete: brainComplete },
       { id: 'script', name: 'Script', complete: scriptComplete, prevComplete: catalogComplete },
       { id: 'audiovisual', name: 'Audiovisual', complete: audiovisualComplete, prevComplete: scriptComplete },
-      { id: 'editing', name: 'Editing', complete: editingComplete, prevComplete: false }
+      { id: 'editing', name: 'Editing', complete: editingComplete, prevComplete: scriptComplete }
     ];
 
     let frontierFound = false;
@@ -6720,7 +6772,7 @@ ${htmlContent}
               subEl.textContent = s.id === 'script' ? 'No idea selected' : 'Ready for script';
             }
           } else if (s.id === 'editing') {
-            subEl.textContent = 'Coming soon';
+            subEl.textContent = scriptComplete ? 'Ready to edit' : 'Locked';
           }
         } else {
           subEl.textContent = '';
@@ -7338,6 +7390,21 @@ ${htmlContent}
     // Initialize recording studio
     initRecordingStudio();
   });
+
+  // Expose minimal API for editing and submodules (Pieza 82)
+  window.BrandStudio = {
+    authenticatedFetch,
+    showPaywall,
+    updateCreditsUI,
+    refreshCredits: fetchCredits,
+    escapeHtml,
+    openRecordingStudio,
+    showAudiovisualView,
+    showBlockCView,
+    hideMainViews,
+    renderPipelineRail,
+    getCurrentScriptIdeaId: () => currentScriptIdeaId,
+  };
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');
   console.log('[Audio] Sample rate: 24kHz');

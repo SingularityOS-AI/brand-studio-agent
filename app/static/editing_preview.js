@@ -161,6 +161,35 @@
       }
     }
 
+    var overlays = [];
+    if (ir && ir.overlays && Array.isArray(ir.overlays)) {
+      for (var ovIdx = 0; ovIdx < ir.overlays.length; ovIdx++) {
+        var ov = ir.overlays[ovIdx];
+        if (tMs >= ov.start_ms && tMs < ov.end_ms) {
+          var start = ov.start_ms;
+          var end = ov.end_ms;
+          var inFade = (tMs - start) / 200;
+          var outFade = (end - tMs) / 150;
+          var opacity = Math.min(1, Math.min(inFade, outFade));
+          if (opacity < 0) opacity = 0;
+          if (opacity > 1) opacity = 1;
+
+          overlays.push({
+            id: ov.id,
+            kind: ov.kind,
+            text: ov.text !== undefined ? ov.text : null,
+            asset: ov.asset !== undefined ? ov.asset : null,
+            x: ov.x,
+            y: ov.y,
+            w: ov.w,
+            h: ov.h,
+            accent: Boolean(ov.accent),
+            opacity: opacity
+          });
+        }
+      }
+    }
+
     return {
       frameZero: frameZero,
       caption: caption,
@@ -168,7 +197,7 @@
       flash: flash,
       blurPx: blurPx,
       blurAxis: blurAxis,
-      overlays: []
+      overlays: overlays
     };
   }
 
@@ -221,6 +250,12 @@
     fzEl.style.display = "none";
     stage.appendChild(fzEl);
 
+    var overlayLayer = document.createElement("div");
+    overlayLayer.style.position = "absolute";
+    overlayLayer.style.inset = "0";
+    overlayLayer.style.pointerEvents = "none";
+    stage.appendChild(overlayLayer);
+
     var subBox = document.createElement("div");
     subBox.style.position = "absolute";
     subBox.style.left = "90px";
@@ -229,6 +264,134 @@
     subBox.style.textAlign = "center";
     subBox.style.display = "none";
     stage.appendChild(subBox);
+
+    var overlayNodes = {};
+
+    function isHttpsUrl(u) {
+      if (!u || typeof u !== "string") return false;
+      try {
+        var parsed = new URL(u);
+        return parsed.protocol === "https:";
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function createOverlayNode(stOv, fontFamily, accentColor) {
+      var el = document.createElement("div");
+      el.style.position = "absolute";
+      el.style.left = stOv.x + "px";
+      el.style.top = stOv.y + "px";
+      el.style.width = stOv.w + "px";
+      el.style.height = stOv.h + "px";
+      el.style.boxSizing = "border-box";
+      el.style.pointerEvents = "none";
+      el._valid = true;
+
+      if (stOv.kind === "broll_card") {
+        var img = document.createElement("img");
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.objectFit = "cover";
+        img.style.borderRadius = "28px";
+        img.style.border = "6px solid #ffffff";
+        img.style.boxSizing = "border-box";
+        img.style.display = "block";
+
+        var url = sfxMap ? sfxMap[stOv.asset] : null;
+        if (isHttpsUrl(url)) {
+          img.src = url;
+          el._valid = true;
+        } else {
+          el._valid = false;
+        }
+        el.appendChild(img);
+      } else if (stOv.kind === "emoji") {
+        el.style.display = "flex";
+        el.style.alignItems = "center";
+        el.style.justifyContent = "center";
+        el.style.fontSize = "180px";
+        el.style.lineHeight = "1";
+        el.textContent = stOv.asset || stOv.text || "";
+      } else {
+        el.style.backgroundColor = "rgba(10, 12, 20, 0.82)";
+        el.style.borderRadius = "28px";
+        var borderColor = stOv.accent ? accentColor : "rgba(255, 255, 255, 0.2)";
+        el.style.border = "3px solid " + borderColor;
+        el.style.color = "#ffffff";
+        el.style.fontWeight = "bold";
+        el.style.fontFamily = fontFamily;
+        el.style.display = "flex";
+        el.style.alignItems = "center";
+        el.style.padding = "20px 30px";
+        el.style.overflow = "hidden";
+        el.style.wordBreak = "break-word";
+
+        var fontSizes = {
+          card_stat: "110px",
+          card_quote: "60px",
+          card_list: "50px",
+          card_lower_third: "44px",
+          onscreen_text: "64px"
+        };
+        el.style.fontSize = fontSizes[stOv.kind] || "64px";
+
+        if (stOv.kind === "card_quote") {
+          el.style.fontStyle = "italic";
+        }
+
+        if (stOv.kind === "card_lower_third") {
+          el.style.justifyContent = "flex-start";
+          el.style.textAlign = "left";
+        } else {
+          el.style.justifyContent = "center";
+          el.style.textAlign = "center";
+        }
+
+        var textContent = stOv.text || "";
+        if (stOv.kind === "card_quote" && textContent) {
+          if (!textContent.startsWith('"') && !textContent.startsWith("“")) {
+            textContent = "“" + textContent + "”";
+          }
+        }
+        el.textContent = textContent;
+      }
+
+      return el;
+    }
+
+    function updateOverlayNode(el, stOv, fontFamily, accentColor) {
+      el.style.left = stOv.x + "px";
+      el.style.top = stOv.y + "px";
+      el.style.width = stOv.w + "px";
+      el.style.height = stOv.h + "px";
+
+      if (stOv.kind === "broll_card") {
+        var url = sfxMap ? sfxMap[stOv.asset] : null;
+        var img = el.querySelector("img");
+        if (isHttpsUrl(url)) {
+          if (img && img.src !== url) {
+            img.src = url;
+          }
+          el._valid = true;
+        } else {
+          el._valid = false;
+        }
+      } else if (stOv.kind === "emoji") {
+        el.textContent = stOv.asset || stOv.text || "";
+      } else {
+        var borderColor = stOv.accent ? accentColor : "rgba(255, 255, 255, 0.2)";
+        el.style.border = "3px solid " + borderColor;
+        el.style.fontFamily = fontFamily;
+        var textContent = stOv.text || "";
+        if (stOv.kind === "card_quote" && textContent) {
+          if (!textContent.startsWith('"') && !textContent.startsWith("“")) {
+            textContent = "“" + textContent + "”";
+          }
+        }
+        el.textContent = textContent;
+      }
+    }
 
     if (container) {
       if (getComputedStyle(container).position === "static") {
@@ -254,6 +417,7 @@
           } catch (e) {}
         }
       }
+      onSeekOrPause();
     }
 
     function playSfx(inputId, gainDb) {
@@ -355,6 +519,35 @@
           }
         } else {
           videoEl.style.filter = "";
+        }
+      }
+
+      // 6. Overlays
+      var activeIds = {};
+      if (st.overlays && Array.isArray(st.overlays)) {
+        for (var oIdx = 0; oIdx < st.overlays.length; oIdx++) {
+          var stOv = st.overlays[oIdx];
+          activeIds[stOv.id] = true;
+          var node = overlayNodes[stOv.id];
+
+          if (!node) {
+            node = createOverlayNode(stOv, fontFamily, accentColor);
+            overlayNodes[stOv.id] = node;
+            overlayLayer.appendChild(node);
+          } else {
+            updateOverlayNode(node, stOv, fontFamily, accentColor);
+          }
+
+          var targetDisplay = stOv.kind === "broll_card" ? "block" : "flex";
+          node.style.display = node._valid === false ? "none" : targetDisplay;
+          node.style.opacity = String(stOv.opacity);
+        }
+      }
+
+      for (var existingId in overlayNodes) {
+        if (!activeIds[existingId]) {
+          overlayNodes[existingId].style.display = "none";
+          overlayNodes[existingId].style.opacity = "0";
         }
       }
     }
