@@ -1,0 +1,25 @@
+{
+  "version": "v1",
+  "zoom": {
+    "types": ["punch_in", "punch_out", "slow_push"],
+    "intensity": {"soft": 1.08, "medium": 1.15, "strong": 1.25}
+  },
+  "transitions": {
+    "cut": 0,
+    "flash": 200,
+    "zoom_through": 330,
+    "whip": 270
+  },
+  "sfx_tags": ["whoosh", "pop", "click", "riser", "ding", "none"],
+  "overlays": {
+    "kinds": ["onscreen_text", "card_stat", "card_quote", "card_list", "card_lower_third", "broll_card", "emoji"],
+    "positions": ["top", "center", "lower_third", "left", "right"],
+    "duration_ms": [1200, 3500]
+  },
+  "emoji": ["🔥","💡","🚀","✅","❌","⚠️","📈","📉","💰","⏱️","🎯","🧠","👀","🤯","💪","🙌","👉","📌","⭐","❤️","🤝","📣","🛑","🔑","🧩","📊","🏆","💬","🔒","✨"],
+  "limits": {
+    "zooms_per_scene": 3,
+    "overlays_per_scene": 2,
+    "emphasis_per_scene": 3
+  }
+}
