@@ -282,3 +282,20 @@ def test_capitan_face_scene_does_not_ship_its_broll_and_null_duration_is_bounded
     broll = build_timeline(script, jobs, None, edit_version=1)
     assert broll["timeline"]["scenes"][0]["visual"] == "broll"
     assert broll["inputs"]["broll_s1"]["external_url"] == "https://videos.pexels.com/v.mp4"
+
+
+def test_capitan_raw_hash_ignores_saves_that_do_not_change_the_raw():
+    """QA del Capitán: guardar subtítulos/vestido (sube edit_version) o apagar SFX no vuelve 'viejo' un crudo terminado; cambiar un recorte sí."""
+    from app.editing.timeline import build_timeline
+
+    script = {"scenes": [{"n": 1, "phase": "hook", "asset_type": "a_roll"}]}
+    jobs = [
+        {"id": "t1", "kind": "a_roll_take", "scene_n": 1, "status": "done", "created_at": "1",
+         "output": {"storage_path": "x/1/take.webm", "duration_s": 3.0}},
+        {"id": "tr1", "kind": "transcript", "status": "done", "created_at": "2", "input": {"take_job_id": "t1"},
+         "output": {"words": [{"text": "Hola", "start_ms": 200, "end_ms": 600}, {"text": "mundo.", "start_ms": 1500, "end_ms": 1900}]}},
+    ]
+    base = build_timeline(script, jobs, {}, edit_version=1)["timeline"]["hash"]
+    assert build_timeline(script, jobs, {}, edit_version=7)["timeline"]["hash"] == base
+    assert build_timeline(script, jobs, {"sfx_enabled": False}, edit_version=2)["timeline"]["hash"] == base
+    assert build_timeline(script, jobs, {"trim": {"1": {"start_ms": 200, "end_ms": 0}}}, edit_version=2)["timeline"]["hash"] != base

@@ -117,6 +117,21 @@ def cut_segments(
     return merged
 
 
+def raw_content_hash(timeline_dict: dict) -> str:
+    """Hash of what the raw MP4 is made of, and nothing else.
+
+    edit_version is left out because it rises on every save (a caption fix, a
+    dressing, the worker recording the finished raw), and sfx_enabled because
+    sound effects are added in the final render, not in the raw cut. Including
+    either made a finished raw look stale and forced a pointless re-render.
+    """
+    content = {k: v for k, v in timeline_dict.items() if k not in ("hash", "edit_version")}
+    settings = dict(content.get("settings") or {})
+    settings.pop("sfx_enabled", None)
+    content["settings"] = settings
+    return timeline_hash(content)
+
+
 def _get_setting_val(settings: dict | None, key: str, scene_n: int) -> Any:
     """Fetch setting for a scene supporting string and integer keys."""
     if not settings:
@@ -414,7 +429,7 @@ def build_timeline(
         "duration_ms": current_out_start_ms,
         "hash": "",
     }
-    timeline_dict["hash"] = timeline_hash(timeline_dict)
+    timeline_dict["hash"] = raw_content_hash(timeline_dict)
     Timeline.model_validate(timeline_dict)
 
     return {

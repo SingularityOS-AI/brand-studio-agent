@@ -31,6 +31,9 @@ from app.auth.supabase_auth import supabase_auth
 from app.billing import router as billing_router
 from app.webhooks import router as webhooks_router
 
+# Editing router (Bloque E)
+from app.editing.router import router as editing_router
+
 logger = logging.getLogger(__name__)
 
 
@@ -3027,6 +3030,9 @@ async def get_motion_graphic_preview(
 
 # Mount static folder
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Register Editing router (Bloque E)
+app.include_router(editing_router)
 
 # Register Stripe routers (Cobro Real)
 app.include_router(billing_router)

@@ -24,13 +24,13 @@ from app.audiovisual.spend_guard import can_spend
 from app.audiovisual.storage import signed_url
 from app.editing import config as dispatch_config
 from app.editing.brand_style import derive_caption_style
-from app.editing.ir import build_ir_stage1
+from app.editing.dressing import dress_all, scene_contexts
+from app.editing.ir import build_ir_stage1, build_ir_stage2
 from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
 from app.editing.timeline import build_timeline
 from app.guard import guard
 from app.scripting.scripts import _check_script
 from app.tools.brand_brain.store import get_brand_brain
-from render_service.manifest import timeline_hash
 
 router = APIRouter(prefix="/api/editing")
 
@@ -114,10 +114,29 @@ def _state(
         brand_brain = None
     style = derive_caption_style(brand_brain)
 
+    dressing_data = edit.get("dressing") or {}
+    dressing_scenes = dressing_data.get("scenes") if isinstance(dressing_data, dict) else None
+    sfx_inputs: dict[str, dict[str, Any]] = {}
+    # A dressing was written against one raw cut (its word indices and times).
+    # If the cut changed since, it no longer fits: show captions only and let the
+    # founder dress again for free.
+    dressing_fresh = bool(
+        dressing_scenes
+        and timeline is not None
+        and dressing_data.get("raw_hash") == timeline.get("hash")
+    )
+
     if timeline is not None:
         frame_zero = script.get("frame_zero") or {}
         fz_text = frame_zero.get("on_screen_text")
-        ir = build_ir_stage1(timeline, captions_words, fz_text, style)
+        if dressing_fresh:
+            stage2_res = build_ir_stage2(
+                timeline, captions_words, fz_text, style, dressing_data
+            )
+            ir = stage2_res["ir"]
+            sfx_inputs = stage2_res.get("sfx_inputs", {}) or {}
+        else:
+            ir = build_ir_stage1(timeline, captions_words, fz_text, style)
     else:
         ir = None
 
@@ -135,16 +154,9 @@ def _state(
             raw_dict["error"] = latest_raw_job.get("error")
         t_hash = timeline.get("hash") if timeline else None
         raw_hash = edit_raw.get("timeline_hash")
-        if t_hash and raw_hash:
-            if raw_hash == t_hash:
-                is_fresh = True
-            else:
-                tl_prev = dict(timeline)
-                tl_prev["edit_version"] = max(1, timeline.get("edit_version", 1) - 1)
-                is_fresh = raw_hash == timeline_hash(tl_prev)
-        else:
-            is_fresh = False
-        raw_dict["fresh"] = is_fresh
+        # The hash only covers what the raw cut is made of (see raw_content_hash),
+        # so saving captions or a dressing never makes a finished raw stale.
+        raw_dict["fresh"] = bool(t_hash and raw_hash and raw_hash == t_hash)
         if edit_raw.get("status") == "done" and edit_raw.get("storage_path"):
             raw_dict["signed_url"] = signed_url(edit_raw["storage_path"], ttl=3600)
     elif latest_raw_job:
@@ -191,7 +203,13 @@ def _state(
         "settings": edit.get("settings", {}),
         "raw": raw_dict,
         "render": render_dict,
+        "dressing": {
+            "source": dressing_data.get("source") if dressing_scenes else None,
+            "fresh": dressing_fresh,
+            "stale": bool(dressing_scenes) and not dressing_fresh,
+        },
         "_inputs": inputs,
+        "_sfx_inputs": sfx_inputs,
     }
 
 
@@ -205,6 +223,7 @@ async def get_editing_state(request: Request, idea_id: str) -> JSONResponse:
 
     state = _state(session_token, idea_id, script, jobs, edit)
     state.pop("_inputs", None)
+    state.pop("_sfx_inputs", None)
     return JSONResponse(status_code=200, content=state)
 
 
@@ -282,6 +301,7 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
 
     timeline = state["timeline"]
     inputs = state.pop("_inputs", {})
+    state.pop("_sfx_inputs", None)
     t_hash = timeline["hash"]
 
     base_key = f"{session_token}:{idea_id}:raw:{t_hash}"
@@ -417,6 +437,7 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
 
     state = _state(session_token, idea_id, script, jobs, updated_edit)
     state.pop("_inputs", None)
+    state.pop("_sfx_inputs", None)
     return JSONResponse(status_code=200, content=state)
 
 
@@ -470,7 +491,57 @@ async def patch_captions(request: Request, idea_id: str, word_id: str) -> JSONRe
 
     state = _state(session_token, idea_id, script, jobs, updated_edit)
     state.pop("_inputs", None)
+    state.pop("_sfx_inputs", None)
     return JSONResponse(status_code=200, content=state)
+
+
+@router.post("/{idea_id}/dress")
+async def post_dress(request: Request, idea_id: str) -> JSONResponse:
+    """POST dress endpoint — dresses all scenes using closed catalog."""
+    try:
+        session_token, script, jobs, edit = _load(request, idea_id)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
+
+    state = _state(session_token, idea_id, script, jobs, edit)
+    missing_takes = state["missing_takes"]
+    if missing_takes:
+        return JSONResponse(
+            status_code=409,
+            content={"code": "missing_takes", "scenes": missing_takes},
+        )
+
+    timeline = state["timeline"]
+    captions_words = state["captions_words"]
+    raw_hash = timeline.get("hash", "")
+
+    # "Vestir todo" is included once per raw cut (E-D13): pressing it again on the
+    # same cut returns the dressing already made instead of paying Gemini again.
+    if state.get("dressing", {}).get("fresh"):
+        state.pop("_inputs", None)
+        state.pop("_sfx_inputs", None)
+        return JSONResponse(status_code=200, content=state)
+
+    contexts = scene_contexts(timeline, captions_words, script)
+    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1))
+
+    try:
+        updated_edit = save_edit(
+            session_token,
+            idea_id,
+            fields={"dressing": dressing_plan},
+            expected_version=edit["version"],
+        )
+    except EditVersionConflict as err:
+        return JSONResponse(
+            status_code=409,
+            content={"code": "version_conflict", "current": err.current},
+        )
+
+    new_state = _state(session_token, idea_id, script, jobs, updated_edit)
+    new_state.pop("_inputs", None)
+    new_state.pop("_sfx_inputs", None)
+    return JSONResponse(status_code=200, content=new_state)
 
 
 @router.post("/{idea_id}/render")
@@ -529,7 +600,8 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
         input={
             "ir": state["ir"],
             "raw_storage_path": raw_storage_path,
-            "sfx_inputs": {},
+            # Only the sound effects: the takes and b-roll are already inside the raw MP4.
+            "sfx_inputs": state.get("_sfx_inputs", {}),
         },
         idempotency_key=idempotency_key,
         return_created=True,
