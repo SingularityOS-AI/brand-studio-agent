@@ -4058,14 +4058,16 @@ ${htmlContent}
         }
       }
 
+      const isCleanQuery = (val) => typeof val === 'string' && val.trim() !== '' && val.trim().toLowerCase() !== 'null';
+
       let queryLabel = 'Prompt';
       let fullQuery = '';
       if (assetType === 'stock') {
         queryLabel = 'Stock';
-        fullQuery = scene.stock_query || scene.spoken_text || '—';
+        fullQuery = isCleanQuery(scene.stock_query) ? scene.stock_query.trim() : 'written automatically when generated';
       } else if (assetType === 'ai_image' || assetType === 'ai_video') {
         queryLabel = 'Prompt';
-        fullQuery = scene.visual_prompt || scene.spoken_text || '—';
+        fullQuery = isCleanQuery(scene.visual_prompt) ? scene.visual_prompt.trim() : 'written automatically when generated';
       } else if (assetType === 'a_roll') {
         queryLabel = 'A-roll';
         if (sceneTranscript && sceneTranscript.status === 'done' && sceneTranscript.output?.text) {
@@ -4075,7 +4077,7 @@ ${htmlContent}
         }
       } else {
         queryLabel = 'Motion';
-        fullQuery = scene.visual_prompt || scene.on_screen_text || 'Motion graphic';
+        fullQuery = isCleanQuery(scene.visual_prompt) ? scene.visual_prompt.trim() : 'written automatically when generated';
       }
 
       let stockAttributionHtml = '';
@@ -6879,7 +6881,7 @@ ${htmlContent}
             <div class="spinner" style="width:36px;height:36px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
           </div>
           <div style="font-size:18px;font-weight:600;color:#14181F;margin-bottom:8px">Brandy is writing your script…</div>
-          <div style="font-size:13px;color:#5C6675;margin-bottom:16px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5">Usually 30–90 seconds. She checks 13 rules before showing it to you.</div>
+          <div style="font-size:13px;color:#5C6675;margin-bottom:16px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5">Usually 30–90 seconds. She checks 14 rules before showing it to you.</div>
           <div id="Script-LoadingTimer" style="font-size:14px;font-weight:600;color:var(--accent)">0s elapsed</div>
         `;
         scriptEmptyState.parentNode.insertBefore(scriptLoadingState, scriptEmptyState.nextSibling);

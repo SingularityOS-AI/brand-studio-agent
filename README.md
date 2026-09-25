@@ -29,7 +29,7 @@ A research pass (YouTube Data API + Gemini with search grounding) collects deman
 ### 3. Scripting — a blueprint that has to pass an audit
 Each locked idea becomes a 6-phase script (hook → lock-in → point 1 → rehook → point 2 → CTA) with, per scene: spoken text, shot, on-screen text, acting note, sound, and a proposed visual type with its stock query or visual prompt.
 
-Every script is audited by **13 deterministic rules (no LLM)**. The **8 critical ones must pass before the script can be locked**:
+Every script is audited by **14 deterministic rules (no LLM)**. The **9 critical ones must pass before the script can be locked**:
 
 | Critical (block locking) | Informational |
 |---|---|
@@ -41,6 +41,7 @@ Every script is audited by **13 deterministic rules (no LLM)**. The **8 critical
 | No AI counter-examples | |
 | Every number has a source | |
 | Has a call to action | |
+| Single language (all scenes use 1 language) | |
 
 You can iterate a single scene with an intent ("make it punchier") and the audit re-runs. It does **not** predict views — nobody can. It checks structure against rules anyone can read.
 
@@ -74,7 +75,7 @@ flowchart LR
     BB --> SOUL[Brand Soul doc]
     BB --> CAT[Catalog · YouTube Data API + Gemini grounding]
     CAT --> SCR[Script blueprint]
-    SCR --> AUD{13-rule audit<br/>no LLM}
+    SCR --> AUD{14-rule audit<br/>no LLM}
     AUD -->|critical rules pass| LOCK[Locked script]
     LOCK --> REC[Teleprompter takes] --> STT[AssemblyAI transcription<br/>word-level timestamps]
     LOCK --> JOBS[Async asset jobs]
@@ -111,7 +112,7 @@ Real AI calls cost real money, so the app is built to fail closed:
 | Voice interview with barge-in and tool calling (Brand Soul) | ✅ In production |
 | 9-section brand brain with quotes · Brand Soul document | ✅ In production |
 | Demand research + 30-idea catalog | ✅ In production |
-| Script blueprint + 13-rule audit + lock | ✅ In production |
+| Script blueprint + 14-rule audit + lock | ✅ In production |
 | Teleprompter recording + AssemblyAI transcription per take | ✅ In production |
 | Stock / motion graphic / AI image / AI video B-roll, founder-chosen | ✅ In production |
 | AI-chosen soundtrack + SFX from a CC0 library (listen-only) | ✅ In production |

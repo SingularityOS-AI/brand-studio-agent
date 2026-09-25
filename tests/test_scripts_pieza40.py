@@ -116,20 +116,21 @@ def test_critical_rules_from_audit_rules():
     critical_rules = [r for r in AUDIT_RULES if r.get("critical", False)]
     critical_ids = {r["rule"] for r in critical_rules}
 
-    # Expected critical rules per PIEZA 40 spec
+    # Expected critical rules per PIEZA 40 & PIEZA 65 specs
     expected_ids = {
         "rule_1",   # Duration 45-90s
-        "rule_3",   # Has all 6 phases (NOW CRITICAL - previously missing!)
+        "rule_3",   # Has all 6 phases
         "rule_4",   # Exactly 2 key points
         "rule_5",   # FrameZero stops scroll
-        "rule_7",   # No "not X, it's Y" patterns (NOW CRITICAL - previously missing!)
+        "rule_7",   # No "not X, it's Y" patterns
         "rule_8",   # No AI counterexamples
         "rule_9",   # All numbers have citations
         "rule_12",  # Has CTA
+        "rule_14",  # Single language
     }
 
     assert critical_ids == expected_ids, f"Critical rules mismatch. Got: {critical_ids}"
-    assert len(critical_rules) == 8, f"Expected 8 critical rules, got {len(critical_rules)}"
+    assert len(critical_rules) == 9, f"Expected 9 critical rules, got {len(critical_rules)}"
 
 
 def test_critical_rules_have_names_matching_ids():

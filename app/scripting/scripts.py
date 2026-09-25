@@ -553,7 +553,7 @@ def _derive_script_kind(idea: CatalogIdea) -> str:
 
 
 # =============================================================================
-# AUDIT RULES (13 deterministic rules, no LLM)
+# AUDIT RULES (14 deterministic rules, no LLM)
 # =============================================================================
 # CRITICAL RULES (must pass for locking):
 # - rule_1:  Duration 45-90 seconds (estimated)
@@ -564,6 +564,7 @@ def _derive_script_kind(idea: CatalogIdea) -> str:
 # - rule_8:  No AI counterexamples
 # - rule_9:  All numbers have citations (has sources)
 # - rule_12: Has CTA (close_cta phase exists)
+# - rule_14: Single language (all detectable scenes use same language)
 #
 # NON-CRITICAL RULES (informational, don't block locking):
 # - rule_2:  Hook acting note is concrete
@@ -672,6 +673,13 @@ AUDIT_RULES: list[dict[str, Any]] = [
         "fail_msg": lambda s: _get_blacklist_fail_message(s),
         "critical": False,
     },
+    {
+        "rule": "rule_14",
+        "name": "Single language",
+        "check": lambda s: _check_single_language(s),
+        "fail_msg": lambda s: _get_single_language_fail_msg(s),
+        "critical": True,
+    },
 ]
 
 
@@ -765,6 +773,112 @@ def _get_blacklist_fail_message(script: Script) -> str:
     if violations:
         return f"AI blacklist words found: {'; '.join(violations[:3])}"
     return "AI blacklist words found"
+
+
+def _detect_language(text: str) -> str | None:
+    """
+    Deterministically detect whether text is Spanish ('es') or English ('en').
+    Returns None if text is too short (< 3 total functional word/accent matches)
+    or if neither language has at least double the matches of the other.
+    """
+    if not text or not text.strip():
+        return None
+
+    text_lower = text.lower()
+    accent_count = sum(1 for c in text_lower if c in "áéíóúñ¿¡")
+
+    import re
+    words = re.findall(r'[a-záéíóúñ]+', text_lower)
+
+    es_words = {
+        "el", "la", "los", "las", "de", "del", "que", "y", "en",
+        "un", "una", "es", "por", "para", "con", "su", "se", "lo",
+        "al", "más", "pero", "como", "esta", "este", "tu"
+    }
+    en_words = {
+        "the", "and", "to", "of", "is", "that", "for", "with",
+        "your", "you", "in", "it", "this", "are", "on", "but",
+        "what", "how", "our"
+    }
+
+    es_count = sum(1 for w in words if w in es_words) + accent_count
+    en_count = sum(1 for w in words if w in en_words)
+
+    total_matches = es_count + en_count
+    if total_matches < 3:
+        return None
+
+    if es_count >= 2 * en_count and es_count > 0:
+        return "es"
+    if en_count >= 2 * es_count and en_count > 0:
+        return "en"
+
+    return None
+
+
+def _script_language(scenes: list[Scene], exclude_n: int | None = None) -> str:
+    """
+    Determine the dominant language ("es" or "en") of the script scenes.
+    Optionally excludes scene `exclude_n` (e.g. the scene being regenerated).
+    Returns "en" if there is no clear majority or no detectable scenes.
+    """
+    detected = [
+        _detect_language(sc.spoken_text)
+        for sc in scenes
+        if exclude_n is None or sc.n != exclude_n
+    ]
+    valid = [lang for lang in detected if lang is not None]
+    if not valid:
+        return "en"
+
+    es_count = valid.count("es")
+    en_count = valid.count("en")
+
+    if es_count > en_count:
+        return "es"
+    if en_count > es_count:
+        return "en"
+
+    return "en"
+
+
+def _check_single_language(script: Script) -> bool:
+    """Rule 14: Check that all scenes with detectable language use the same language."""
+    detected_langs = {
+        _detect_language(sc.spoken_text)
+        for sc in script.scenes
+    } - {None}
+    return len(detected_langs) <= 1
+
+
+def _get_single_language_fail_msg(script: Script) -> str:
+    """Get fail message for rule_14 detailing which scenes use which language."""
+    lang_scenes: dict[str, list[int]] = {}
+    for sc in script.scenes:
+        lang = _detect_language(sc.spoken_text)
+        if lang is not None:
+            lang_scenes.setdefault(lang, []).append(sc.n)
+
+    if len(lang_scenes) <= 1:
+        return "Script uses multiple languages across scenes"
+
+    # Sort by number of scenes ascending so minority language comes first
+    sorted_langs = sorted(
+        lang_scenes.keys(),
+        key=lambda lang_code: (len(lang_scenes[lang_code]), lang_code)
+    )
+    minority_lang = sorted_langs[0]
+    majority_lang = sorted_langs[1]
+
+    minority_nums = lang_scenes[minority_lang]
+    minority_name = "Spanish" if minority_lang == "es" else "English"
+    majority_name = "Spanish" if majority_lang == "es" else "English"
+
+    nums_str = ", ".join(str(n) for n in minority_nums)
+    scene_word = "Scene" if len(minority_nums) == 1 else "Scenes"
+    verb = "is" if len(minority_nums) == 1 else "are"
+
+    return f"{scene_word} {nums_str} {verb} in {minority_name}; the rest in {majority_name}. Iterate or edit them so the whole script uses one language."
 
 
 def _check_hook_acting_note_concrete(script: Script) -> bool:
@@ -1693,6 +1807,10 @@ async def regenerate_scene(
             # Pieza 39: Use neutral instruction if None/empty to avoid "None" literal in prompt
             effective_instruction = instruction if instruction else "improve this scene"
 
+            # Pieza 65: target language for this script based on other scenes
+            target_lang = _script_language(script.scenes, exclude_n=scene_n)
+            target_lang_name = "Spanish" if target_lang == "es" else "English"
+
             # Build regeneration prompt with BLUEPRINT fields (Pieza 39, Pieza 59)
             other_scenes_text = "\n".join(
                 f"{s.n}. {s.phase}: {s.spoken_text}"
@@ -1720,7 +1838,7 @@ Instruction: {effective_instruction}
 
 RULES:
 - Keep the SAME phase ({target_scene.phase})
-- Write spoken_text, on_screen_text and acting_note in the SAME language as the original scene text. The instruction may be written in a different language — that NEVER changes the output language.
+- Write spoken_text, on_screen_text and acting_note in {target_lang_name} — the language of the rest of this script. The instruction may be written in another language; that NEVER changes the output language.
 - The recording format is {script.recording_format}: acting_note must fit it. shot is a camera framing, not the format name.
 - On-screen text: max 8 words
 - HUMANIZATION: NEVER use these words: delve, crucial, tapestry, landscape, ever-evolving, unlock the potential, revolutionary, vital, in conclusion, in summary, discover how, optimize
@@ -1779,6 +1897,48 @@ Return ONLY valid JSON.
                 end_s=target_scene.start_s + new_duration,
                 fallback=target_scene,
             )
+
+            # Pieza 65: Language enforcement (retry once if wrong language, then fail without mutating script)
+            det_lang = _detect_language(new_scene.spoken_text)
+            if det_lang is not None and det_lang != target_lang:
+                retry_prompt = (
+                    prompt
+                    + f"\n\nYour previous answer was in the wrong language. Rewrite it entirely in {target_lang_name}."
+                )
+                retry_response = await model.generate_content_async(
+                    retry_prompt,
+                    generation_config={
+                        "temperature": 0.7,
+                        "max_output_tokens": 1024,
+                        "response_mime_type": "application/json",
+                    },
+                )
+                try:
+                    retry_scene_data = json.loads(retry_response.text)
+                except json.JSONDecodeError:
+                    import re
+                    json_match = re.search(r"```json\s*(\{.*?\})\s*```", retry_response.text, re.DOTALL)
+                    if json_match:
+                        retry_scene_data = json.loads(json_match.group(1))
+                    else:
+                        raise ValueError("Failed to parse JSON from Gemini")
+
+                retry_duration = _estimate_scene_duration(retry_scene_data.get("spoken_text", ""))
+                new_scene = _build_validated_scene(
+                    retry_scene_data,
+                    n=target_scene.n,
+                    phase=target_scene.phase,
+                    start_s=target_scene.start_s,
+                    end_s=target_scene.start_s + retry_duration,
+                    fallback=target_scene,
+                )
+                det_lang_retry = _detect_language(new_scene.spoken_text)
+                if det_lang_retry is not None and det_lang_retry != target_lang:
+                    det_lang_str = "Spanish" if det_lang_retry == "es" else ("English" if det_lang_retry == "en" else det_lang_retry)
+                    target_lang_str = "Spanish" if target_lang == "es" else "English"
+                    raise ValueError(
+                        f"The rewritten scene came back in {det_lang_str}, but this script is in {target_lang_str}. Nothing was changed or charged."
+                    )
 
             # Only now, with a fully validated scene in hand, do we touch
             # the script.

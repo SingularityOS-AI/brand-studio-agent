@@ -1232,12 +1232,13 @@ def test_critical_rules_from_audit_rules():
         "No AI counterexamples",
         "All numbers have citations",
         "Has CTA",
+        "Single language",
     }
 
     assert critical_names == expected_names, f"Critical rules mismatch. Got: {critical_names}"
 
-    # Verify 8 critical rules
-    assert len(critical_rules) == 8, f"Expected 8 critical rules, got {len(critical_rules)}"
+    # Verify 9 critical rules
+    assert len(critical_rules) == 9, f"Expected 9 critical rules, got {len(critical_rules)}"
 
 
 def test_lock_fails_when_missing_phase(valid_frame_zero, tmp_path):
@@ -1338,13 +1339,13 @@ def test_lock_fails_with_not_x_its_y_pattern(valid_frame_zero, tmp_path):
 
 
 # =============================================================================
-# AP AUDIT ALL 13 RULES RUN
+# AP AUDIT ALL 14 RULES RUN
 # =============================================================================
 
-def test_audit_returns_13_findings(valid_script):
-    """Audit returns exactly 13 findings (one per rule)."""
+def test_audit_returns_14_findings(valid_script):
+    """Audit returns exactly 14 findings (one per rule)."""
     findings = audit_script(valid_script)
-    assert len(findings) == 13
+    assert len(findings) == 14
     assert all(f.rule.startswith("rule_") for f in findings)
 
 
@@ -1774,7 +1775,7 @@ async def test_generate_script_success(mock_brand_brain, mock_catalog, tmp_path)
         assert result.session_id == "test_session"
         assert result.idea_id == "idea_123"
         assert len(result.scenes) == 6
-        assert len(result.audit) == 13  # PIEZA 40: now 13 rules
+        assert len(result.audit) == 14  # PIEZA 65: now 14 rules
         assert result.sources == ["CEO said: save 10 hours"]
 
 

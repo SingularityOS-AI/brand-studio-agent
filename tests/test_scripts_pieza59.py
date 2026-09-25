@@ -165,13 +165,13 @@ async def test_1_regenerate_scene_prompt_contains_language_rule_and_other_scenes
         )
 
     assert captured_prompt is not None
-    # Check language rule present in prompt
+    # Check language rule present in prompt (Pieza 65: target language for the script)
     assert (
-        "Write spoken_text, on_screen_text and acting_note in the SAME language as the original scene text."
+        "the language of the rest of this script."
         in captured_prompt
     )
     assert (
-        "The instruction may be written in a different language — that NEVER changes the output language."
+        "The instruction may be written in another language; that NEVER changes the output language."
         in captured_prompt
     )
     # Check spoken_text of another scene (e.g., scene 2 or scene 5) is in prompt
@@ -241,11 +241,11 @@ async def test_3_regenerate_scene_preserves_shot_when_recording_format_returned(
 
     mock_response = Mock()
     mock_response.text = json.dumps({
-        "spoken_text": "Veinte minutos de espera para un intérprete.",
+        "spoken_text": "Twenty minutes waiting for an interpreter in our clinic for your team.",
         "shot": "teleprompter_clean",
         "b_roll": None,
-        "on_screen_text": "Veinte minutos",
-        "acting_note": "Enfático",
+        "on_screen_text": "Twenty minutes",
+        "acting_note": "Emphatic",
         "sound": "upbeat",
     })
 
