@@ -27,9 +27,19 @@ def build_raw_args(
         raise ValueError("RenderRequest in mode 'raw' requires a timeline")
 
     timeline = request.timeline
-    scenes = timeline.scenes
-    if not scenes:
+    if not timeline.scenes:
         raise ValueError("Timeline must contain at least one scene")
+    # A motion graphic whose HTML could not be converted to MP4 is still an
+    # .html file here: show the founder's face for that scene instead of
+    # failing the whole raw cut.
+    scenes = [
+        sc.model_copy(update={"visual": "face"})
+        if sc.visual == "broll"
+        and sc.broll
+        and str(local_inputs.get(sc.broll.input_id, "")).lower().endswith(".html")
+        else sc
+        for sc in timeline.scenes
+    ]
 
     # 1. Collect unique input IDs in order of discovery
     unique_input_ids: list[str] = []
@@ -40,7 +50,7 @@ def build_raw_args(
 
     for scene in scenes:
         register_input(scene.take_input)
-        if scene.broll:
+        if scene.broll and scene.visual == "broll":
             register_input(scene.broll.input_id)
 
     has_music = (

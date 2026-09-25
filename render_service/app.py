@@ -94,12 +94,19 @@ def _default_final_builder(
 
 
 def _default_converter(
-    item: ConvertItem, local_inputs: dict[str, Path], workdir: Path
+    item: ConvertItem,
+    local_inputs: dict[str, Path],
+    workdir: Path,
+    duration_s: float = 5.0,
 ) -> Path | None:
     try:
         from render_service.motion import convert_html
 
-        return convert_html(item, local_inputs, workdir)
+        html_path = local_inputs.get(item.input_id)
+        if not html_path or not html_path.is_file():
+            return None
+        out_path = workdir / f"{item.input_id}_converted.mp4"
+        return convert_html(html_path, out_path, duration_s, workdir)
     except ImportError:
         logger.warning(
             "Motion graphics converter render_service.motion not available for %s",
@@ -121,9 +128,7 @@ RAW_BUILDER: Callable[[RenderRequest, dict[str, Path], Path], dict[str, Any]] = 
 FINAL_BUILDER: Callable[[RenderRequest, dict[str, Path], Path], dict[str, Any]] = (
     _default_final_builder
 )
-CONVERTER: Callable[[ConvertItem, dict[str, Path], Path], Path | None] = (
-    _default_converter
-)
+CONVERTER: Callable[..., Path | None] = _default_converter
 
 
 @app.get("/healthz")
@@ -203,10 +208,19 @@ def render_v1(request: Request, body: Any = Body(default=None)) -> JSONResponse:
         if render_req.convert:
             for item in render_req.convert:
                 try:
-                    c_path = CONVERTER(item, local_inputs, workdir)
+                    duration_s = 5.0
+                    if render_req.timeline:
+                        for scene in render_req.timeline.scenes:
+                            if scene.broll and scene.broll.input_id == item.input_id:
+                                duration_s = (
+                                    scene.out_end_ms - scene.out_start_ms
+                                ) / 1000.0
+                                break
+                    c_path = CONVERTER(item, local_inputs, workdir, duration_s)
                     if c_path and c_path.is_file():
                         upload(item.upload_url, c_path)
                         converted_list.append(item.storage_path)
+                        local_inputs[item.input_id] = c_path
                 except Exception as e:
                     logger.warning(
                         "Convert item %s failed: %s", item.input_id, redact(str(e))

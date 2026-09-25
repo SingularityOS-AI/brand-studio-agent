@@ -382,3 +382,26 @@ def test_scene_marks_ms():
     req = make_sample_request(mode="raw", music=None)
     scene_marks = [sc.out_start_ms for sc in req.timeline.scenes]
     assert scene_marks == [0, 2000, 3500]
+
+
+def test_capitan_unconverted_motion_graphic_falls_back_to_face():
+    """QA del Capitán: si el motion graphic sigue siendo .html (conversión fallida), la escena usa la cara y FFmpeg nunca recibe el .html."""
+    from render_service.manifest import RenderRequest as _RR
+
+    seg = {"in_ms": 0, "out_ms": 2000, "out_start_ms": 0}
+    req = _RR.model_validate({
+        "schema": "brandstudio.render.v1", "job_id": "j", "attempt": 1, "mode": "raw",
+        "timeline": {
+            "schema": "brandstudio.timeline.v1", "edit_version": 1,
+            "canvas": {"w": 1080, "h": 1920, "fps": 30},
+            "settings": {"gap_ms": 400, "pad_ms": 100, "music_volume": 0.1, "music_muted": True, "sfx_enabled": True},
+            "scenes": [{"n": 1, "phase": "hook", "visual": "broll", "take_job_id": "t1", "take_input": "take_s1",
+                        "broll": {"kind": "motion_graphic", "input_id": "broll_s1"},
+                        "segments": [seg], "trim": {"start_ms": 0, "end_ms": 0}, "out_start_ms": 0, "out_end_ms": 2000}],
+            "music": None, "duration_ms": 2000, "hash": "h"},
+        "inputs": {"take_s1": {"url": "https://x.supabase.co/t", "kind": "video"},
+                   "broll_s1": {"url": "https://x.supabase.co/m", "kind": "html"}},
+        "output": {"upload_url": "https://x.supabase.co/u", "storage_path": "a/b.mp4"}})
+    args, filt = build_raw_args(req, {"take_s1": Path("take.webm"), "broll_s1": Path("mg.html")}, Path("out.mp4"))
+    assert "mg.html" not in " ".join(args)
+    assert "[0:v]" in filt and "trim=start=" in filt  # the take's video is used (face)
