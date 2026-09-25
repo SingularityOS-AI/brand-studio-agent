@@ -999,7 +999,7 @@ def _sanitize_stock_query(text: Any) -> str | None:
         return None
 
     cleaned = re.sub(r"^(?:[\d]+[\.\)]|[-*])\s*", "", valid_line)
-    cleaned = re.sub(r"[^a-zA-Z0-9\s-]", "", cleaned)
+    cleaned = re.sub(r"[^\w\s-]", "", cleaned).replace("_", "")
 
     words = cleaned.split()
     if not words:

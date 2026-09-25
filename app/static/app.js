@@ -3573,49 +3573,79 @@ ${htmlContent}
       `;
     }
 
-    detailPanel.style.display = 'block';
-    detailPanel.innerHTML = `
-      <div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <div>
-          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);">Scene Inspector</div>
-          <div style="font-size:16px;font-weight:700;color:var(--ink);margin-top:2px;">
-            Scene #${scene.n || (sceneIdx + 1)} · ${escapeHtml(phaseName)}
-            <span style="font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:8px;">${escapeHtml(timeRange)} est.</span>
+      const hasQuery = scene.stock_query && scene.stock_query !== 'null';
+      const hasPrompt = scene.visual_prompt && scene.visual_prompt !== 'null';
+
+      let promptDetailsHtml = '';
+      if (scene.asset_type === 'stock') {
+        if (hasQuery) {
+          promptDetailsHtml += `<div style="margin-bottom:4px;"><strong>Stock Query:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.stock_query)}</span></div>`;
+        } else {
+          promptDetailsHtml += `<div style="margin-bottom:4px;color:var(--ink-soft);"><strong>Stock Query:</strong> <span style="font-style:italic;">written automatically when this scene is generated</span></div>`;
+        }
+      } else if (hasQuery) {
+        promptDetailsHtml += `<div style="margin-bottom:4px;"><strong>Stock Query:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.stock_query)}</span></div>`;
+      }
+
+      if (scene.asset_type === 'ai_image' || scene.asset_type === 'ai_video') {
+        if (hasPrompt) {
+          promptDetailsHtml += `<div style="margin-bottom:4px;"><strong>Visual Prompt:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.visual_prompt)}</span></div>`;
+        } else {
+          promptDetailsHtml += `<div style="margin-bottom:4px;color:var(--ink-soft);"><strong>Visual Prompt:</strong> <span style="font-style:italic;">written automatically when this scene is generated</span></div>`;
+        }
+      } else if (hasPrompt) {
+        promptDetailsHtml += `<div style="margin-bottom:4px;"><strong>Visual Prompt:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.visual_prompt)}</span></div>`;
+      }
+
+      if (scene.shot) {
+        promptDetailsHtml += `<div style="margin-bottom:4px;"><strong>Camera Shot:</strong> ${escapeHtml(scene.shot)}</div>`;
+      }
+      if (scene.acting_note) {
+        promptDetailsHtml += `<div style="margin-bottom:4px;"><strong>How to say it:</strong> ${escapeHtml(scene.acting_note)}</div>`;
+      }
+      if (!promptDetailsHtml) {
+        promptDetailsHtml = '<div style="color:var(--ink-soft);font-style:italic;">A-roll spoken scene · no visual generation prompt needed</div>';
+      }
+
+      detailPanel.style.display = 'block';
+      detailPanel.innerHTML = `
+        <div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);">Scene Inspector</div>
+            <div style="font-size:16px;font-weight:700;color:var(--ink);margin-top:2px;">
+              Scene #${scene.n || (sceneIdx + 1)} · ${escapeHtml(phaseName)}
+              <span style="font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:8px;">${escapeHtml(timeRange)} est.</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="padding:3px 8px;border-radius:4px;font-size:10px;${badgeInfo.style}">${badgeInfo.label}</span>
+            ${badgeStatusHtml}
+            ${takeBadgeHtml}
+            ${takeActionBtn}
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="padding:3px 8px;border-radius:4px;font-size:10px;${badgeInfo.style}">${badgeInfo.label}</span>
-          ${badgeStatusHtml}
-          ${takeBadgeHtml}
-          ${takeActionBtn}
-        </div>
-      </div>
 
-      ${assetTypeSelectorSectionHtml}
+        ${assetTypeSelectorSectionHtml}
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.5;">
-        ${spokenTextSectionHtml}
-        <div>
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">On-Screen Text (Subtitle)</div>
-          <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
-            ${escapeHtml(scene.on_screen_text || '—')}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.5;">
+          ${spokenTextSectionHtml}
+          <div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">On-Screen Text (Subtitle)</div>
+            <div style="color:var(--ink);background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);min-height:54px;">
+              ${escapeHtml(scene.on_screen_text || '—')}
+            </div>
           </div>
         </div>
-      </div>
 
-      ${videoPreviewHtml}
-      ${sfxInspectorHtml}
+        ${videoPreviewHtml}
+        ${sfxInspectorHtml}
 
-      <div style="margin-top:12px;font-size:13px;line-height:1.5;">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Prompt & Direction Details</div>
-        <div style="background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);font-size:12px;color:var(--ink);">
-          ${scene.stock_query ? `<div style="margin-bottom:4px;"><strong>Stock Query:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.stock_query)}</span></div>` : ''}
-          ${scene.visual_prompt ? `<div style="margin-bottom:4px;"><strong>Visual Prompt:</strong> <span class="mono" style="color:var(--accent);">${escapeHtml(scene.visual_prompt)}</span></div>` : ''}
-          ${scene.shot ? `<div style="margin-bottom:4px;"><strong>Camera Shot:</strong> ${escapeHtml(scene.shot)}</div>` : ''}
-          ${scene.acting_note ? `<div style="margin-bottom:4px;"><strong>How to say it:</strong> ${escapeHtml(scene.acting_note)}</div>` : ''}
-          ${(!scene.stock_query && !scene.visual_prompt && !scene.shot && !scene.acting_note) ? '<div style="color:var(--ink-soft);font-style:italic;">A-roll spoken scene · no visual generation prompt needed</div>' : ''}
+        <div style="margin-top:12px;font-size:13px;line-height:1.5;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">Prompt & Direction Details</div>
+          <div style="background:var(--surface);padding:10px 12px;border-radius:6px;border:1px solid var(--line);font-size:12px;color:var(--ink);">
+            ${promptDetailsHtml}
+          </div>
         </div>
-      </div>
 
       <div style="margin-top:12px;font-size:11.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -4593,26 +4623,33 @@ ${htmlContent}
     if (!confirmPanel) return;
 
     const scenesList = (estData.scenes || []).filter(s => s.asset_type !== 'a_roll');
-    const totalCredits = estData.credits_total || 0;
+    const creditsNeeded = (estData.credits_pending !== undefined) ? estData.credits_pending : (estData.credits_total || 0);
     const userBalance = Number(credits) || 0;
-    const balanceAfter = userBalance - totalCredits;
+    const balanceAfter = userBalance - creditsNeeded;
     const hasEnoughBalance = balanceAfter >= 0;
+
+    const allNonARollReady = scenesList.length > 0 && scenesList.every(s => Boolean(s.has_live_asset));
+    const isAllAssetsReady = creditsNeeded === 0 && allNonARollReady;
 
     const isAiPaused = Boolean(estData.ai_paused || currentAudiovisualEstimate?.ai_paused);
     const hasAiScenes = (estData.scenes || []).some(s => s.asset_type === 'ai_image' || s.asset_type === 'ai_video');
     const overAiVideo = Boolean(estData.over_ai_video_limit);
     const overCeiling = Boolean(estData.over_ceiling);
-    const isBlocked = overAiVideo || overCeiling || !hasEnoughBalance || (isAiPaused && hasAiScenes);
+    const isBlocked = overAiVideo || overCeiling || !hasEnoughBalance || (isAiPaused && hasAiScenes) || isAllAssetsReady;
 
     let rowsHtml = scenesList.map(s => {
       const phaseName = PHASE_NAMES[s.phase] || (s.phase ? s.phase.replace(/_/g, ' ') : 'Scene');
       const badge = ASSET_ORIGIN_CONFIG[s.asset_type] || ASSET_ORIGIN_CONFIG.a_roll;
+      const isReady = Boolean(s.has_live_asset);
+      const rowStyle = isReady ? 'border-bottom:1px solid var(--line);opacity:0.65;' : 'border-bottom:1px solid var(--line);';
+      const creditsDisplay = isReady ? '0 credits' : `${s.credits} credits`;
+      const readyBadge = isReady ? ' <span style="font-size:10.5px;color:var(--ink-soft);margin-left:4px;">✓ ready</span>' : '';
       return `
-        <tr style="border-bottom:1px solid var(--line);">
+        <tr style="${rowStyle}">
           <td style="padding:8px 10px;font-weight:600;color:var(--ink);">Scene #${s.scene_n}</td>
           <td style="padding:8px 10px;color:var(--ink-soft);">${escapeHtml(phaseName)}</td>
-          <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:4px;font-size:10px;${badge.style}">${badge.label}</span></td>
-          <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--ink);">${s.credits} credits</td>
+          <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:4px;font-size:10px;${badge.style}">${badge.label}</span>${readyBadge}</td>
+          <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--ink);">${creditsDisplay}</td>
         </tr>
       `;
     }).join('');
@@ -4639,11 +4676,13 @@ ${htmlContent}
     } else if (!hasEnoughBalance) {
       warningHtml = `
         <div style="margin-bottom:12px;padding:8px 12px;background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;font-size:12px;color:#92400E;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span>Insufficient balance (${userBalance} credits available, ${totalCredits} needed).</span>
+          <span>Insufficient balance (${userBalance} credits available, ${creditsNeeded} needed).</span>
           <button type="button" id="AV-EstimatePaywallBtn" class="btn btn--primary" style="padding:4px 10px;font-size:11px;">Get credits</button>
         </div>
       `;
     }
+
+    const buttonLabel = isAllAssetsReady ? 'All assets ready' : `Generate · ${creditsNeeded} credits`;
 
     confirmPanel.style.display = 'block';
     confirmPanel.innerHTML = `
@@ -4669,7 +4708,7 @@ ${htmlContent}
       <div style="background:var(--surface-alt);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;display:flex;flex-direction:column;gap:5px;">
         <div style="display:flex;justify-content:space-between;">
           <span style="color:var(--ink-soft);">Total credits needed:</span>
-          <span style="font-weight:700;color:var(--ink);">${totalCredits} credits</span>
+          <span style="font-weight:700;color:var(--ink);">${creditsNeeded} credits</span>
         </div>
         <div style="display:flex;justify-content:space-between;">
           <span style="color:var(--ink-soft);">Current balance:</span>
@@ -4686,7 +4725,7 @@ ${htmlContent}
       <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
         <button type="button" id="AV-CloseEstimateBtn" class="btn btn--secondary" style="padding:8px 16px;font-size:13px;">Cancel</button>
         <button type="button" id="AV-ConfirmGenerateBtn" class="btn btn--go" ${isBlocked ? 'disabled style="padding:8px 20px;font-size:13px;opacity:0.5;cursor:not-allowed;"' : 'style="padding:8px 20px;font-size:13px;cursor:pointer;"'}>
-          Generate · ${totalCredits} credits
+          ${escapeHtml(buttonLabel)}
         </button>
       </div>
     `;
@@ -6133,7 +6172,6 @@ ${htmlContent}
   }
 
   // PIEZA 62: Update top lock button (disabled in draft/reviewed, directs to Confirm & Lock script below)
-  // Legacy Step 1 of 2 and Step 2 of 2 superseded by PIEZA 62 single-step flow.
   function updateScriptLockButton() {
     let hintEl = document.getElementById('Script-LockHint');
     if (!hintEl && scriptLockBtn && scriptLockBtn.parentNode) {

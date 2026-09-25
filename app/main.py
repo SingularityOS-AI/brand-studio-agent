@@ -1017,6 +1017,36 @@ async def confirm_script_endpoint(
 # AUDIOVISUAL ENDPOINTS (Pieza 50 — Bloque D: Audiovisual Generation)
 # =============================================================================
 
+def _scene_has_live_asset(existing_jobs: list[dict[str, Any]], scene_n: int, kind: str) -> bool:
+    return any(
+        j.get("scene_n") == scene_n
+        and j.get("kind") == kind
+        and j.get("status") in ("pending", "running", "done")
+        for j in existing_jobs
+    )
+
+
+def _enrich_estimate_with_live_assets(
+    est: dict[str, Any], existing_jobs: list[dict[str, Any]]
+) -> dict[str, Any]:
+    credits_pending = 0
+    cost_usd_pending = 0.0
+    for sc in est.get("scenes", []):
+        asset_type = sc.get("asset_type", "a_roll")
+        scene_n = sc.get("scene_n")
+        if asset_type != "a_roll":
+            has_live = _scene_has_live_asset(existing_jobs, scene_n, asset_type)
+            sc["has_live_asset"] = has_live
+            if not has_live:
+                credits_pending += sc.get("credits", 0)
+                cost_usd_pending += sc.get("cost_usd", 0.0)
+        else:
+            sc["has_live_asset"] = False
+    est["credits_pending"] = credits_pending
+    est["cost_usd_pending"] = round(cost_usd_pending, 4)
+    return est
+
+
 @app.get("/api/audiovisual/{idea_id}/estimate", response_class=JSONResponse)
 async def estimate_audiovisual_endpoint(request: Request, idea_id: str):
     """
@@ -1035,6 +1065,7 @@ async def estimate_audiovisual_endpoint(request: Request, idea_id: str):
 
     from app.scripting.scripts import _check_script, ScriptStorageError
     from app.audiovisual.pricing import estimate
+    from app.audiovisual.jobs import list_jobs
 
     try:
         script = _check_script(session_token, idea_id)
@@ -1057,6 +1088,9 @@ async def estimate_audiovisual_endpoint(request: Request, idea_id: str):
         est = estimate(script)
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+
+    existing_jobs = list_jobs(session_token, idea_id)
+    est = _enrich_estimate_with_live_assets(est, existing_jobs)
 
     return JSONResponse(content=est)
 
@@ -1262,12 +1296,7 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
 
     for sc in script.scenes:
         if sc.asset_type != "a_roll":
-            has_live_job = any(
-                j.get("scene_n") == sc.n
-                and j.get("kind") == sc.asset_type
-                and j.get("status") in ("pending", "running", "done")
-                for j in existing_jobs
-            )
+            has_live_job = _scene_has_live_asset(existing_jobs, sc.n, sc.asset_type)
             if not has_live_job:
                 needed += CREDITS_TABLE.get(sc.asset_type, 0)
 
@@ -1754,9 +1783,12 @@ async def patch_scene_asset_type_endpoint(
 
         current_asset_type = getattr(target_scene, "asset_type", "a_roll")
         if new_asset_type == current_asset_type:
+            est = estimate(script)
+            existing_jobs = list_jobs(session_token, idea_id)
+            est = _enrich_estimate_with_live_assets(est, existing_jobs)
             return JSONResponse(content={
                 "scene": target_scene.model_dump(mode="json"),
-                "estimate": estimate(script),
+                "estimate": est,
             })
 
         # 422 if ai_video and another scene is already ai_video
@@ -1803,9 +1835,12 @@ async def patch_scene_asset_type_endpoint(
 
         _save_script(script)
 
+        est = estimate(script)
+        est = _enrich_estimate_with_live_assets(est, existing_jobs)
+
         return JSONResponse(content={
             "scene": target_scene.model_dump(mode="json"),
-            "estimate": estimate(script),
+            "estimate": est,
         })
 
 

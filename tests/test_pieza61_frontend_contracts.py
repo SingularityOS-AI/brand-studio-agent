@@ -42,10 +42,12 @@ def test_pieza61_static_contracts_in_app_js():
         "generate handler in app.js does not contain 'clearInterval('"
     )
 
-    # 3. app.js contains Script-LockHint, Step 1 of 2, and Step 2 of 2
+    # 3. app.js contains Script-LockHint and Use "Confirm & Lock script" below
+    # P62 reemplazó el flujo de 2 pasos por Confirm & Lock en uno
     assert "Script-LockHint" in content, "app.js missing 'Script-LockHint'"
-    assert "Step 1 of 2" in content, "app.js missing 'Step 1 of 2'"
-    assert "Step 2 of 2" in content, "app.js missing 'Step 2 of 2'"
+    assert 'Use "Confirm & Lock script" below' in content, (
+        'app.js missing \'Use "Confirm & Lock script" below\''
+    )
 
     # 4. app.js contains Script-OpenAudiovisualBtn and in ~40 following lines showAudiovisualView()
     btn_pos = content.rfind("Script-OpenAudiovisualBtn")
