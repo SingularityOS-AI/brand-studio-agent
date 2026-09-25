@@ -1208,6 +1208,67 @@ async def create_soundtrack_jobs_endpoint(request: Request, idea_id: str):
     return JSONResponse(content={"jobs": jobs})
 
 
+@app.post("/api/audiovisual/{idea_id}/prepare", response_class=JSONResponse)
+async def prepare_audiovisual_endpoint(request: Request, idea_id: str):
+    """
+    Ensures missing asset prompts are generated for a locked script (Pieza 66).
+    Free (0 credits) and idempotent.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    from app.scripting.scripts import (
+        _check_script,
+        _fill_missing_asset_prompts,
+        _get_script_lock,
+        _save_script,
+        ScriptStorageError,
+    )
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Script not found for idea {idea_id}"},
+        )
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked before preparing asset prompts"},
+        )
+
+    async with _get_script_lock(session_token, idea_id):
+        script = _check_script(session_token, idea_id)
+        if not script:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Script not found for idea {idea_id}"},
+            )
+        changed = await _fill_missing_asset_prompts(script)
+        if changed:
+            _save_script(script)
+
+    return JSONResponse(content={
+        "changed": changed,
+        "scenes": [s.model_dump(mode="json") for s in script.scenes],
+    })
+
+
 @app.post("/api/audiovisual/{idea_id}/generate", response_class=JSONResponse)
 async def generate_audiovisual_endpoint(request: Request, idea_id: str):
     """
@@ -1676,16 +1737,12 @@ async def _generate_asset_prompt(target_type: str, scene: Any, script_angle: str
     except Exception as e:
         logger.warning(f"[patch_scene_asset_type] LLM prompt generation failed: {e}")
 
-    # Fallback determinista
+    # Fallback determinista (Pieza 66: single source of truth in scripts.py)
+    from app.scripting.scripts import _fallback_stock_query, _fallback_visual_prompt
     if target_type in ("ai_image", "ai_video"):
-        base = stock_query or b_roll or on_screen_text or spoken_text or "cinematic scene"
-        return f"{base}, cinematic, vertical 9:16, clean composition, no text"
+        return _fallback_visual_prompt(scene)
     elif target_type == "stock":
-        content_text = b_roll or on_screen_text or spoken_text or ""
-        words = [w for w in content_text.split() if len(w) > 2][:4]
-        if not words:
-            words = ["business", "office"]
-        return " ".join(words)
+        return _fallback_stock_query(scene)
     return ""
 
 

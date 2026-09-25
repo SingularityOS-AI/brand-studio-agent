@@ -1124,6 +1124,201 @@ def _sanitize_stock_query(text: Any) -> str | None:
     return result if result else None
 
 
+def _get_scene_attr(scene: Any, attr: str) -> str | None:
+    if isinstance(scene, dict):
+        val = scene.get(attr)
+    else:
+        val = getattr(scene, attr, None)
+    return val if isinstance(val, str) else None
+
+
+def _fallback_stock_query(scene: Any) -> str:
+    """
+    Deterministically derive a stock search query fallback from scene fields (Pieza 66).
+    Tries b_roll, then on_screen_text, then spoken_text (words with len > 2, max 4 words).
+    Passes through _sanitize_stock_query. Returns 'business office' if empty.
+    """
+    for field in ("b_roll", "on_screen_text", "spoken_text"):
+        raw_val = _get_scene_attr(scene, field)
+        if raw_val:
+            words = [w for w in raw_val.split() if len(w) > 2][:4]
+            if words:
+                candidate = " ".join(words)
+                sanitized = _sanitize_stock_query(candidate)
+                if sanitized:
+                    return sanitized
+    return "business office"
+
+
+def _fallback_visual_prompt(scene: Any) -> str:
+    """
+    Deterministically derive a visual prompt fallback from scene fields (Pieza 66).
+    base = cleaned stock_query, or b_roll, or on_screen_text, or first 12 words of spoken_text.
+    Returns f"{base}, cinematic, vertical 9:16, clean composition, no text".
+    """
+    sq = _clean_optional_text(_get_scene_attr(scene, "stock_query"))
+    br = _clean_optional_text(_get_scene_attr(scene, "b_roll"))
+    ost = _clean_optional_text(_get_scene_attr(scene, "on_screen_text"))
+    st_raw = _get_scene_attr(scene, "spoken_text")
+
+    base = sq or br or ost
+    if not base and st_raw:
+        words = st_raw.split()[:12]
+        if words:
+            base = _clean_optional_text(" ".join(words))
+
+    if not base:
+        base = "cinematic scene"
+
+    return f"{base}, cinematic, vertical 9:16, clean composition, no text"
+
+
+def _clean_visual_prompt_text(raw_val: Any) -> str | None:
+    """Clean visual_prompt string, discarding a first line preamble ending in ':' if present."""
+    cleaned = _clean_optional_text(raw_val)
+    if not cleaned:
+        return None
+    lines = cleaned.splitlines()
+    if lines and lines[0].strip().endswith(":"):
+        lines = lines[1:]
+    clean_str = "\n".join(lines).strip()
+    paragraphs = [p.strip() for p in clean_str.split("\n\n") if p.strip()]
+    first_para = paragraphs[0] if paragraphs else clean_str
+    result = first_para.strip('"').strip("'").strip()
+    if not result:
+        return None
+    return result[:400]
+
+
+async def _fill_missing_asset_prompts(
+    script: Any,
+    only_n: set[int] | None = None,
+) -> bool:
+    """
+    Ensure every target scene in script has non-None, non-null stock_query and visual_prompt (Pieza 66).
+    If any field is missing, calls Gemini once grouped across missing scenes.
+    Fills ONLY missing fields; never overwrites existing clean values.
+    Falls back to deterministic fallback helpers if Gemini call fails or omits values.
+    Never raises an exception. Returns True if any scene was modified.
+    """
+    if not script or not getattr(script, "scenes", None):
+        return False
+
+    scenes_needing_fill: list[Any] = []
+    for scene in script.scenes:
+        if only_n is not None and scene.n not in only_n:
+            continue
+        sq_clean = _clean_optional_text(getattr(scene, "stock_query", None))
+        vp_clean = _clean_optional_text(getattr(scene, "visual_prompt", None))
+        if sq_clean is None or vp_clean is None:
+            scenes_needing_fill.append(scene)
+
+    if not scenes_needing_fill:
+        return False
+
+    llm_results_by_n: dict[int, dict[str, Any]] = {}
+
+    try:
+        import asyncio
+        from vertexai.generative_models import GenerativeModel
+        from app.config import settings
+
+        angle = getattr(script, "angle", "") or ""
+        scenes_payload = []
+        for s in scenes_needing_fill:
+            scenes_payload.append({
+                "n": s.n,
+                "phase": getattr(s, "phase", "") or "",
+                "asset_type": getattr(s, "asset_type", "") or "",
+                "spoken_text": getattr(s, "spoken_text", "") or "",
+                "on_screen_text": getattr(s, "on_screen_text", "") or "",
+                "b_roll": getattr(s, "b_roll", "") or "",
+            })
+
+        prompt = f"""Generate missing asset stock search queries and visual prompts for short-form video scenes.
+
+Script angle: {angle}
+
+Scenes needing prompts:
+{json.dumps(scenes_payload, indent=2)}
+
+INSTRUCTIONS:
+For EACH scene listed, provide:
+1. "stock_query": 2 to 5 concrete filmable search words IN ENGLISH for Pexels stock video search.
+2. "visual_prompt": A single visual prompt description IN ENGLISH, max 40 words, vertical 9:16 composition, no text/letters/logos, no identifiable real faces of people.
+
+Output MUST ALWAYS BE IN ENGLISH, regardless of the language of spoken_text or on_screen_text.
+
+Return ONLY a JSON object with this exact structure:
+{{
+  "scenes": [
+    {{
+      "n": 1,
+      "stock_query": "concrete english search words",
+      "visual_prompt": "english visual prompt description..."
+    }}
+  ]
+}}
+"""
+
+        model = GenerativeModel(settings.vertex_ai_model)
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                prompt,
+                generation_config={
+                    "temperature": 0.4,
+                    "response_mime_type": "application/json",
+                },
+            ),
+            timeout=20.0,
+        )
+
+        raw_text = (getattr(response, "text", "") or "").strip()
+        parsed = json.loads(raw_text)
+        if isinstance(parsed, dict) and "scenes" in parsed and isinstance(parsed["scenes"], list):
+            for item in parsed["scenes"]:
+                if isinstance(item, dict) and "n" in item:
+                    try:
+                        n_int = int(item["n"])
+                    except (ValueError, TypeError):
+                        continue
+                    llm_results_by_n[n_int] = {
+                        "stock_query": item.get("stock_query"),
+                        "visual_prompt": item.get("visual_prompt"),
+                    }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"[_fill_missing_asset_prompts] LLM call failed or timed out: {e}")
+
+    changed = False
+
+    for scene in scenes_needing_fill:
+        sq_clean = _clean_optional_text(getattr(scene, "stock_query", None))
+        vp_clean = _clean_optional_text(getattr(scene, "visual_prompt", None))
+
+        llm_item = llm_results_by_n.get(scene.n, {})
+
+        if sq_clean is None:
+            new_sq = None
+            if llm_item.get("stock_query"):
+                new_sq = _sanitize_stock_query(llm_item["stock_query"])
+            if not new_sq:
+                new_sq = _fallback_stock_query(scene)
+            scene.stock_query = new_sq
+            changed = True
+
+        if vp_clean is None:
+            new_vp = None
+            if llm_item.get("visual_prompt"):
+                new_vp = _clean_visual_prompt_text(llm_item["visual_prompt"])
+            if not new_vp:
+                new_vp = _fallback_visual_prompt(scene)
+            scene.visual_prompt = new_vp
+            changed = True
+
+    return changed
+
+
 def _normalize_asset_type(value: Any) -> Any:
     """Normalize obvious, documented model slips in asset_type before validation."""
     if isinstance(value, str):
@@ -1722,6 +1917,7 @@ async def generate_script(
             print(f"[WARN] Script automatic retry failed: {e}. Retaining original draft.")
 
     # 9. Save and return
+    await _fill_missing_asset_prompts(script)
     _save_script(script)
     return script
 
@@ -1954,6 +2150,7 @@ Return ONLY valid JSON.
             script.audit = audit_script(script)
 
             # Save and return
+            await _fill_missing_asset_prompts(script, only_n={scene_n})
             _save_script(script)
             return script
     finally:

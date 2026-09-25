@@ -4842,6 +4842,21 @@ ${htmlContent}
         loadAudiovisualJobs(ideaId).then(async (jobs) => {
           renderAudiovisualView();
           await ensureSoundtrackLoaded(ideaId, jobs);
+          try {
+            const prepRes = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/prepare`, {
+              method: 'POST',
+            });
+            if (prepRes.ok) {
+              const prepData = await prepRes.json();
+              if (prepData.changed && Array.isArray(prepData.scenes) && currentScriptData && Array.isArray(currentScriptData.scenes)) {
+                const sceneMap = new Map(prepData.scenes.map(s => [s.n, s]));
+                currentScriptData.scenes = currentScriptData.scenes.map(s => sceneMap.get(s.n) || s);
+                renderAudiovisualView();
+              }
+            }
+          } catch (prepErr) {
+            console.warn('[Audiovisual] Prepare asset prompts failed:', prepErr);
+          }
           const currentJobs = currentAudiovisualJobs || jobs || [];
           const hasActiveJobs = (currentJobs).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic' || j.kind === 'music' || j.kind === 'sfx') && (j.status === 'pending' || j.status === 'running'));
           if (hasActiveJobs) {
