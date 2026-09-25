@@ -152,6 +152,16 @@ async def process_one_job() -> bool:
             mark_failed(job_id_or_job=job["id"], error="AI generation paused (platform spend limit)")
             return True
 
+    if kind in ("ai_image", "ai_video"):
+        from app.scripting.scripts import _clean_optional_text
+        job_input = job.get("input") or {}
+        if "visual_prompt" in job_input and _clean_optional_text(job_input.get("visual_prompt")) is None:
+            logger.warning(
+                f"[worker] Job {job['id']} ({kind}) failed: Missing visual prompt."
+            )
+            mark_failed(job_id_or_job=job["id"], error="Missing visual prompt")
+            return True
+
     try:
         output = await resolver(job)
     except Exception as e:

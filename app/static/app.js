@@ -3136,6 +3136,37 @@ ${htmlContent}
   let currentAudiovisualJobs = [];
   let currentAudiovisualEstimate = null;
   let audiovisualPollInterval = null;
+  let isSoundtrackFetchInFlight = false;
+  let soundtrackFetchFailed = false;
+
+  async function ensureSoundtrackLoaded(ideaId, jobs) {
+    if (!ideaId || !currentScriptData || currentScriptData.state !== 'locked') return;
+    const currentList = jobs || currentAudiovisualJobs || [];
+    const hasMusic = currentList.some(j => j.kind === 'music' && j.status !== 'cancelled' && j.status !== 'failed');
+    if (!hasMusic && !isSoundtrackFetchInFlight) {
+      isSoundtrackFetchInFlight = true;
+      soundtrackFetchFailed = false;
+      renderAudiovisualView();
+      try {
+        const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/soundtrack`, {
+          method: 'POST',
+        });
+        if (res.ok) {
+          soundtrackFetchFailed = false;
+          await loadAudiovisualJobs(ideaId);
+          pollAudiovisualJobs(ideaId);
+        } else {
+          soundtrackFetchFailed = true;
+        }
+      } catch (err) {
+        console.warn('[Audiovisual] Soundtrack endpoint failed:', err);
+        soundtrackFetchFailed = true;
+      } finally {
+        isSoundtrackFetchInFlight = false;
+        renderAudiovisualView();
+      }
+    }
+  }
 
   async function fetchAudiovisualEstimate(ideaId) {
     if (!ideaId) return null;
@@ -3314,7 +3345,7 @@ ${htmlContent}
       const jobs = await loadAudiovisualJobs(ideaId);
       renderAudiovisualView();
 
-      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic') && (j.status === 'pending' || j.status === 'running'));
+      const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic' || j.kind === 'music' || j.kind === 'sfx') && (j.status === 'pending' || j.status === 'running'));
       if (!hasActiveJobs) {
         clearInterval(audiovisualPollInterval);
         audiovisualPollInterval = null;
@@ -4152,7 +4183,27 @@ ${htmlContent}
 
     const musicJob = (currentAudiovisualJobs || []).find(j => j.kind === 'music' && j.status !== 'cancelled');
     let soundtrackHtml = '';
-    if (!musicJob || musicJob.status === 'pending' || musicJob.status === 'running') {
+    if (isSoundtrackFetchInFlight || (musicJob && (musicJob.status === 'pending' || musicJob.status === 'running'))) {
+      soundtrackHtml = `
+        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;">
+          <span style="font-weight:600;color:var(--ink);">♪ Soundtrack:</span> <span style="color:var(--ink-soft);font-style:italic;">choosing…</span>
+        </div>
+      `;
+    } else if (!musicJob && soundtrackFetchFailed) {
+      soundtrackHtml = `
+        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;justify-content:space-between;">
+          <div><span style="font-weight:600;color:var(--ink);">♪ Soundtrack:</span> <span style="color:var(--ink-soft);">not chosen yet</span></div>
+          <button id="AV-SoundtrackRetryBtn" style="padding:3px 8px;font-size:11px;background:var(--surface-alt);border:1px solid var(--line);border-radius:4px;cursor:pointer;">Retry</button>
+        </div>
+      `;
+    } else if (musicJob && musicJob.status === 'failed') {
+      soundtrackHtml = `
+        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;justify-content:space-between;">
+          <div><span style="font-weight:600;color:var(--ink);">♪ Soundtrack:</span> <span style="color:var(--ink-soft);">couldn't choose one</span></div>
+          <button id="AV-SoundtrackRetryBtn" style="padding:3px 8px;font-size:11px;background:var(--surface-alt);border:1px solid var(--line);border-radius:4px;cursor:pointer;">Retry</button>
+        </div>
+      `;
+    } else if (!musicJob) {
       soundtrackHtml = `
         <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;">
           <span style="font-weight:600;color:var(--ink);">♪ Soundtrack:</span> <span style="color:var(--ink-soft);font-style:italic;">choosing…</span>
@@ -4187,12 +4238,6 @@ ${htmlContent}
           </div>
         `;
       }
-    } else if (musicJob.status === 'failed') {
-      soundtrackHtml = `
-        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:var(--ink-soft);">
-          <span style="font-weight:600;color:var(--ink);">♪ No background music</span> — Selection failed
-        </div>
-      `;
     }
 
     let mainActionBtnHtml = '';
@@ -4495,6 +4540,15 @@ ${htmlContent}
         openRecordingStudio(scN);
       });
     });
+
+    const soundtrackRetryBtn = container.querySelector('#AV-SoundtrackRetryBtn');
+    if (soundtrackRetryBtn) {
+      soundtrackRetryBtn.addEventListener('click', () => {
+        if (currentScriptData && currentScriptData.idea_id) {
+          ensureSoundtrackLoaded(currentScriptData.idea_id, currentAudiovisualJobs);
+        }
+      });
+    }
   }
 
   async function triggerRegenerateScene(sceneN, btnEl) {
@@ -4744,9 +4798,11 @@ ${htmlContent}
         fetchAudiovisualEstimate(ideaId).then(() => {
           renderAudiovisualView();
         });
-        loadAudiovisualJobs(ideaId).then((jobs) => {
+        loadAudiovisualJobs(ideaId).then(async (jobs) => {
           renderAudiovisualView();
-          const hasActiveJobs = (jobs || []).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic') && (j.status === 'pending' || j.status === 'running'));
+          await ensureSoundtrackLoaded(ideaId, jobs);
+          const currentJobs = currentAudiovisualJobs || jobs || [];
+          const hasActiveJobs = (currentJobs).some(j => (j.kind === 'transcript' || j.kind === 'a_roll_take' || j.kind === 'stock' || j.kind === 'ai_image' || j.kind === 'ai_video' || j.kind === 'motion_graphic' || j.kind === 'music' || j.kind === 'sfx') && (j.status === 'pending' || j.status === 'running'));
           if (hasActiveJobs) {
             pollAudiovisualJobs(ideaId);
           }

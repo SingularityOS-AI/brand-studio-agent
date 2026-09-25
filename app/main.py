@@ -1061,6 +1061,119 @@ async def estimate_audiovisual_endpoint(request: Request, idea_id: str):
     return JSONResponse(content=est)
 
 
+def _ensure_soundtrack_jobs(script: Any, session_token: str, idea_id: str) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Ensure background music job and SFX jobs exist for a locked script (Pieza 60).
+    Idempotent by session:idea:version_tag. Re-enqueues failed music/sfx jobs.
+    Returns (soundtrack_jobs, music_created).
+    """
+    from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+    from app.audiovisual.sfx import pick_sfx
+
+    script_version = getattr(script, "timestamp", None)
+    version_tag = script_version.isoformat() if script_version else (getattr(script, "id", None) or "v1")
+
+    existing_jobs = list_jobs(session_token, idea_id)
+    music_idempotency_key = f"{session_token}:{idea_id}:{version_tag}:music"
+
+    existing_music = next((j for j in existing_jobs if j.get("idempotency_key") == music_idempotency_key), None)
+    if existing_music and existing_music.get("status") == "failed":
+        mark_cancelled(existing_music["id"], error="Re-enqueued soundtrack")
+
+    est_duration = float(script.target_seconds or (script.scenes[-1].end_s if script.scenes else 45.0))
+    music_job, music_created = create_job(
+        session_token=session_token,
+        idea_id=idea_id,
+        scene_n=None,
+        kind="music",
+        credits=0,
+        cost_usd=0.0,
+        input={
+            "music_prompt": script.music_prompt,
+            "angle": script.angle,
+            "phases": [sc.phase for sc in script.scenes],
+            "recording_format": script.recording_format,
+            "target_seconds": script.target_seconds,
+            "duration_s": est_duration,
+        },
+        idempotency_key=music_idempotency_key,
+        return_created=True,
+    )
+
+    soundtrack_jobs = [music_job]
+
+    for sc in script.scenes:
+        chosen_sfx = pick_sfx(sc)
+        if chosen_sfx:
+            sfx_key = f"{session_token}:{idea_id}:{version_tag}:{sc.n}:sfx"
+            existing_sfx = next((j for j in existing_jobs if j.get("idempotency_key") == sfx_key), None)
+            if existing_sfx and existing_sfx.get("status") == "failed":
+                mark_cancelled(existing_sfx["id"], error="Re-enqueued sfx")
+
+            sfx_job = create_job(
+                session_token=session_token,
+                idea_id=idea_id,
+                scene_n=sc.n,
+                kind="sfx",
+                credits=0,
+                cost_usd=0.0,
+                input={
+                    "scene_n": sc.n,
+                    "phase": sc.phase,
+                    "sound": sc.sound,
+                    "sfx_file": chosen_sfx.get("file"),
+                    "tag": chosen_sfx.get("tag"),
+                    "storage_path": chosen_sfx.get("storage_path"),
+                },
+                idempotency_key=sfx_key,
+            )
+            soundtrack_jobs.append(sfx_job)
+
+    return soundtrack_jobs, music_created
+
+
+@app.post("/api/audiovisual/{idea_id}/soundtrack", response_class=JSONResponse)
+async def create_soundtrack_jobs_endpoint(request: Request, idea_id: str):
+    """
+    Ensures background music and SFX jobs exist for a locked script (Pieza 60).
+    Idempotent and free (0 credits).
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+        )
+
+    user_id = supabase_auth.get_user_id(authorization)
+    session_token = guard.get_or_create_user_session(user_id)
+    session = guard.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    from app.scripting.scripts import _check_script, ScriptStorageError
+
+    try:
+        script = _check_script(session_token, idea_id)
+    except ScriptStorageError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+    if not script:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Script not found for idea {idea_id}"},
+        )
+
+    if script.state != "locked":
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Script must be locked before creating soundtrack jobs"},
+        )
+
+    jobs, _ = _ensure_soundtrack_jobs(script, session_token, idea_id)
+    return JSONResponse(content={"jobs": jobs})
+
+
 @app.post("/api/audiovisual/{idea_id}/generate", response_class=JSONResponse)
 async def generate_audiovisual_endpoint(request: Request, idea_id: str):
     """
@@ -1069,7 +1182,7 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
     - 409 if not locked
     - 422 if over_ceiling or over_ai_video_limit
     - Charges base (15 credits) once per launch (idempotent by idea_id + script version)
-    - Creates asset jobs: one per non-a_roll scene + one music job
+    - Creates asset jobs: one per non-a_roll scene + soundtrack jobs
     - Returns {jobs: [...], credits_remaining}
     """
     authorization = request.headers.get("authorization")
@@ -1138,64 +1251,70 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
             },
         )
 
-    # Base charge: non-zero credits once per launch (idempotent by idea_id + script version)
     script_version = getattr(script, "timestamp", None)
     version_tag = script_version.isoformat() if script_version else (getattr(script, "id", None) or "v1")
+    music_idempotency_key = f"{session_token}:{idea_id}:{version_tag}:music"
+
+    existing_jobs = list_jobs(session_token, idea_id)
 
     base_cost = CREDITS_TABLE.get("base", 0)
+    needed = 0
+
+    for sc in script.scenes:
+        if sc.asset_type != "a_roll":
+            has_live_job = any(
+                j.get("scene_n") == sc.n
+                and j.get("kind") == sc.asset_type
+                and j.get("status") in ("pending", "running", "done")
+                for j in existing_jobs
+            )
+            if not has_live_job:
+                needed += CREDITS_TABLE.get(sc.asset_type, 0)
+
+    music_job_exists = any(
+        j.get("kind") == "music"
+        and j.get("idempotency_key") == music_idempotency_key
+        and j.get("status") != "cancelled"
+        for j in existing_jobs
+    )
+    if not music_job_exists:
+        needed += base_cost
+
     remaining_balance = guard.get_remaining_credits(session_token)
     if remaining_balance is None:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    credits_total = est.get("credits_total", base_cost)
-    music_idempotency_key = f"{session_token}:{idea_id}:{version_tag}:music"
+    if needed > 0 and remaining_balance < needed:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "Session budget exhausted",
+                "credits_needed": needed,
+                "credits_remaining": remaining_balance,
+                "payment_url": settings.payment_url,
+            },
+        )
 
-    # Check if jobs were already launched for this version
-    existing_jobs = list_jobs(session_token, idea_id)
-    already_launched = any(
-        j.get("idempotency_key") == music_idempotency_key and j.get("status") != "cancelled"
-        for j in existing_jobs
-    )
+    from app.scripting.scripts import _get_script_lock, _save_script, _clean_optional_text
 
-    # 1. El saldo se valida contra est["credits_total"] antes de crear jobs ni cobrar
-    if not already_launched:
-        if remaining_balance < credits_total:
+    async with _get_script_lock(session_token, idea_id):
+        script = _check_script(session_token, idea_id)
+        if not script:
             return JSONResponse(
-                status_code=402,
-                content={
-                    "error": "Session budget exhausted",
-                    "credits_needed": credits_total,
-                    "credits_remaining": remaining_balance,
-                    "payment_url": settings.payment_url,
-                },
+                status_code=404,
+                content={"error": f"Script not found for idea {idea_id}"},
             )
+        script_changed = False
+        for sc in script.scenes:
+            if await _ensure_scene_prompt(script, sc):
+                script_changed = True
+        if script_changed:
+            _save_script(script)
 
-    from app.audiovisual.sfx import pick_sfx
+    soundtrack_jobs, music_created = _ensure_soundtrack_jobs(script, session_token, idea_id)
+    music_job = next((j for j in soundtrack_jobs if j.get("kind") == "music"), None)
 
-    # 4. Candado de idempotencia con job-ancla (music)
-    # Orden: 1) crear primero un job-ancla del lanzamiento (music)
-    est_duration = float(script.target_seconds or (script.scenes[-1].end_s if script.scenes else 45.0))
-    music_job, music_created = create_job(
-        session_token=session_token,
-        idea_id=idea_id,
-        scene_n=None,
-        kind="music",
-        credits=0,
-        cost_usd=0.0,
-        input={
-            "music_prompt": script.music_prompt,
-            "angle": script.angle,
-            "phases": [sc.phase for sc in script.scenes],
-            "recording_format": script.recording_format,
-            "target_seconds": script.target_seconds,
-            "duration_s": est_duration,
-        },
-        idempotency_key=music_idempotency_key,
-        return_created=True,
-    )
-
-    # 2) Si lo creó esta request y base_cost > 0, cobrar la base; si falla el cobro, marcar cancelled y devolver 402
-    if music_created and base_cost > 0:
+    if music_created and base_cost > 0 and music_job:
         try:
             remaining_balance = guard.deduct_credits(session_token, amount=base_cost)
         except Exception as e:
@@ -1211,57 +1330,44 @@ async def generate_audiovisual_endpoint(request: Request, idea_id: str):
                 },
             )
 
-    # 3) Crear los jobs por escena (idempotentes)
-    created_jobs = []
+    scene_jobs = []
     for sc in script.scenes:
         if sc.asset_type != "a_roll":
-            scene_key = f"{session_token}:{idea_id}:{version_tag}:{sc.n}:{sc.asset_type}"
-            job = create_job(
-                session_token=session_token,
-                idea_id=idea_id,
-                scene_n=sc.n,
-                kind=sc.asset_type,
-                credits=CREDITS_TABLE.get(sc.asset_type, 0),
-                cost_usd=COST_USD_TABLE.get(sc.asset_type, 0.0),
-                input={
-                    "stock_query": sc.stock_query,
-                    "visual_prompt": sc.visual_prompt,
-                    "on_screen_text": sc.on_screen_text,
-                    "spoken_text": sc.spoken_text,
-                    "phase": sc.phase,
-                    "duration_s": sc.duration_s,
-                },
-                idempotency_key=scene_key,
+            live_job = next(
+                (
+                    j for j in existing_jobs
+                    if j.get("scene_n") == sc.n
+                    and j.get("kind") == sc.asset_type
+                    and j.get("status") in ("pending", "running", "done")
+                ),
+                None,
             )
-            created_jobs.append(job)
+            if live_job:
+                scene_jobs.append(live_job)
+            else:
+                scene_key = f"{session_token}:{idea_id}:{version_tag}:{sc.n}:{sc.asset_type}"
+                job = create_job(
+                    session_token=session_token,
+                    idea_id=idea_id,
+                    scene_n=sc.n,
+                    kind=sc.asset_type,
+                    credits=CREDITS_TABLE.get(sc.asset_type, 0),
+                    cost_usd=COST_USD_TABLE.get(sc.asset_type, 0.0),
+                    input={
+                        "stock_query": _clean_optional_text(sc.stock_query),
+                        "visual_prompt": _clean_optional_text(sc.visual_prompt),
+                        "on_screen_text": sc.on_screen_text,
+                        "spoken_text": sc.spoken_text,
+                        "phase": sc.phase,
+                        "duration_s": sc.duration_s,
+                    },
+                    idempotency_key=scene_key,
+                )
+                scene_jobs.append(job)
 
-        # Check for SFX on this scene (Pieza 52)
-        chosen_sfx = pick_sfx(sc)
-        if chosen_sfx:
-            sfx_key = f"{session_token}:{idea_id}:{version_tag}:{sc.n}:sfx"
-            sfx_job = create_job(
-                session_token=session_token,
-                idea_id=idea_id,
-                scene_n=sc.n,
-                kind="sfx",
-                credits=0,
-                cost_usd=0.0,
-                input={
-                    "scene_n": sc.n,
-                    "phase": sc.phase,
-                    "sound": sc.sound,
-                    "sfx_file": chosen_sfx.get("file"),
-                    "tag": chosen_sfx.get("tag"),
-                    "storage_path": chosen_sfx.get("storage_path"),
-                },
-                idempotency_key=sfx_key,
-            )
-            created_jobs.append(sfx_job)
-
-    created_jobs.append(music_job)
-
+    all_jobs_dict = {j["id"]: j for j in (soundtrack_jobs + scene_jobs)}
     return JSONResponse(content={
-        "jobs": created_jobs,
+        "jobs": list(all_jobs_dict.values()),
         "credits_remaining": remaining_balance,
     })
 
@@ -1426,9 +1532,18 @@ async def regenerate_audiovisual_scene_endpoint(request: Request, idea_id: str, 
         if j.get("status") in ("done", "failed"):
             mark_cancelled(j["id"], error="Regenerated by user")
 
+    from app.scripting.scripts import _get_script_lock, _save_script, _clean_optional_text
+
+    async with _get_script_lock(session_token, idea_id):
+        script = _check_script(session_token, idea_id)
+        if script:
+            target_scene = next((sc for sc in (script.scenes or []) if getattr(sc, "n", None) == scene_n), target_scene)
+            if target_scene and await _ensure_scene_prompt(script, target_scene):
+                _save_script(script)
+
     input_data = {
-        "stock_query": getattr(target_scene, "stock_query", None),
-        "visual_prompt": getattr(target_scene, "visual_prompt", None),
+        "stock_query": _clean_optional_text(getattr(target_scene, "stock_query", None)),
+        "visual_prompt": _clean_optional_text(getattr(target_scene, "visual_prompt", None)),
         "on_screen_text": getattr(target_scene, "on_screen_text", None),
         "spoken_text": getattr(target_scene, "spoken_text", None),
         "phase": getattr(target_scene, "phase", None),
@@ -1527,6 +1642,32 @@ async def _generate_asset_prompt(target_type: str, scene: Any, script_angle: str
             words = ["business", "office"]
         return " ".join(words)
     return ""
+
+
+async def _ensure_scene_prompt(script: Any, scene: Any) -> bool:
+    """
+    Ensure visual_prompt or stock_query are generated and clean if missing or 'null' (Pieza 60).
+    Returns True if scene was modified.
+    """
+    from app.scripting.scripts import _clean_optional_text
+
+    asset_type = getattr(scene, "asset_type", "a_roll")
+    changed = False
+
+    if asset_type in ("ai_image", "ai_video"):
+        cleaned_prompt = _clean_optional_text(getattr(scene, "visual_prompt", None))
+        if cleaned_prompt is None:
+            generated_prompt = await _generate_asset_prompt(asset_type, scene, script.angle)
+            scene.visual_prompt = _clean_optional_text(generated_prompt) or generated_prompt
+            changed = True
+    elif asset_type == "stock":
+        cleaned_query = _clean_optional_text(getattr(scene, "stock_query", None))
+        if cleaned_query is None:
+            generated_query = await _generate_asset_prompt("stock", scene, script.angle)
+            scene.stock_query = _clean_optional_text(generated_query) or generated_query
+            changed = True
+
+    return changed
 
 
 @app.patch("/api/audiovisual/{idea_id}/scenes/{scene_n}/asset_type", response_class=JSONResponse)
@@ -1641,14 +1782,8 @@ async def patch_scene_asset_type_endpoint(
 
         target_scene.asset_type = new_asset_type
 
-        # Generate prompt/query if missing
-        if new_asset_type in ("ai_image", "ai_video") and not (getattr(target_scene, "visual_prompt", None) or "").strip():
-            generated_prompt = await _generate_asset_prompt(new_asset_type, target_scene, script.angle)
-            target_scene.visual_prompt = generated_prompt
-
-        if new_asset_type == "stock" and not (getattr(target_scene, "stock_query", None) or "").strip():
-            generated_query = await _generate_asset_prompt("stock", target_scene, script.angle)
-            target_scene.stock_query = generated_query
+        # Generate prompt/query if missing or invalid ("null", etc.)
+        await _ensure_scene_prompt(script, target_scene)
 
         _save_script(script)
 
