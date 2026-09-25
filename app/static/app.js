@@ -5619,9 +5619,9 @@ ${htmlContent}
   function getStateHint(state) {
     switch (state) {
       case 'draft':
-        return 'Confirm funnel stage and recording format to proceed to Reviewed';
+        return 'Choose funnel stage and recording format, then lock to start recording.';
       case 'reviewed':
-        return 'Ready to lock when all critical rules pass';
+        return 'Lock to start recording.';
       case 'locked':
         return 'Script is locked for recording';
       default:
@@ -5659,6 +5659,23 @@ ${htmlContent}
     if (state !== 'locked') {
       const proposedFunnel = currentScriptData.funnel_stage || 'tofu';
       const proposedFormat = currentScriptData.recording_format || 'selfie_natural';
+      const criticalFailures = (currentScriptData.audit || []).filter(a => a.status === 'fail' && a.critical === true);
+      const hasCriticalFailures = criticalFailures.length > 0;
+
+      let criticalHtml = '';
+      if (hasCriticalFailures) {
+        const failureItems = criticalFailures.map(f =>
+          `<div style="margin-bottom:4px"><strong>${escapeHtml(f.rule || '')}</strong> — ${escapeHtml(f.detail || 'Check failed')}</div>`
+        ).join('');
+
+        criticalHtml = `
+          <div id="Review-CriticalBox" style="margin-bottom:12px;padding:12px;border:1px solid #FCA5A5;border-radius:6px;background:#FEE2E2;color:#991B1B;font-size:12px;line-height:1.4">
+            <div style="font-weight:600;margin-bottom:6px">Fix these before locking:</div>
+            ${failureItems}
+            <div style="margin-top:6px;color:#7F1D1D;font-size:11px">Iterate (⟳) or edit a scene to fix it. The audit re-runs on every change.</div>
+          </div>
+        `;
+      }
 
       metaHtml += `
         <div id="Script-ReviewPanel" style="margin-bottom:16px;padding:16px;border:1px solid #2B4CD8;border-radius:8px;background:#F0F7FF">
@@ -5685,8 +5702,12 @@ ${htmlContent}
             <div id="Review-FormatNote" style="display:none;margin-top:8px;padding:8px 10px;font-size:12px;line-height:1.5;color:#8A5A00;background:#FFF6E0;border:1px solid #F0D583;border-radius:4px"></div>
           </div>
 
-          <button id="Review-ConfirmBtn" class="btn btn--go" style="width:100%;padding:10px;font-size:13px">Confirm & Move to Reviewed</button>
-          <div style="margin-top:8px;font-size:11px;color:#5C6675;text-align:center">Free — no credits charged</div>
+          ${criticalHtml}
+
+          <div id="Review-ErrorMsg" style="display:none;margin-bottom:12px;padding:10px 14px;border:1px solid #FCA5A5;border-radius:6px;background:#FEE2E2;color:#991B1B;font-size:12px;line-height:1.4"></div>
+
+          <button id="Review-ConfirmBtn" class="btn btn--go" style="width:100%;padding:10px;font-size:13px" ${hasCriticalFailures ? 'disabled' : ''}>Confirm & Lock script</button>
+          <div style="margin-top:8px;font-size:11px;color:#5C6675;text-align:center">Free — no credits charged · you can't edit the script after locking</div>
         </div>
       `;
     }
@@ -5782,67 +5803,107 @@ ${htmlContent}
     initGlobalProgress();
   }
 
-  // PIEZA 42: Handle script confirmation (PATCH /api/script/{idea_id})
+  // Helper for locking script (used by handleScriptConfirm and handleScriptLock)
+  async function performLockScript(ideaId) {
+    const response = await authenticatedFetch(`/api/script/${ideaId}/lock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || data.detail || response.statusText || 'Failed to lock script');
+    }
+
+    const data = await response.json();
+    return data.script || data;
+  }
+
+  // PIEZA 62: Handle script confirmation & locking in one step
   async function handleScriptConfirm() {
     const funnelSelect = document.getElementById('Review-FunnelStage');
     const formatSelect = document.getElementById('Review-RecordingFormat');
-
-    if (!funnelSelect || !formatSelect) return;
-
-    // In-flight guard: ignore re-entry while a confirm POST is already out.
     const confirmBtn = document.getElementById('Review-ConfirmBtn');
+    const errorEl = document.getElementById('Review-ErrorMsg');
+
+    if (!currentScriptData || !currentScriptData.idea_id) return;
+
+    // In-flight guard: ignore re-entry while action is in progress.
     if (confirmBtn && confirmBtn.disabled) return;
 
-    const funnelStage = funnelSelect.value;
-    const recordingFormat = formatSelect.value;
+    if (errorEl) {
+      errorEl.style.display = 'none';
+      errorEl.textContent = '';
+    }
 
     if (confirmBtn) {
       confirmBtn.disabled = true;
-      confirmBtn.textContent = 'Confirming...';
+      confirmBtn.textContent = 'Locking…';
     }
 
+    const state = currentScriptData.state || 'draft';
+    const ideaId = currentScriptData.idea_id;
+
     try {
-      const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ funnel_stage: funnelStage, recording_format: recordingFormat }),
-      });
+      if (state === 'draft') {
+        if (!funnelSelect || !formatSelect) return;
+        const funnelStage = funnelSelect.value;
+        const recordingFormat = formatSelect.value;
 
-      if (!response.ok) {
+        const response = await authenticatedFetch(`/api/script/${ideaId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ funnel_stage: funnelStage, recording_format: recordingFormat }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || data.detail || response.statusText || 'Failed to confirm script');
+        }
+
         const data = await response.json();
-        throw new Error(data.error || data.detail || response.statusText || 'Failed to confirm script');
+        currentScriptData = data.script || data;
+        if (data.credits_remaining !== undefined) {
+          credits = data.credits_remaining;
+          updateCreditsUI(data.credits_remaining, initialSessionCredits);
+        }
+        if (currentCatalog && currentCatalog.ideas && currentScriptData?.idea_id) {
+          const matchedIdea = currentCatalog.ideas.find(i => i.id === currentScriptData.idea_id);
+          if (matchedIdea) {
+            matchedIdea.script_state = 'reviewed';
+            updateIdeaCardScriptButton(currentScriptData.idea_id, 'reviewed');
+          }
+        }
       }
 
-      const data = await response.json();
-      // PIEZA 42: Update from backend response (source of truth)
-      currentScriptData = data.script || data;
-      if (data.credits_remaining !== undefined) {
-        credits = data.credits_remaining;
-        updateCreditsUI(data.credits_remaining, initialSessionCredits);
-      }
-      // PIEZA 45: Update currentCatalog and card button without reloading
+      // Step 2: Lock script
+      const lockedData = await performLockScript(ideaId);
+      currentScriptData = lockedData;
+
       if (currentCatalog && currentCatalog.ideas && currentScriptData?.idea_id) {
         const matchedIdea = currentCatalog.ideas.find(i => i.id === currentScriptData.idea_id);
         if (matchedIdea) {
-          matchedIdea.script_state = 'reviewed';
-          updateIdeaCardScriptButton(currentScriptData.idea_id, 'reviewed');
+          matchedIdea.script_state = 'locked';
+          updateIdeaCardScriptButton(currentScriptData.idea_id, 'locked');
         }
       }
-      // renderScript() rebuilds the review panel (and its Confirm button)
-      // from scratch, so no manual re-enable is needed on this path.
+
       renderScript();
 
     } catch (error) {
       if (error.message === 'PAYWALL_402') {
-        // Paywall overlay already shown by authenticatedFetch.
-        console.log('[Script] Confirm blocked by paywall');
+        console.log('[Script] Confirm/Lock blocked by paywall');
       } else {
-        console.error('Script confirm error:', error);
-        alert(`Failed to confirm script: ${error.message}`);
+        console.error('Script confirm/lock error:', error);
+        if (errorEl) {
+          errorEl.textContent = error.message;
+          errorEl.style.display = 'block';
+        }
       }
       if (confirmBtn) {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = 'Confirm & Move to Reviewed';
+        const criticalFailures = (currentScriptData.audit || []).filter(a => a.status === 'fail' && a.critical === true);
+        confirmBtn.disabled = criticalFailures.length > 0;
+        confirmBtn.textContent = 'Confirm & Lock script';
       }
     }
   }
@@ -6071,6 +6132,8 @@ ${htmlContent}
     scriptAudit.appendChild(auditList);
   }
 
+  // PIEZA 62: Update top lock button (disabled in draft/reviewed, directs to Confirm & Lock script below)
+  // Legacy Step 1 of 2 and Step 2 of 2 superseded by PIEZA 62 single-step flow.
   function updateScriptLockButton() {
     let hintEl = document.getElementById('Script-LockHint');
     if (!hintEl && scriptLockBtn && scriptLockBtn.parentNode) {
@@ -6088,7 +6151,6 @@ ${htmlContent}
 
     const state = currentScriptData.state || 'draft';
     const isLocked = state === 'locked';
-    const isReviewed = state === 'reviewed';
 
     // PIEZA 42B: Lock is final - when locked, button shows "Locked" and is disabled
     if (isLocked) {
@@ -6100,20 +6162,12 @@ ${htmlContent}
       return;
     }
 
+    // PIEZA 62: Top lock button is disabled in draft/reviewed (use "Confirm & Lock script" in panel below)
     scriptLockBtn.textContent = 'Lock Script';
     scriptLockBtn.dataset.locked = 'false';
+    scriptLockBtn.disabled = true;
 
-    // PIEZA 42: Can only lock from "reviewed" state
-    if (!isReviewed) {
-      scriptLockBtn.disabled = true;
-      scriptLockBtn.title = 'Confirm funnel stage and recording format before locking';
-      if (hintEl) hintEl.textContent = 'Step 1 of 2: confirm funnel stage and format below';
-      return;
-    }
-
-    // PIEZA 42B: Check critical rules from backend (uses 'critical' field, not hardcoded list)
     let failedCriticalRule = null;
-
     if (currentScriptData.audit) {
       const failedCritical = currentScriptData.audit.find((a) => a.status === 'fail' && a.critical === true);
       if (failedCritical) {
@@ -6122,13 +6176,11 @@ ${htmlContent}
     }
 
     if (failedCriticalRule) {
-      scriptLockBtn.disabled = true;
-      scriptLockBtn.title = `Cannot lock: ${failedCriticalRule} must pass`;
-      if (hintEl) hintEl.textContent = `Fix the critical rule (${failedCriticalRule}) to lock`;
+      scriptLockBtn.title = `Fix ${failedCriticalRule} first`;
+      if (hintEl) hintEl.textContent = `Fix ${failedCriticalRule} first`;
     } else {
-      scriptLockBtn.disabled = false;
-      scriptLockBtn.title = '';
-      if (hintEl) hintEl.textContent = 'Step 2 of 2: lock to start recording';
+      scriptLockBtn.title = 'Use "Confirm & Lock script" below';
+      if (hintEl) hintEl.textContent = 'Use "Confirm & Lock script" below';
     }
   }
 
@@ -6380,35 +6432,20 @@ ${htmlContent}
     }
   }
 
-  // PIEZA 42B: Handle script locking (lock is final, no unlock)
+  // PIEZA 42B / PIEZA 62: Handle script locking (lock is final, uses performLockScript helper)
   async function handleScriptLock() {
-    // PIEZA 42B: Lock is final - if already locked, this shouldn't be callable
-    // (button is disabled), but guard just in case
     if (currentScriptData?.state === 'locked') {
       showLockMessage('Script is already locked.', true);
       return;
     }
 
-    // In-flight guard: ignore re-entry while a lock POST is already out.
     if (scriptLockInFlight) return;
     scriptLockInFlight = true;
-    scriptLockBtn.disabled = true;
+    if (scriptLockBtn) scriptLockBtn.disabled = true;
 
     try {
-      const response = await authenticatedFetch(`/api/script/${currentScriptData.idea_id}/lock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || data.detail || response.statusText || 'Failed to lock script');
-      }
-
-      const data = await response.json();
-      // Backend returns {"script": {...}, "status": "locked"}
-      currentScriptData = data.script || data;
-      // PIEZA 45: Update currentCatalog and card button without reloading
+      const lockData = await performLockScript(currentScriptData.idea_id);
+      currentScriptData = lockData;
       if (currentCatalog && currentCatalog.ideas && currentScriptData?.idea_id) {
         const matchedIdea = currentCatalog.ideas.find(i => i.id === currentScriptData.idea_id);
         if (matchedIdea) {
@@ -6420,7 +6457,6 @@ ${htmlContent}
       showLockMessage('Script locked successfully.', false);
     } catch (error) {
       if (error.message === 'PAYWALL_402') {
-        // Paywall overlay already shown by authenticatedFetch.
         console.log('[Script] Lock blocked by paywall');
       } else {
         console.error('Lock script error:', error);
@@ -6428,9 +6464,6 @@ ${htmlContent}
       }
     } finally {
       scriptLockInFlight = false;
-      // Restores the correct disabled/enabled state and label for the
-      // current script state (renderScript() already does this on success;
-      // harmless to call again, and it's the only path that fixes it on error).
       updateScriptLockButton();
     }
   }
