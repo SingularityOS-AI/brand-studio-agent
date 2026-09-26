@@ -38,9 +38,12 @@ def get_cached_engine_version() -> str:
     """
     value = _engine_version_cache.get("value")
     checked_at = _engine_version_cache.get("checked_at")
-    if value is not None and checked_at is not None:
-        if (time.monotonic() - checked_at) < _ENGINE_VERSION_TTL_S:
-            return value
+    if (
+        value is not None
+        and checked_at is not None
+        and (time.monotonic() - checked_at) < _ENGINE_VERSION_TTL_S
+    ):
+        return value
     return "unknown"
 
 
@@ -68,7 +71,11 @@ async def get_engine_version() -> str:
                 _engine_version_cache["value"] = version
                 _engine_version_cache["checked_at"] = time.monotonic()
                 return version
-    except Exception as e:
+    except (httpx.HTTPError, RuntimeError, ValueError) as e:
+        # httpx.HTTPError: real network/timeout/decoding failures against the render
+        # service. RuntimeError: the test suite's own network lock (tests/conftest.py)
+        # raises a plain RuntimeError for a blocked host, which doesn't get wrapped
+        # into an httpx exception. ValueError: a non-JSON /health body.
         logger.warning("get_engine_version: /health read failed: %s", e)
     return "unknown"
 

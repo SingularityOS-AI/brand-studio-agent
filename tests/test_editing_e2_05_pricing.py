@@ -165,6 +165,20 @@ def _prepare_raw_ready(idea_id: str = "idea1", raw_storage_path: str = "renders/
     return updated["version"]
 
 
+def test_state_render_price_with_no_ir_and_no_previous_render() -> None:
+    """render_price/render_price_kind are always emitted, even before an IR exists.
+
+    With no takes yet, timeline (and so ir) is None; render_price must not depend
+    on a content_hash to know there is no previous done render.
+    """
+    resp = client.get("/api/editing/idea_fresh", headers=HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ir"] is None
+    assert data["render_price"] == 20
+    assert data["render_price_kind"] == "first"
+
+
 def test_first_render_charges_render_credits() -> None:
     """No previous done render for the idea -> RENDER_CREDITS (20)."""
     _prepare_raw_ready()
