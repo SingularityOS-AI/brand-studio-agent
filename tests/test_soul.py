@@ -13,25 +13,20 @@ Test coverage:
 7. Validation function: valid citations pass validation
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import json
 
 from app.tools.brand_brain.models import BrandBrain, Section
 from app.tools.brand_soul.generator import (
-    generate_brand_soul,
-    validate_citations_in_html,
+    IncompleteBrainError,
+    SoulGenerationError,
     _check_all_sections_confirmed,
     _extract_literal_citations,
-    IncompleteBrainError,
-    CitationValidationError,
-    SoulGenerationError
+    generate_brand_soul,
+    validate_citations_in_html,
 )
-from app.tools.brand_soul.template import (
-    get_etapa_context,
-    ETAPAS_CONFIG
-)
-
+from app.tools.brand_soul.template import ETAPAS_CONFIG, get_etapa_context
 
 # =============================================================================
 # FIXTURES
@@ -284,9 +279,9 @@ def test_generate_soul_complete_brain_produces_valid_html(
     mock_check_cache.return_value = None  # No cache
     mock_save_cache.return_value = True
 
-    # Mock LLM redaction to return citation_text (safe for validation)
-    # This ensures the generated HTML only contains text from citations
-    mock_llm_redact.side_effect = lambda section_text, citation_text, instruction: citation_text
+    # Mock LLM redaction to just pass the deterministic fallback through
+    # (safe for validation: never introduces a new quoted citation).
+    mock_llm_redact.side_effect = lambda prompt, fallback_text: fallback_text
 
     # Generate
     session_token = "test_session_token"
@@ -297,24 +292,11 @@ def test_generate_soul_complete_brain_produces_valid_html(
     assert html is not None
     assert "<!DOCTYPE html>" in html
 
-    # The template renders 8 sections, but "asociaciones" is merged into "identidad",
-    # so only "identidad" citation appears. ICP is metadata-only and not rendered.
-    # Check that main section citations appear in HTML:
-    sections_in_document = [
-        "diagnostico", "brand_journey", "charco", "contrarian",
-        "identidad", "oferta", "lead_magnet"
-    ]
-    expected_citations_in_doc = [
-        next(s.citation_text for s in complete_confirmed_brain.sections if s.id == section_id)
-        for section_id in sections_in_document
-    ]
-    for citation in expected_citations_in_doc:
-        # Normalize accents for comparison
-        import unicodedata
-        normalized_citation = unicodedata.normalize('NFKD', citation).encode('ASCII', 'ignore').decode('ASCII')
-        normalized_html = unicodedata.normalize('NFKD', html).encode('ASCII', 'ignore').decode('ASCII')
-        # Better: just check the citation appears in HTML with accent preservation
-        assert citation in html, f"Citation not found: {citation}"
+    # F-01: the document is now consolidated long-form prose with one titled
+    # chapter per confirmed section (all 9, including icp and asociaciones,
+    # which the old layout dropped) — every citation appears literally.
+    for section in complete_confirmed_brain.sections:
+        assert section.citation_text in html, f"Citation not found: {section.citation_text}"
 
 
 # =============================================================================
@@ -501,9 +483,11 @@ def test_get_etapa_context_valid_stage():
     """
     context = get_etapa_context("momentum")
 
-    assert context["name"] == "Moméntum"  # Takes accent from template
-    assert context["skill_to_unlock"] == "tu oferta irrechazable — la ecuación de valor que cierra la venta"
-    assert "hacer ofertas blandas" in context["prohibited"]
+    # F-01: this framework copy is written by us, so it is English like the
+    # rest of the document (founder-provided facts and citations stay as-is).
+    assert context["name"] == "Momentum"
+    assert context["skill_to_unlock"] == "your irresistible offer — the value equation that closes the sale"
+    assert "making soft offers" in context["prohibited"]
     assert "description" in context
 
 
@@ -522,7 +506,7 @@ def test_etapas_config_structure():
     Given ETAPAS_CONFIG from template,
     Then each etapa should have required fields: name, skill_to_unlock, prohibited, description.
     """
-    for stage_id, config in ETAPAS_CONFIG.items():
+    for config in ETAPAS_CONFIG.values():
         assert "name" in config
         assert "skill_to_unlock" in config
         assert "prohibited" in config
@@ -545,30 +529,33 @@ def test_html_includes_etapa_with_skill_and_prohibition(
     complete_confirmed_brain
 ):
     """
-    Given a complete brand brain with Momentum stage,
+    Given a complete brand brain,
     When the generate endpoint is called,
-    Then the HTML should include etapa name, skill to unlock, and prohibition.
+    Then the Diagnosis chapter should weave in the detected stage's skill
+    to unlock and prohibition (F-01: no more standalone Spanish-labeled
+    etapa-box widget -- this content now lives inside the English-titled
+    "Diagnosis" chapter as prose).
     """
     # Setup mocks
     mock_get_brain.return_value = complete_confirmed_brain
     mock_check_cache.return_value = None
     mock_save_cache.return_value = True
 
-    # Mock LLM redaction to return citation_text (safe for validation)
-    mock_llm_redact.side_effect = lambda section_text, citation_text, instruction: citation_text
+    # Mock LLM redaction to just pass the deterministic fallback through.
+    mock_llm_redact.side_effect = lambda prompt, fallback_text: fallback_text
 
     # Generate
     session_token = "test_session_token"
-    html, cache_status = generate_brand_soul(session_token)
+    html, _cache_status = generate_brand_soul(session_token)
 
-    # Assertions - check ETAPA box exists in HTML
-    # Note: The specific etapa content depends on what detect_etapa_from_brand_brain()
-    # returns based on the brain's etapa content. For our test, we just check that
-    # an etapa-box exists with the expected structure.
-    assert "etapa-box" in html
-    assert "<div class=\"etapa-box\">" in html
-    assert "Lo único que importa ahora:" in html
-    assert "Prohibido:" in html
+    # "creador atascado" (this brain's etapa) doesn't match any of the
+    # seed/startup/growth/expansion/maturity keywords detect_etapa_from_brand_brain
+    # looks for, so it falls back to "invisible" -- same default generate_brand_soul uses.
+    etapa_context = get_etapa_context("invisible")
+
+    assert "Diagnosis" in html
+    assert etapa_context["skill_to_unlock"] in html
+    assert etapa_context["prohibited"] in html
 
 
 # =============================================================================
@@ -707,7 +694,7 @@ def test_generate_soul_no_brain_raises_error(mock_get_brain):
 # ---------------------------------------------------------------------------
 
 def test_cita_inventada_en_la_prosa_se_rechaza():
-    from app.tools.brand_brain.models import Section, BrandBrain
+    from app.tools.brand_brain.models import BrandBrain, Section
     from app.tools.brand_soul.generator import validate_citations_in_html
 
     brain = BrandBrain(sections=[Section(
@@ -728,7 +715,7 @@ def test_cita_inventada_en_la_prosa_se_rechaza():
 
 
 def test_cita_real_no_da_falso_positivo():
-    from app.tools.brand_brain.models import Section, BrandBrain
+    from app.tools.brand_brain.models import BrandBrain, Section
     from app.tools.brand_soul.generator import validate_citations_in_html
 
     brain = BrandBrain(sections=[Section(

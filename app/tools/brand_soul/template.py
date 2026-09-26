@@ -4,20 +4,20 @@ Template for Brand Soul Document
 Defines:
 1. Cool Paper palette (production design system)
 2. ETAPAS configuration from Segués framework
-3. HTML template structure for the document
+3. HTML template structure for the long-form prose document
 
-Critical: The template provides the FIXED structure. The LLM only fills
-in the content within each block.
+Critical: The template provides the FIXED structure (executive summary,
+nine titled chapters, closing note). The chapter prose itself is written by
+`app/tools/brand_soul/generator.py` (LLM on a leash, with a deterministic
+fallback) — this module only lays it out. The document is consolidated
+long-form prose: no JSON-like blocks, no "label: value" lines, no raw field
+dumps.
 """
-
-from dataclasses import dataclass
-from typing import Dict, Optional, Literal
-from enum import Enum
-
 
 # =============================================================================
 # COOL PAPER PALETTE — Production Design System
 # =============================================================================
+
 
 class CoolPaperPalette:
     """
@@ -50,54 +50,58 @@ class CoolPaperPalette:
 
 
 # =============================================================================
-# ETAPAS SEGUÉS FRAMEWORK
+# STAGES FRAMEWORK (Segués, 6 levels)
 # =============================================================================
-# Based on the 6 levels framework. Each stage has:
-# - Name (Spanish)
+# Each stage has:
+# - Name
 # - One skill to unlock (the ONLY thing that matters)
 # - One thing that's PROHIBITED (what NOT to do)
+#
+# F-01: this framework copy is written by us, not quoted from the founder, so
+# it stays in English like the rest of the document. Founder-provided facts
+# and literal citations are a separate matter and keep their own language.
 
-ETAPAS_CONFIG: Dict[str, Dict] = {
+ETAPAS_CONFIG: dict[str, dict] = {
     "invisible": {
-        "name": "Invisibilidad",
-        "skill_to_unlock": "tu perspectiva — tu cicatriz",
-        "prohibited": "optimizar horarios; ninguna hora mágica salva un mensaje que suena como el de todos",
-        "description": "Nadie te conoce. Tu perspectiva única es lo único que puede romper el silencio."
+        "name": "Invisibility",
+        "skill_to_unlock": "your perspective — your scar",
+        "prohibited": "optimizing schedules; no magic hour saves a message that sounds like everyone else's",
+        "description": "Nobody knows you. Your unique perspective is the only thing that can break the silence."
     },
     "exploracion": {
-        "name": "Exploración",
-        "skill_to_unlock": "hablar el idioma de tu charco de dolor",
-        "prohibited": "hablar de tu solución; hasta que entiendan el problema, no odian lo que odias",
-        "description": "Estás probando qué problema resuena. No hay stillness — hay aprendizaje."
+        "name": "Exploration",
+        "skill_to_unlock": "speaking the language of your pond of pain",
+        "prohibited": "talking about your solution; until they understand the problem, they don't hate what you hate",
+        "description": "You're testing which problem resonates. There is no stillness here — only learning."
     },
     "precision": {
-        "name": "Precisión",
-        "skill_to_unlock": "tu postura contraria — lo que el charco acepta pero tú rechazas",
-        "prohibited": "generalizar; el nicho es un charco, no el océano",
-        "description": "Ya sabes quiénes son. Ahora necesitas posicionarte contra lo que todos aceptan."
+        "name": "Precision",
+        "skill_to_unlock": "your contrarian stance — what the pond accepts but you reject",
+        "prohibited": "generalizing; the niche is a pond, not the ocean",
+        "description": "You already know who they are. Now you need to position against what everyone accepts."
     },
     "momentum": {
-        "name": "Moméntum",
-        "skill_to_unlock": "tu oferta irrechazable — la ecuación de valor que cierra la venta",
-        "prohibited": "hacer ofertas blandas; sin riesgo inverso, es una oferta, no irrechazable",
-        "description": "La gente te conoce y confía. El momento para convertir esa confianza en ventas."
+        "name": "Momentum",
+        "skill_to_unlock": "your irresistible offer — the value equation that closes the sale",
+        "prohibited": "making soft offers; without reversed risk, it's an offer, not an irresistible one",
+        "description": "People know you and trust you. This is the moment to turn that trust into sales."
     },
     "sistema": {
-        "name": "Sistema",
-        "skill_to_unlock": "tu lead magnet — el primer paso gratis que abre la puerta",
-        "prohibited": "pensar en escala; un lead magnet que no convierte no escala no importa",
-        "description": "Ya cierras ventas. Ahora necesitas un sistema que traiga leads mientras duermes."
+        "name": "System",
+        "skill_to_unlock": "your lead magnet — the first free step that opens the door",
+        "prohibited": "thinking about scale; a lead magnet that doesn't convert doesn't matter how much it scales",
+        "description": "You already close sales. Now you need a system that brings in leads while you sleep."
     },
     "dominio": {
-        "name": "Dominio",
-        "skill_to_unlock": "tu brand journey — el viaje completo de no-problema a cliente",
-        "prohibited": "automatizar sin entender; cada etapa del viaje tiene una psicología",
-        "description": "El sistema funciona. Ahora dominas cada etapa del viaje del cliente."
+        "name": "Mastery",
+        "skill_to_unlock": "your brand journey — the complete path from no-problem to customer",
+        "prohibited": "automating without understanding; every stage of the journey has its own psychology",
+        "description": "The system works. Now you master every stage of the customer's journey."
     }
 }
 
 
-def get_etapa_context(stage_id: str) -> Dict[str, str]:
+def get_etapa_context(stage_id: str) -> dict[str, str]:
     """
     Get the complete context for a specific etapa.
 
@@ -115,7 +119,7 @@ def get_etapa_context(stage_id: str) -> Dict[str, str]:
     return ETAPAS_CONFIG[stage_id]
 
 
-def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
+def detect_etapa_from_brand_brain(brand_brain) -> str | None:
     """
     Detect the current business stage from the brand_brain data.
 
@@ -151,45 +155,49 @@ def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
 
 
 # =============================================================================
-# HTML TEMPLATE STRUCTURE
+# HTML TEMPLATE STRUCTURE — long-form prose document
 # =============================================================================
 
+
+def _render_paragraphs(paragraphs: list[str]) -> str:
+    return "\n".join(f"            <p>{paragraph}</p>" for paragraph in paragraphs)
+
+
+def _render_chapter(index: int, chapter: dict) -> str:
+    return f"""
+        <h2>{index}. {chapter["heading"]}</h2>
+{_render_paragraphs(chapter["paragraphs"])}
+        <div class="citation">"{chapter["citation"]}"</div>
+"""
+
+
 def build_soul_html(
-    etapa_context: Dict,
-    charco_content: str,
-    charco_citation: str,
-    knowledge_level: str,
-    knowledge_implication: str,
-    knowledge_citation: str,
-    common_belief: str,
-    contrarian_position: str,
-    contrarian_citation: str,
-    identity_voice: str,
-    identity_associations_desired: str,
-    identity_associations_prohibited: str,
-    identity_citation: str,
-    offer_equation: str,
-    offer_citation: str,
-    lead_magnet_text: str,
-    lead_magnet_citation: str,
-    brand_journey_stages: str,
-    brand_journey_citation: str
+    executive_summary: str,
+    chapters: list[dict],
+    closing_note: str,
 ) -> str:
     """
-    Build the complete Brand Soul HTML document.
+    Build the complete Brand Soul HTML document as consolidated long-form
+    prose: an executive summary, one titled chapter per confirmed section,
+    and a closing note.
 
-    This function assembles all sections into the final HTML using
-    the Cool Paper design system.
-
-    All citations are taken literally from the brand_brain sections
-    and inserted verbatim — NOT reworded by the LLM or this function.
+    Args:
+        executive_summary: 120-200 words of prose introducing the document.
+        chapters: one dict per section, in display order, each with
+            {"heading": str, "paragraphs": list[str], "citation": str}.
+            All citations are taken literally from the brand_brain sections
+            and inserted verbatim — NOT reworded by the LLM or this function.
+        closing_note: short prose explaining how Brandy will use this document.
 
     Returns:
-        Complete HTML document as a string
+        Complete HTML document as a string.
     """
+    chapters_html = "\n".join(
+        _render_chapter(index, chapter) for index, chapter in enumerate(chapters, start=1)
+    )
 
     html = f"""<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -241,47 +249,27 @@ def build_soul_html(
             border-bottom: 2px solid {CoolPaperPalette.LINE};
         }}
 
-        h3 {{
-            font-family: {CoolPaperPalette.FONT_HEADLINE};
-            font-size: 16px;
-            font-weight: 600;
-            color: {CoolPaperPalette.TEXT_SECONDARY};
-            margin-top: 24px;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-
         p {{
             margin-bottom: 16px;
             font-size: 15px;
         }}
 
-        .etapa-box {{
+        .summary-box {{
             background: linear-gradient(135deg, {CoolPaperPalette.ACCENT}15 0%, {CoolPaperPalette.ACCENT}05 100%);
             border-left: 4px solid {CoolPaperPalette.ACCENT};
             padding: 24px;
-            margin-bottom: 40px;
+            margin-bottom: 24px;
             border-radius: 4px;
         }}
 
-        .etapa-title {{
-            font-family: {CoolPaperPalette.FONT_HEADLINE};
-            font-size: 18px;
-            font-weight: 700;
+        .summary-box h2 {{
+            margin-top: 0;
+            border-bottom: none;
             color: {CoolPaperPalette.ACCENT};
-            margin-bottom: 8px;
         }}
 
-        .etapa-skill {{
-            font-weight: 600;
-            margin-bottom: 8px;
-        }}
-
-        .etapa-prohibited {{
-            color: {CoolPaperPalette.TEXT_SECONDARY};
-            font-style: italic;
-            margin-bottom: 12px;
+        .summary-box p:last-child {{
+            margin-bottom: 0;
         }}
 
         .citation {{
@@ -295,74 +283,21 @@ def build_soul_html(
             border-left: 3px solid {CoolPaperPalette.LINE};
         }}
 
-        .two-column {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-            margin-top: 16px;
-        }}
-
-        .column {{
-            padding: 20px;
-            border-radius: 6px;
-        }}
-
-        .column-accepted {{
+        .closing-box {{
             background: {CoolPaperPalette.BACKGROUND};
             border: 1px solid {CoolPaperPalette.LINE};
+            padding: 24px;
+            margin-top: 40px;
+            border-radius: 4px;
         }}
 
-        .column-contrarian {{
-            background: linear-gradient(135deg, {CoolPaperPalette.ACCENT}10 0%, {CoolPaperPalette.ACCENT}05 100%);
-            border: 1px solid {CoolPaperPalette.ACCENT}30;
-        }}
-
-        .column-title {{
-            font-family: {CoolPaperPalette.FONT_HEADLINE};
-            font-size: 14px;
-            font-weight: 700;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-
-        .column-accepted .column-title {{
-            color: {CoolPaperPalette.TEXT_SECONDARY};
-        }}
-
-        .column-contrarian .column-title {{
-            color: {CoolPaperPalette.ACCENT};
-        }}
-
-        .associations-list {{
-            list-style: none;
-            padding: 0;
-        }}
-
-        .associations-list li {{
-            padding: 8px 0;
-            border-bottom: 1px solid {CoolPaperPalette.LINE};
-        }}
-
-        .associations-list li:last-child {{
+        .closing-box h2 {{
+            margin-top: 0;
             border-bottom: none;
         }}
 
-        .associations-desired {{
-            color: {CoolPaperPalette.TEXT_PRIMARY};
-        }}
-
-        .associations-prohibited {{
-            color: {CoolPaperPalette.TEXT_SECONDARY};
-            font-style: italic;
-        }}
-
-        .equation {{
-            background: linear-gradient(90deg, {CoolPaperPalette.ACCENT}10 0%, transparent 100%);
-            padding: 24px;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: 500;
+        .closing-box p:last-child {{
+            margin-bottom: 0;
         }}
 
         @media print {{
@@ -377,7 +312,7 @@ def build_soul_html(
                 max-width: 100%;
             }}
 
-            .etapa-box {{
+            .summary-box, .closing-box {{
                 page-break-inside: avoid;
             }}
         }}
@@ -390,11 +325,6 @@ def build_soul_html(
             .container {{
                 padding: 30px;
             }}
-
-            .two-column {{
-                grid-template-columns: 1fr;
-                gap: 16px;
-            }}
         }}
     </style>
 </head>
@@ -402,67 +332,15 @@ def build_soul_html(
     <div class="container">
         <h1>Brand Soul</h1>
 
-        <!-- SECCIÓN 1: Dónde estás hoy (ETAPA) -->
-        <div class="etapa-box">
-            <div class="etapa-title">{etapa_context['name']}</div>
-            <div class="etapa-skill">Lo único que importa ahora: {etapa_context['skill_to_unlock']}</div>
-            <div class="etapa-prohibited">Prohibido: {etapa_context['prohibited']}</div>
-            <p>{etapa_context['description']}</p>
+        <div class="summary-box">
+            <h2>Executive Summary</h2>
+{_render_paragraphs([executive_summary])}
         </div>
-
-        <!-- SECCIÓN 2: Tu charco -->
-        <h2>2. Tu charco</h2>
-        <p>{charco_content}</p>
-        <div class="citation">"{charco_citation}"</div>
-
-        <!-- SECCIÓN 3: Desde dónde hablas -->
-        <h2>3. Desde dónde hablas</h2>
-        <h3>Posición: {knowledge_level}</h3>
-        <p>{knowledge_implication}</p>
-        <div class="citation">"{knowledge_citation}"</div>
-
-        <!-- SECCIÓN 4: Tu postura contraria (DOS COLUMNAS) -->
-        <h2>4. Tu postura contraria</h2>
-        <div class="two-column">
-            <div class="column column-accepted">
-                <div class="column-title">Lo que el nicho acepta</div>
-                <p>{common_belief}</p>
-            </div>
-            <div class="column column-contrarian">
-                <div class="column-title">Lo que tú crees</div>
-                <p>{contrarian_position}</p>
-            </div>
+{chapters_html}
+        <div class="closing-box">
+            <h2>How Brandy Will Use This</h2>
+{_render_paragraphs([closing_note])}
         </div>
-        <div class="citation">"{contrarian_citation}"</div>
-
-        <!-- SECCIÓN 5: Tu identidad -->
-        <h2>5. Tu identidad</h2>
-        <h3>Voz de marca</h3>
-        <p>{identity_voice}</p>
-        <h3>Asociaciones deseadas</h3>
-        <ul class="associations-list">
-            {identity_associations_desired}
-        </ul>
-        <h3>Asociaciones prohibidas</h3>
-        <ul class="associations-list">
-            {identity_associations_prohibited}
-        </ul>
-        <div class="citation">"{identity_citation}"</div>
-
-        <!-- SECCIÓN 6: Tu oferta -->
-        <h2>6. Tu oferta</h2>
-        <div class="equation">{offer_equation}</div>
-        <div class="citation">"{offer_citation}"</div>
-
-        <!-- SECCIÓN 7: Tu lead magnet -->
-        <h2>7. Tu lead magnet</h2>
-        <p>{lead_magnet_text}</p>
-        <div class="citation">"{lead_magnet_citation}"</div>
-
-        <!-- SECCIÓN 8: Tu destino -->
-        <h2>8. Tu destino</h2>
-        <p>{brand_journey_stages}</p>
-        <div class="citation">"{brand_journey_citation}"</div>
     </div>
 </body>
 </html>
