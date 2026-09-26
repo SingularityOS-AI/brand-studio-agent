@@ -16,11 +16,12 @@ Sin forzar ese entorno, este test pasaria en verde incluso con el bug
 presente — que es justo como se coló las primeras tres veces.
 """
 
-import pytest
 from unittest.mock import patch
 
-from app.tools.brand_brain.models import BrandBrain, Section
+import pytest
+
 from app.guard import guard
+from app.tools.brand_brain.models import BrandBrain, Section
 from app.tools.brand_soul.generator import generate_brand_soul
 
 
@@ -65,12 +66,12 @@ def complete_brain():
     return brain
 
 
-@patch("app.tools.brand_soul.generator._redact_section_content_with_llm")
+@patch("app.tools.brand_soul.generator._get_vertex_ai_client")
 @patch("app.tools.brand_soul.generator._save_cache")
 @patch("app.tools.brand_soul.generator._check_cache")
 @patch("app.tools.brand_soul.generator.get_brand_brain")
 def test_brand_soul_generation_costs_exactly_20_credits_total(
-    mock_get_brain, mock_check_cache, mock_save_cache, mock_redact,
+    mock_get_brain, mock_check_cache, mock_save_cache, mock_vertex_client,
     complete_brain, monkeypatch
 ):
     """
@@ -81,18 +82,13 @@ def test_brand_soul_generation_costs_exactly_20_credits_total(
     """
     mock_get_brain.return_value = complete_brain
 
-    def fake_redact(section, all_citations):
-        # citation must be the section's real citation_text or validate_citations_in_html
-        # flags it as invented and refuses to return the document.
-        return ({"content": "x", "citation": section.citation_text, "voice": "x",
-                 "associations_desired": "x", "associations_prohibited": "x",
-                 "knowledge_level": "x", "implication": "x",
-                 "common_belief": "x", "contrarian_position": "x",
-                 "equation": "x", "text": "x", "stages": "x"}, 10)
+    # No Vertex AI client available -> every chapter uses the deterministic
+    # (no-LLM) fallback prose. Citations stay literal either way, so this
+    # only proves the credit math, not the LLM path.
+    mock_vertex_client.return_value = None
 
     mock_check_cache.return_value = None
     mock_save_cache.return_value = True
-    mock_redact.side_effect = fake_redact
 
     session_token = guard.create_user_session("test_credit_cost_user", initial_credits=100)
 

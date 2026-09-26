@@ -1,0 +1,155 @@
+{
+  "brand_brain": {
+    "sections": [
+      {
+        "id": "diagnostico",
+        "label": "Diagnóstico — Dónde estás parado",
+        "status": "confirmado",
+        "content": {
+          "etapa": "creador atascado en la etapa tres",
+          "nivel_ramiro": "cuatro, el cuello de botella",
+          "sintoma_diagnostico": "el embudo se llena pero casi nada convierte en llamadas pagadas",
+          "habilidad_a_desbloquear": "ingeniería de ofertas irresistibles",
+          "prohibicion": "lanzar otro reel genérico sobre productividad",
+          "postura": "experto",
+          "justificacion_postura": "quince años operando agencias de marketing para pymes"
+        },
+        "citation_text": "Elvia diagnosticó que estoy en creador atascado, con el embudo lleno pero sin conversión real",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401527",
+        "updated_at": "2026-09-26T22:18:05.401530"
+      },
+      {
+        "id": "brand_journey",
+        "label": "Brand Journey — Tu destino",
+        "status": "confirmado",
+        "content": {
+          "resultado_deseado": "ser reconocido como el referente de ingeniería de ofertas para consultoras B2B",
+          "de_que_ser_conocido": "el consultor que convierte prospectos fríos en clientes de retenedor alto",
+          "que_hacer": "publicar tres casos de estudio detallados cada mes",
+          "que_aprender": "diseño de garantías de riesgo invertido"
+        },
+        "citation_text": "Elvia me hizo decir en voz alta hacia dónde quiero que esta marca llegue en dos años",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401619",
+        "updated_at": "2026-09-26T22:18:05.401620"
+      },
+      {
+        "id": "charco",
+        "label": "El Charco — En qué hablas",
+        "status": "confirmado",
+        "content": {
+          "problema": "pymes de servicios profesionales que generan tráfico pero no cierran ventas",
+          "nivel": "charco",
+          "logro_que_lo_respalda": "trescientas veces digitalizado embudos de pymes en los últimos cinco años",
+          "costo_de_no_resolverlo": "miles de dólares en presupuesto de anuncios que nunca regresan como clientes",
+          "intentos_fallidos": "contratar más vendedores junior sin arreglar la oferta"
+        },
+        "citation_text": "Elvia identificó que mi servicio es para pymes que no logran convertir el tráfico que ya tienen",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401675",
+        "updated_at": "2026-09-26T22:18:05.401676"
+      },
+      {
+        "id": "icp",
+        "label": "ICP — A quién le mandas la factura",
+        "status": "confirmado",
+        "content": {
+          "quien_decide": "el CEO fundador de la pyme de servicios",
+          "tamano_empresa": "entre veinte y cien empleados",
+          "disparador_de_urgencia": "cuando el trimestre cierra por debajo de la meta de ventas",
+          "poder_adquisitivo": "entre cincuenta mil y cien mil euros al año en marketing",
+          "comite_de_compra": "el director financiero también tiene que aprobar el gasto",
+          "a_quien_le_rinde_cuentas": "la junta directiva de la empresa"
+        },
+        "citation_text": "Elvia validó que mi cliente ideal es el CEO fundador de una pyme con presupuesto real",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401730",
+        "updated_at": "2026-09-26T22:18:05.401731"
+      },
+      {
+        "id": "contrarian",
+        "label": "Postura Contraria — Dos Columnas",
+        "status": "confirmado",
+        "content": {
+          "creencia_comun": "que necesitas publicar todos los días en redes sociales para crecer",
+          "postura_opuesta": "que publicar menos pero con una oferta más fuerte convierte más que publicar todos los días",
+          "prueba": "clientes que redujeron su frecuencia de publicación y duplicaron su tasa de cierre",
+          "por_que_no_es_provocacion": "está respaldado por datos de conversión reales, no solo por una opinión llamativa"
+        },
+        "citation_text": "Elvia desafió la creencia de que hay que publicar todos los días para crecer",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401782",
+        "updated_at": "2026-09-26T22:18:05.401783"
+      },
+      {
+        "id": "asociaciones",
+        "label": "Asociaciones — Pairing",
+        "status": "confirmado",
+        "content": {
+          "deseadas": "auténtico, riguroso, directo",
+          "prohibidas": "genérico, agresivo, superficial"
+        },
+        "citation_text": "Elvia me hizo elegir con qué palabras quiero que la gente me describa a mis espaldas",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401831",
+        "updated_at": "2026-09-26T22:18:05.401832"
+      },
+      {
+        "id": "identidad",
+        "label": "Identidad — Mapa de identidad",
+        "status": "confirmado",
+        "content": {
+          "voz": "directa, profesional, sin relleno",
+          "colores": "#2563EB, #0F172A, #F8FAFC",
+          "tipografias": "Inter para cuerpo, Space Grotesk para títulos",
+          "narrativa_de_origen": "empecé arreglando el embudo roto de mi propia agencia antes de arreglar el de nadie más"
+        },
+        "citation_text": "Elvia dijo que mi marca es directa y profesional, nunca genérica ni agresiva",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401887",
+        "updated_at": "2026-09-26T22:18:05.401888"
+      },
+      {
+        "id": "oferta",
+        "label": "Oferta — Ecuación de Valor Hormozi",
+        "status": "confirmado",
+        "content": {
+          "resultado_sonado": "duplicar la tasa de cierre de propuestas en noventa días",
+          "probabilidad_percibida": "cincuenta casos de estudio verificados con nombre y cifra real",
+          "retraso": "el primer resultado medible llega en treinta días",
+          "esfuerzo": "dos horas por semana del equipo del cliente",
+          "componentes": "auditoría de oferta, rediseño de propuesta, tres sesiones de cierre en vivo",
+          "garantia": "garantía incondicional de devolución si no hay una propuesta nueva en treinta días"
+        },
+        "citation_text": "Elvia definió mi oferta con el resultado soñado y los componentes exactos que la sostienen",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401946",
+        "updated_at": "2026-09-26T22:18:05.401947"
+      },
+      {
+        "id": "lead_magnet",
+        "label": "Lead Magnet — Primer paso gratis",
+        "status": "confirmado",
+        "content": {
+          "tipo": "revelador",
+          "problema_A": "por qué las propuestas actuales no generan urgencia de compra",
+          "problema_B_que_revela": "que el verdadero problema es la falta de garantía de riesgo invertido",
+          "formato": null,
+          "captura": null
+        },
+        "citation_text": "Elvia propuso un lead magnet revelador como el primer paso gratuito hacia la oferta paga",
+        "citation_source": "usuario",
+        "created_at": "2026-09-26T22:18:05.401996",
+        "updated_at": "2026-09-26T22:18:05.401997"
+      }
+    ],
+    "formato": null,
+    "created_at": "2026-09-26T22:18:05.401257",
+    "updated_at": "2026-09-26T22:18:05.401263"
+  },
+  "sections_count": 9,
+  "missing_sections": [],
+  "skipped_sections": [],
+  "credits_remaining": 249
+}
