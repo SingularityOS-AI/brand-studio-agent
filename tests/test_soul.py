@@ -297,12 +297,11 @@ def test_generate_soul_complete_brain_produces_valid_html(
     assert html is not None
     assert "<!DOCTYPE html>" in html
 
-    # The template renders 8 sections, but "asociaciones" is merged into "identidad",
-    # so only "identidad" citation appears. ICP is metadata-only and not rendered.
+    # The template renders all 9 sections now
     # Check that main section citations appear in HTML:
     sections_in_document = [
-        "diagnostico", "brand_journey", "charco", "contrarian",
-        "identidad", "oferta", "lead_magnet"
+        "diagnostico", "brand_journey", "charco", "icp", "contrarian",
+        "asociaciones", "identidad", "oferta", "lead_magnet"
     ]
     expected_citations_in_doc = [
         next(s.citation_text for s in complete_confirmed_brain.sections if s.id == section_id)
@@ -532,6 +531,43 @@ def test_etapas_config_structure():
 # =============================================================================
 # TEST: HTML Includes ETAPA with Skill and Prohibition
 # =============================================================================
+
+@patch("app.tools.brand_soul.generator.get_brand_brain")
+@patch("app.tools.brand_soul.generator._check_cache")
+@patch("app.tools.brand_soul.generator._call_llm_for_redaction")
+@patch("app.tools.brand_soul.generator._save_cache")
+def test_html_includes_etapa_with_skill_and_prohibition(
+    mock_save_cache,
+    mock_llm_redact,
+    mock_check_cache,
+    mock_get_brain,
+    complete_confirmed_brain
+):
+    """
+    Given a complete brand brain with Momentum stage,
+    When the generate endpoint is called,
+    Then the HTML should include etapa name, skill to unlock, and prohibition.
+    """
+    # Setup mocks
+    mock_get_brain.return_value = complete_confirmed_brain
+    mock_check_cache.return_value = None
+    mock_save_cache.return_value = True
+
+    # Mock LLM redaction to return citation_text (safe for validation)
+    mock_llm_redact.side_effect = lambda section_text, citation_text, instruction: citation_text
+
+    # Generate
+    session_token = "test_session_token"
+    html, cache_status = generate_brand_soul(session_token)
+
+    # Assertions - check ETAPA box exists in HTML
+    # Note: The specific etapa content depends on what detect_etapa_from_brand_brain()
+    # returns based on the brain's etapa content. For our test, we just check that
+    # an etapa-box exists with the expected structure.
+    assert "etapa-box" in html
+    assert "<div class=\"etapa-box\">" in html
+    assert "Lo único que importa ahora:" in html
+    assert "Prohibido:" in html
 
 
 # =============================================================================

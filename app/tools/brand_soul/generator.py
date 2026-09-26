@@ -23,28 +23,37 @@ Core design principle:
 "The brand_brain is the ONLY source of truth. The LLM only redacts."
 """
 
+import os
+from typing import Dict, Optional, List, Tuple
 import hashlib
 import json
 
-from app.config import settings
 from app.tools.brand_brain.models import BrandBrain, Section
-from app.tools.brand_brain.store import get_brand_brain
-from app.tools.brand_soul.template import build_soul_html
+from app.tools.brand_brain.store import get_brand_brain, save_brand_brain
+from app.tools.brand_soul.template import (
+    build_soul_html,
+    get_etapa_context,
+    detect_etapa_from_brand_brain
+)
+from app.config import settings
 
 
 class SoulGenerationError(Exception):
     """Raised when Brand Soul cannot be generated"""
+    pass
 
 
 class CitationValidationError(SoulGenerationError):
     """Raised when generated HTML contains invented citations"""
+    pass
 
 
 class IncompleteBrainError(SoulGenerationError):
     """Raised when brain doesn't have all 9 confirmed sections"""
+    pass
 
 
-def _check_all_sections_confirmed(brain: BrandBrain) -> tuple[bool, list[str]]:
+def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
     """
     Check if all 9 sections exist and are confirmed.
 
@@ -76,7 +85,7 @@ def _check_all_sections_confirmed(brain: BrandBrain) -> tuple[bool, list[str]]:
     return is_complete, missing_sections
 
 
-def _extract_literal_citations(brain: BrandBrain) -> dict[str, str]:
+def _extract_literal_citations(brain: BrandBrain) -> Dict[str, str]:
     """
     Extract all literal citation texts from the brand_brain.
 
@@ -106,8 +115,8 @@ def _get_vertex_ai_client():
         )
 
     try:
-        import vertexai
         from vertexai.generative_models import GenerativeModel
+        import vertexai
 
         # Initialize Vertex AI
         vertexai.init(
@@ -158,7 +167,7 @@ def _redact_section_content_with_llm(
     citation = all_citations.get(section.id, "")
 
     # Format the dictionary content into a plain string to avoid JSON inputs
-    content_str = " ".join([f"{str(k).replace('_', ' ').capitalize()}: {v}" for k, v in content.items() if v])
+    content_vals = " ".join([str(v) for v in content.values() if v])
 
     instruction = (
         f"Consolidate this information about the '{section.id}' section into a compelling narrative. "
@@ -169,15 +178,15 @@ def _redact_section_content_with_llm(
     )
 
     redacted_text = _call_llm_for_redaction(
-        section_text=content_str,
+        section_text=content,
         citation_text=citation,
         instruction=instruction
     )
 
-    return redacted_text, _estimate_tokens(content_str) + _estimate_tokens(redacted_text) + 500
+    return redacted_text, _estimate_tokens(content_vals) + _estimate_tokens(redacted_text) + 500
 
 def _call_llm_for_redaction(
-    section_text: str,
+    section_text: dict | str,
     citation_text: str,
     instruction: str
 ) -> str:
@@ -185,7 +194,7 @@ def _call_llm_for_redaction(
     Call Gemini 2.5 Flash-Lite to redact section content with strategic voice.
 
     Args:
-        section_text: The original section content to redact
+        section_text: The original section content to redact (can be dict or str)
         citation_text: The literal citation (for context, NOT to paraphrase)
         instruction: Specific instruction for this section type
 
@@ -197,41 +206,56 @@ def _call_llm_for_redaction(
     """
     model = _get_vertex_ai_client()
 
-    # In test mode, return the original text
+    def build_deterministic_fallback(data):
+        if isinstance(data, dict):
+            sentences = []
+            for k, v in data.items():
+                if v:
+                    clean_k = str(k).replace('_', ' ').lower()
+                    sentences.append(f"Regarding the {clean_k}, it is {v}.")
+            return " ".join(sentences)
+        elif isinstance(data, str):
+            import re
+            return re.sub(r'([A-Za-z\s]+):\s*([^:]+?)(?=\s*[A-Za-z\s]+:|$)', r'Regarding \1, it is \2. ', data).strip()
+        return str(data)
+
+    fallback_text = build_deterministic_fallback(section_text)
+
+    # In test mode, return the deterministic fallback
     if model is None:
-        return section_text
+        return fallback_text
 
     # Build the strict prompt
-    prompt = f"""Eres un estratega de marcas senior. Tu tarea es REDACTAR (no reescribir, no inventar) el siguiente texto con voz profesional y estratégica.
+    llm_input_text = " ".join([f"{str(k).replace('_', ' ').capitalize()}: {v}" for k, v in section_text.items() if v]) if isinstance(section_text, dict) else section_text
 
-IMPORTANTE - REGLAS INVIOLABLES:
-1. NO inventes datos, hechos, ni detalles que NO estén en el texto original
-2. NO añadas ejemplos, estadísticas ni testimonios que no estén en el original
-3. NO cambies el significado fundamental de ninguna afirmación
-4. Usa un tono profesional y estratégico, como lo haría un consultor de marca
-5. REDACTA CON EXTENSIÓN Y PROFUNDIDAD: escribe 2-3 párrafos bien desarrollados, elaborando sobre los puntos clave del contenido original
-6. La cita vuelve del contexto, pero NO la parafrasees ni la menciones en la redacción
+    prompt = f"""You are a senior brand strategist. Your task is to REDACT (not rewrite, not invent) the following text with a professional and strategic voice.
 
-Texto a redactar:
-{section_text}
+IMPORTANT - INVIOLABLE RULES:
+1. DO NOT invent data, facts, or details that are NOT in the original text.
+2. DO NOT add examples, statistics, or testimonials that are not in the original.
+3. DO NOT change the fundamental meaning of any statement.
+4. Use a professional and strategic tone, like a brand consultant.
+5. WRITE LONG-FORM PROSE: Write 2-4 paragraphs of prose (150-350 words). DO NOT output JSON. DO NOT use key-value pairs. DO NOT use snake_case keys or curly braces.
+6. OUTPUT IN ENGLISH.
+7. The citation is for context, DO NOT paraphrase it or mention it in the redaction.
 
-Instrucción específica:
+Text to redact:
+{llm_input_text}
+
+Specific instruction:
 {instruction}
 
-Devuelve SOLO el texto redactado (2-3 párrafos extensos). Sin explicaciones, sin intro, sin formato markdown."""
+Original citation (DO NOT CHANGE, DO NOT PARAPHRASE, only for context):
+{citation_text}
+"""
 
     try:
-        # Generate with temperature=0 for determinism
         response = model.generate_content(
             prompt,
-            generation_config={
-                "temperature": 0.0,
-                "max_output_tokens": 500,
-                "candidate_count": 1
-            }
+            generation_config={"temperature": 0.0}
         )
 
-        if not response.text:
+        if not response or not response.text:
             raise SoulGenerationError("LLM returned empty response")
 
         # Clean up the response - remove any markdown or extra whitespace
@@ -247,15 +271,15 @@ Devuelve SOLO el texto redactado (2-3 párrafos extensos). Sin explicaciones, si
                 # Malformed, just take everything after the first line
                 redacted = "\n".join(lines[1:])
 
-        return redacted.strip() or section_text
+        return redacted.strip() or fallback_text
 
     except Exception as e:
-        # If LLM fails, return original text (graceful degradation)
+        # If LLM fails, return deterministic fallback (graceful degradation)
         print(f"[WARN] LLM redaction failed for section: {e}. Using original text.")
-        return section_text
+        return fallback_text
 
 
-def validate_citations_in_html(html: str, brain: BrandBrain) -> tuple[bool, list[str]]:
+def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
     """
     Validate that every citation in the HTML exists literally in the brain.
 
@@ -275,8 +299,8 @@ def validate_citations_in_html(html: str, brain: BrandBrain) -> tuple[bool, list
         and checks if the literal text (excluding quotes) exists in the brain's
         citation_text fields.
     """
-    import html as _html
     import re
+    import html as _html
 
     # Se revisa TODO texto entrecomillado del documento, no solo el que esta
     # dentro de <div class="citation">.
@@ -342,7 +366,7 @@ def _compute_brain_hash(brain: BrandBrain) -> str:
     return hashlib.sha256(brain_json.encode()).hexdigest()
 
 
-def _check_cache(brain: BrandBrain, session_token: str) -> str | None:
+def _check_cache(brain: BrandBrain, session_token: str) -> Optional[str]:
     """
     Check if a cached HTML exists for this brain.
 
@@ -431,7 +455,7 @@ def _save_cache(brain: BrandBrain, html: str, session_token: str) -> bool:
         return False
 
 
-def generate_brand_soul(session_token: str) -> tuple[str, str]:
+def generate_brand_soul(session_token: str) -> Tuple[str, str]:
     """
     Generate the Brand Soul document for the given session.
 
@@ -485,6 +509,12 @@ def generate_brand_soul(session_token: str) -> tuple[str, str]:
     # Do not deduct here too.
 
     # 4. Generate new HTML
+    # 4a. Extract etapa context
+    etapa_id = detect_etapa_from_brand_brain(brain)
+    if not etapa_id:
+        etapa_id = "invisible"  # Default fallback
+    etapa_context = get_etapa_context(etapa_id)
+
     # 4b. Redact each section with LLM and track tokens
     all_citations = _extract_literal_citations(brain)
 
@@ -495,7 +525,7 @@ def generate_brand_soul(session_token: str) -> tuple[str, str]:
         redacted_text, token_count = _redact_section_content_with_llm(section, all_citations)
         redacted_sections[section.id] = redacted_text
         total_tokens += token_count
-        full_context += f"\n\n--- {section.id} ---\n{redacted_text}"
+        full_context += f"\n\n--- {section.id.replace('_', ' ')} ---\n{redacted_text}"
 
     summary = _call_llm_for_redaction(
         section_text=full_context,
@@ -523,6 +553,7 @@ def generate_brand_soul(session_token: str) -> tuple[str, str]:
     # 4c. Build HTML from template
     try:
         html = build_soul_html(
+            etapa_context=etapa_context,
             summary=summary,
             closing=closing,
             redacted_sections=redacted_sections,

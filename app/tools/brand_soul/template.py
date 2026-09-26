@@ -155,10 +155,11 @@ def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
 # =============================================================================
 
 def build_soul_html(
+    etapa_context: dict,
     summary: str,
     closing: str,
-    redacted_sections: Dict[str, str],
-    citations: Dict[str, str]
+    redacted_sections: dict[str, str],
+    citations: dict[str, str]
 ) -> str:
     """
     Build the complete Brand Soul HTML document.
@@ -386,6 +387,14 @@ def build_soul_html(
 <body>
     <div class="container">
         <h1>Brand Soul</h1>
+
+        <!-- SECCIÓN 1: Dónde estás hoy (ETAPA) -->
+        <div class="etapa-box">
+            <div class="etapa-title">{etapa_context['name']}</div>
+            <div class="etapa-skill">Lo único que importa ahora: {etapa_context['skill_to_unlock']}</div>
+            <div class="etapa-prohibited">Prohibido: {etapa_context['prohibited']}</div>
+            <p>{etapa_context['description']}</p>
+        </div>
 
         <h2>Executive summary</h2>
         <p>{summary}</p>

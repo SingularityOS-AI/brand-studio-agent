@@ -6,10 +6,10 @@
 ........................................................................ [ 51%]
 .....................................sssssssssF...F..................... [ 59%]
 ........................................................................ [ 68%]
-.....................ss.s....F.s......s....s..sss.s.s.sE................ [ 77%]
+.....................ss.s....F.s......s....s..sss.s.s.sE................ [ 76%]
 ........................................................................ [ 85%]
 ........................................................................ [ 94%]
-.............................ssss................                        [100%]
+..............................ssss................                       [100%]
 ==================================== ERRORS ====================================
 ___________ ERROR at setup of test_p92_post_progress_host_validation ___________
 file /app/tests/test_render_service_p92_rebote.py, line 514
@@ -22,7 +22,7 @@ E       fixture 'mocker' not found
 =================================== FAILURES ===================================
 _____________________ test_normal_request_pass_and_deduct ______________________
 
-client_with_auth = <starlette.testclient.TestClient object at 0x7ff6f4ab0c80>
+client_with_auth = <starlette.testclient.TestClient object at 0x7f2615006e70>
 
     def test_normal_request_pass_and_deduct(client_with_auth):
         """
@@ -41,8 +41,8 @@ E       assert 499 <= 249
 tests/test_guard_jwt.py:111: AssertionError
 ______________________ test_budget_exhausted_returns_402 _______________________
 
-client_with_auth = <starlette.testclient.TestClient object at 0x7ff6f485ade0>
-monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff6f485b410>
+client_with_auth = <starlette.testclient.TestClient object at 0x7f2614e62f60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2614e63530>
 
     def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
         """
@@ -174,7 +174,7 @@ tests/test_scripts_pieza39.py: 2 warnings
 tests/test_scripts_pieza43.py: 1 warning
 tests/test_scripts_pieza45.py: 3 warnings
 tests/test_scripts_pieza48.py: 2 warnings
-tests/test_soul.py: 84 warnings
+tests/test_soul.py: 93 warnings
 tests/test_soul_credit_cost.py: 9 warnings
 tests/test_soul_rate_limit.py: 9 warnings
   /app/app/tools/brand_brain/models.py:38: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
@@ -189,7 +189,7 @@ tests/test_scripts_pieza39.py: 2 warnings
 tests/test_scripts_pieza43.py: 1 warning
 tests/test_scripts_pieza45.py: 3 warnings
 tests/test_scripts_pieza48.py: 2 warnings
-tests/test_soul.py: 84 warnings
+tests/test_soul.py: 93 warnings
 tests/test_soul_credit_cost.py: 9 warnings
 tests/test_soul_rate_limit.py: 9 warnings
   /app/app/tools/brand_brain/models.py:39: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
@@ -204,7 +204,7 @@ tests/test_scripts_pieza39.py: 1 warning
 tests/test_scripts_pieza43.py: 1 warning
 tests/test_scripts_pieza45.py: 3 warnings
 tests/test_scripts_pieza48.py: 2 warnings
-tests/test_soul.py: 12 warnings
+tests/test_soul.py: 13 warnings
 tests/test_soul_credit_cost.py: 1 warning
 tests/test_soul_rate_limit.py: 1 warning
   /app/app/tools/brand_brain/models.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
@@ -219,7 +219,7 @@ tests/test_scripts_pieza39.py: 1 warning
 tests/test_scripts_pieza43.py: 1 warning
 tests/test_scripts_pieza45.py: 3 warnings
 tests/test_scripts_pieza48.py: 2 warnings
-tests/test_soul.py: 12 warnings
+tests/test_soul.py: 13 warnings
 tests/test_soul_credit_cost.py: 1 warning
 tests/test_soul_rate_limit.py: 1 warning
   /app/app/tools/brand_brain/models.py:91: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
@@ -259,4 +259,4 @@ FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
 FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
 FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
 ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
-3 failed, 811 passed, 26 skipped, 2 deselected, 596 warnings, 1 error in 14.01s
+3 failed, 812 passed, 26 skipped, 2 deselected, 616 warnings, 1 error in 13.92s

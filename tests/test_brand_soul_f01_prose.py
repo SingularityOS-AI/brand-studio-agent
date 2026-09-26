@@ -38,11 +38,12 @@ def test_f01_prose_no_json_like_format(
     assert "{" not in text_content
     assert "}" not in text_content
 
-    # "key: value" might be matched, but we can verify our fallback logic works
-    # by ensuring snake_case keys are gone
-    assert "sintoma_diagnostico" not in text_content
-    assert "habilidad_a_desbloquear" not in text_content
-    assert "resultado_deseado" not in text_content
+    # Assert that there are no "Word: value" patterns outside of standard prose/headings
+    # We should not have snake_case
+    assert "_" not in text_content
+    # Ensure that raw dict keys like "sintoma_diagnostico" or "resultado_deseado" are not output as raw strings
+    assert "sintoma_diagnostico:" not in text_content
+    assert "resultado_deseado:" not in text_content
 
 @patch("app.tools.brand_soul.generator.get_brand_brain")
 @patch("app.tools.brand_soul.generator._check_cache")
