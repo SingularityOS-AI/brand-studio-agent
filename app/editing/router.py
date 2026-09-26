@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import hmac
+import json
 import re
 import time
 from datetime import datetime, timezone
@@ -28,6 +30,7 @@ from app.audiovisual.spend_guard import can_spend
 from app.audiovisual.storage import signed_url
 from app.editing import config as dispatch_config
 from app.editing.brand_style import derive_caption_style
+from app.editing.dispatch import get_cached_engine_version, get_engine_version
 from app.editing.dressing import (
     RedressError,
     dress_all,
@@ -77,6 +80,37 @@ def _check_and_record_llm_call(session_token: str) -> None:
         raise EditingError(429, {"code": "too_many_ai_calls"})
     calls.append(now)
     _llm_calls[session_token] = calls
+
+
+def _render_content_hash(ir_dict: dict[str, Any] | None, raw_storage_path: str) -> str:
+    """Hashes the IR + raw path only (not the engine version), so pricing can tell
+    whether the only change since the last done render is the render engine."""
+    ir_raw_str = json.dumps(ir_dict, sort_keys=True) + raw_storage_path
+    return hashlib.sha256(ir_raw_str.encode("utf-8")).hexdigest()[:20]
+
+
+def _render_key(content_hash: str, engine_version: str) -> str:
+    """Render key (bug B3): sha256(IR canonical + raw path + engine_version)[:20],
+    so a re-render after an engine update never reuses an old job/MP4."""
+    return hashlib.sha256(f"{content_hash}:{engine_version}".encode("utf-8")).hexdigest()[:20]
+
+
+def _render_price(prev_render: dict[str, Any], content_hash: str, engine_version: str) -> int:
+    """P1 pricing: no previous done render for this idea -> RENDER_CREDITS; a previous
+    done render with the same content (IR+raw) but a different engine_version -> free
+    (the only change is the engine); otherwise -> RERENDER_CREDITS."""
+    if prev_render.get("status") != "done":
+        return getattr(dispatch_config, "RENDER_CREDITS", 20)
+    prev_engine = prev_render.get("engine_version")
+    if (
+        prev_render.get("content_hash") == content_hash
+        and prev_engine
+        and prev_engine != "unknown"
+        and engine_version != "unknown"
+        and prev_engine != engine_version
+    ):
+        return 0
+    return getattr(dispatch_config, "RERENDER_CREDITS", 5)
 
 
 class EditingError(Exception):
@@ -255,6 +289,17 @@ def _state(
         if isinstance(inp_data, dict) and inp_data.get("storage_path")
     }
 
+    # Render price (P1) for display: a best-effort peek at the cached engine_version
+    # (no I/O). The authoritative price at charge time is computed in
+    # post_final_render with a live-or-cached read via get_engine_version().
+    render_price = None
+    if ir is not None:
+        raw_storage_path_for_price = edit_raw.get("storage_path") or ""
+        content_hash_for_price = _render_content_hash(ir, raw_storage_path_for_price)
+        render_price = _render_price(
+            edit_render, content_hash_for_price, get_cached_engine_version()
+        )
+
     return {
         "edit_version": edit["version"],
         "timeline": timeline,
@@ -266,6 +311,7 @@ def _state(
         "settings": edit.get("settings", {}),
         "raw": raw_dict,
         "render": render_dict,
+        "render_price": render_price,
         "dressing": {
             "source": dressing_data.get("source") if dressing_scenes else None,
             "fresh": dressing_fresh,
@@ -684,14 +730,12 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
     if not can_spend(0.01):
         return JSONResponse(status_code=503, content={"code": "spend_paused"})
 
-    import hashlib
-    import json
-
     ir_dict = state["ir"]
     edit_raw = edit.get("raw_render") or {}
     raw_storage_path = edit_raw.get("storage_path") or ""
-    ir_raw_str = json.dumps(ir_dict, sort_keys=True) + raw_storage_path
-    contenido = hashlib.sha256(ir_raw_str.encode("utf-8")).hexdigest()[:20]
+    content_hash = _render_content_hash(ir_dict, raw_storage_path)
+    engine_version = await get_engine_version()
+    contenido = _render_key(content_hash, engine_version)
 
     base_prefix = f"{session_token}:{idea_id}:render:{contenido}:"
     render_jobs = [j for j in jobs if j.get("kind") == "render"]
@@ -703,7 +747,7 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
     )
 
     idempotency_key = f"{base_prefix}{failed_count}"
-    render_credits = getattr(dispatch_config, "RENDER_CREDITS", 20)
+    render_credits = _render_price(edit.get("render") or {}, content_hash, engine_version)
 
     job, created = create_job(
         session_token=session_token,
@@ -715,6 +759,8 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
         input={
             "ir": state["ir"],
             "raw_storage_path": raw_storage_path,
+            "content_hash": content_hash,
+            "engine_version": engine_version,
             # Only the sound effects: the takes and b-roll are already inside the raw MP4.
             "sfx_inputs": state.get("_sfx_inputs", {}),
         },
@@ -722,7 +768,7 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
         return_created=True,
     )
 
-    if created:
+    if created and render_credits > 0:
         mark_charged(job)
         job["charged"] = True
         try:

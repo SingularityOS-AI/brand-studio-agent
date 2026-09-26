@@ -1,0 +1,11 @@
+/home/user/brand-studio-agent/render_service/manifest.py:135: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+  class Timeline(BaseModel):
+/home/user/brand-studio-agent/render_service/manifest.py:300: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+  class RenderIR(BaseModel):
+/home/user/brand-studio-agent/render_service/manifest.py:401: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+  class RenderRequest(BaseModel):
+[guard] sin Supabase: estado en memoria, se pierde al reiniciar
+Proxy error. Changing IP
+No more proxies available. Bye!
+[trends] pytrends initialization failed: HTTPSConnectionPool(host='trends.google.com', port=443): Max retries exceeded with url: /trends/explore/?geo=US (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))
+OK import app.editing.router

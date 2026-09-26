@@ -31,6 +31,7 @@ from render_service.manifest import (
     RenderOk,
     RenderRequest,
 )
+from render_service.version import ENGINE_VERSION
 
 logger = logging.getLogger("brand-studio-render")
 
@@ -134,7 +135,11 @@ CONVERTER: Callable[..., Path | None] = _default_converter
 @app.get("/healthz")
 @app.get("/health")  # Cloud Run's front end reserves paths ending in "z": /healthz never arrives
 def healthz() -> dict[str, Any]:
-    return {"ok": True, "ffmpeg": bool(shutil.which("ffmpeg"))}
+    return {
+        "ok": True,
+        "ffmpeg": bool(shutil.which("ffmpeg")),
+        "engine_version": ENGINE_VERSION,
+    }
 
 
 @app.post("/v1/render")

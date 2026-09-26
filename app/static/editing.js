@@ -707,6 +707,17 @@
       dressBtnLabel = "Your cut changed — dress again · free";
     }
 
+    // Determine Render button label from the current price (E2-05 / P1)
+    const renderPrice = state.render_price;
+    let renderBtnLabel = "Render · 20 credits";
+    if (renderPrice === 0) {
+      renderBtnLabel = "Render again · free (engine updated)";
+    } else if (renderPrice === 5) {
+      renderBtnLabel = "Render again · 5 credits";
+    } else if (typeof renderPrice === "number") {
+      renderBtnLabel = `Render · ${renderPrice} credits`;
+    }
+
     // Build Scene Cards HTML
     const scenesHtml = scenes.map((sc) => {
       const currentFaceSetting = settings.face ? settings.face[String(sc.n)] : undefined;
@@ -844,7 +855,7 @@
             ${escapeHtml(dressBtnLabel)}
           </button>
           <button type="button" class="btn btn--go" data-edit-action="render" style="font-size:13px;font-weight:600">
-            Render · 20 credits
+            ${escapeHtml(renderBtnLabel)}
           </button>
           ${!raw.fresh ? `<button type="button" class="btn btn--secondary" data-edit-action="build_raw" style="font-size:13px">Rebuild raw cut · free</button>` : ''}
         </div>

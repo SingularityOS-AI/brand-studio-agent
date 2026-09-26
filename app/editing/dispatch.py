@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -16,6 +17,60 @@ from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
 from render_service.manifest import RenderError, RenderOk, RenderRequest
 
 logger = logging.getLogger(__name__)
+
+
+_ENGINE_VERSION_TTL_S = 300  # 5 minutes (E2-05 / bug B3)
+_engine_version_cache: dict[str, Any] = {"value": None, "checked_at": None}
+
+
+def _reset_engine_version_cache() -> None:
+    """Test helper: clears the cached /health engine_version read."""
+    _engine_version_cache["value"] = None
+    _engine_version_cache["checked_at"] = None
+
+
+def get_cached_engine_version() -> str:
+    """Peeks at the cached /health engine_version with no I/O.
+
+    Returns "unknown" if nothing has been read yet or the cached read has expired;
+    the caller decides whether that's good enough (display) or it must call
+    `get_engine_version()` to force a fresh read (pricing/render key).
+    """
+    value = _engine_version_cache.get("value")
+    checked_at = _engine_version_cache.get("checked_at")
+    if value is not None and checked_at is not None:
+        if (time.monotonic() - checked_at) < _ENGINE_VERSION_TTL_S:
+            return value
+    return "unknown"
+
+
+async def get_engine_version() -> str:
+    """Reads engine_version from the render service /health, cached for 5 minutes.
+
+    Returns "unknown" when the render service is unreachable, misconfigured, or
+    replies without an engine_version. A failed read is never cached, so the
+    next call retries against the render service.
+    """
+    cached = get_cached_engine_version()
+    if cached != "unknown":
+        return cached
+
+    url = (getattr(dispatch_config, "RENDER_SERVICE_URL", "") or "").strip()
+    if not url:
+        return "unknown"
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            resp = await http_client.get(f"{url.rstrip('/')}/health")
+        if resp.status_code == 200:
+            version = resp.json().get("engine_version")
+            if isinstance(version, str) and version:
+                _engine_version_cache["value"] = version
+                _engine_version_cache["checked_at"] = time.monotonic()
+                return version
+    except Exception as e:
+        logger.warning("get_engine_version: /health read failed: %s", e)
+    return "unknown"
 
 
 class RenderServiceError(Exception):
@@ -274,6 +329,7 @@ async def resolve_render(job: dict[str, Any]) -> dict[str, Any]:
     req = build_final_request(job)
     ok = await call_render_service(req)
 
+    job_input = job.get("input") or {}
     render_payload = {
         "job_id": job["id"],
         "status": "done",
@@ -281,6 +337,8 @@ async def resolve_render(job: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": ok["duration_ms"],
         "bytes": ok["bytes"],
         "render_s": ok["render_s"],
+        "content_hash": job_input.get("content_hash"),
+        "engine_version": job_input.get("engine_version"),
     }
 
     for attempt in range(3):
