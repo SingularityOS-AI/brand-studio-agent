@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brand Soul</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #E7EAF0;
+            color: #14181F;
+            line-height: 1.6;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #FFFFFF;
+            padding: 60px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        h1 {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-size: 32px;
+            font-weight: 700;
+            color: #14181F;
+            margin-bottom: 10px;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-size: 20px;
+            font-weight: 600;
+            color: #14181F;
+            margin-top: 40px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #D5DAE4;
+        }
+
+        h3 {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            color: #5C6675;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        p {
+            margin-bottom: 16px;
+            font-size: 15px;
+        }
+
+        .etapa-box {
+            background: linear-gradient(135deg, #2B4CD815 0%, #2B4CD805 100%);
+            border-left: 4px solid #2B4CD8;
+            padding: 24px;
+            margin-bottom: 40px;
+            border-radius: 4px;
+        }
+
+        .etapa-title {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: #2B4CD8;
+            margin-bottom: 8px;
+        }
+
+        .etapa-skill {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .etapa-prohibited {
+            color: #5C6675;
+            font-style: italic;
+            margin-bottom: 12px;
+        }
+
+        .citation {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            color: #5C6675;
+            background: #E7EAF0;
+            padding: 12px;
+            margin-top: 12px;
+            border-radius: 4px;
+            border-left: 3px solid #D5DAE4;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-top: 16px;
+        }
+
+        .column {
+            padding: 20px;
+            border-radius: 6px;
+        }
+
+        .column-accepted {
+            background: #E7EAF0;
+            border: 1px solid #D5DAE4;
+        }
+
+        .column-contrarian {
+            background: linear-gradient(135deg, #2B4CD810 0%, #2B4CD805 100%);
+            border: 1px solid #2B4CD830;
+        }
+
+        .column-title {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .column-accepted .column-title {
+            color: #5C6675;
+        }
+
+        .column-contrarian .column-title {
+            color: #2B4CD8;
+        }
+
+        .associations-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .associations-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #D5DAE4;
+        }
+
+        .associations-list li:last-child {
+            border-bottom: none;
+        }
+
+        .associations-desired {
+            color: #14181F;
+        }
+
+        .associations-prohibited {
+            color: #5C6675;
+            font-style: italic;
+        }
+
+        .equation {
+            background: linear-gradient(90deg, #2B4CD810 0%, transparent 100%);
+            padding: 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 40px;
+                max-width: 100%;
+            }
+
+            .etapa-box {
+                page-break-inside: avoid;
+            }
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 20px;
+            }
+
+            .container {
+                padding: 30px;
+            }
+
+            .two-column {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Brand Soul</h1>
+
+        <h2>Executive summary</h2>
+        <p>
+
+--- diagnostico ---
+Etapa: creador atascado Sintoma diagnostico: Engrosar embudo sin convertir
+
+--- brand_journey ---
+Resultado deseado: Ser referente en consultoría
+
+--- charco ---
+Problema: Pymes que no convertían tráfico
+
+--- icp ---
+Quien decide: CEO de pymes
+
+--- contrarian ---
+Creencia comun: Necesitas más redes sociales Postura opuesta: Elvia desafió...
+
+--- asociaciones ---
+Deseadas: auténtico, profundo Prohibidas: superficial
+
+--- identidad ---
+Voz: Directa Colores: #2563EB Tipografias: Inter
+
+--- oferta ---
+Resultado sonado: Duplicar ingresos
+
+--- lead_magnet ---
+Tipo: revelador Problema a: No saber vender</p>
+
+        <h2>Diagnosis</h2>
+        <p>Etapa: creador atascado Sintoma diagnostico: Engrosar embudo sin convertir</p>
+        <div class="citation">"Elvia diagnosticó..."</div>
+
+        <h2>Brand Journey</h2>
+        <p>Resultado deseado: Ser referente en consultoría</p>
+        <div class="citation">"Elvia explicó..."</div>
+
+        <h2>Your Pond</h2>
+        <p>Problema: Pymes que no convertían tráfico</p>
+        <div class="citation">"Elvia identificó..."</div>
+
+        <h2>Ideal Client</h2>
+        <p>Quien decide: CEO de pymes</p>
+        <div class="citation">"Elvia validó..."</div>
+
+        <h2>Contrarian Take</h2>
+        <p>Creencia comun: Necesitas más redes sociales Postura opuesta: Elvia desafió...</p>
+        <div class="citation">"Elvia desafió..."</div>
+
+        <h2>Associations</h2>
+        <p>Deseadas: auténtico, profundo Prohibidas: superficial</p>
+        <div class="citation">"Elvia clarificó..."</div>
+
+        <h2>Identity</h2>
+        <p>Voz: Directa Colores: #2563EB Tipografias: Inter</p>
+        <div class="citation">"Elvia dijo..."</div>
+
+        <h2>Offer</h2>
+        <p>Resultado sonado: Duplicar ingresos</p>
+        <div class="citation">"Elvia definió..."</div>
+
+        <h2>Lead Magnet</h2>
+        <p>Tipo: revelador Problema a: No saber vender</p>
+        <div class="citation">"Elvia recomendó..."</div>
+
+        <h2>How Brandy will use this</h2>
+        <p>
+
+--- diagnostico ---
+Etapa: creador atascado Sintoma diagnostico: Engrosar embudo sin convertir
+
+--- brand_journey ---
+Resultado deseado: Ser referente en consultoría
+
+--- charco ---
+Problema: Pymes que no convertían tráfico
+
+--- icp ---
+Quien decide: CEO de pymes
+
+--- contrarian ---
+Creencia comun: Necesitas más redes sociales Postura opuesta: Elvia desafió...
+
+--- asociaciones ---
+Deseadas: auténtico, profundo Prohibidas: superficial
+
+--- identidad ---
+Voz: Directa Colores: #2563EB Tipografias: Inter
+
+--- oferta ---
+Resultado sonado: Duplicar ingresos
+
+--- lead_magnet ---
+Tipo: revelador Problema a: No saber vender</p>
+    </div>
+</body>
+</html>

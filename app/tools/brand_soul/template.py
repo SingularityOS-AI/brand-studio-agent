@@ -155,25 +155,10 @@ def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
 # =============================================================================
 
 def build_soul_html(
-    etapa_context: Dict,
-    charco_content: str,
-    charco_citation: str,
-    knowledge_level: str,
-    knowledge_implication: str,
-    knowledge_citation: str,
-    common_belief: str,
-    contrarian_position: str,
-    contrarian_citation: str,
-    identity_voice: str,
-    identity_associations_desired: str,
-    identity_associations_prohibited: str,
-    identity_citation: str,
-    offer_equation: str,
-    offer_citation: str,
-    lead_magnet_text: str,
-    lead_magnet_citation: str,
-    brand_journey_stages: str,
-    brand_journey_citation: str
+    summary: str,
+    closing: str,
+    redacted_sections: Dict[str, str],
+    citations: Dict[str, str]
 ) -> str:
     """
     Build the complete Brand Soul HTML document.
@@ -402,67 +387,47 @@ def build_soul_html(
     <div class="container">
         <h1>Brand Soul</h1>
 
-        <!-- SECCIÓN 1: Dónde estás hoy (ETAPA) -->
-        <div class="etapa-box">
-            <div class="etapa-title">{etapa_context['name']}</div>
-            <div class="etapa-skill">Lo único que importa ahora: {etapa_context['skill_to_unlock']}</div>
-            <div class="etapa-prohibited">Prohibido: {etapa_context['prohibited']}</div>
-            <p>{etapa_context['description']}</p>
-        </div>
+        <h2>Executive summary</h2>
+        <p>{summary}</p>
 
-        <!-- SECCIÓN 2: Tu charco -->
-        <h2>2. Tu charco</h2>
-        <p>{charco_content}</p>
-        <div class="citation">"{charco_citation}"</div>
+        <h2>Diagnosis</h2>
+        <p>{redacted_sections.get('diagnostico', '')}</p>
+        <div class="citation">"{citations.get('diagnostico', '')}"</div>
 
-        <!-- SECCIÓN 3: Desde dónde hablas -->
-        <h2>3. Desde dónde hablas</h2>
-        <h3>Posición: {knowledge_level}</h3>
-        <p>{knowledge_implication}</p>
-        <div class="citation">"{knowledge_citation}"</div>
+        <h2>Brand Journey</h2>
+        <p>{redacted_sections.get('brand_journey', '')}</p>
+        <div class="citation">"{citations.get('brand_journey', '')}"</div>
 
-        <!-- SECCIÓN 4: Tu postura contraria (DOS COLUMNAS) -->
-        <h2>4. Tu postura contraria</h2>
-        <div class="two-column">
-            <div class="column column-accepted">
-                <div class="column-title">Lo que el nicho acepta</div>
-                <p>{common_belief}</p>
-            </div>
-            <div class="column column-contrarian">
-                <div class="column-title">Lo que tú crees</div>
-                <p>{contrarian_position}</p>
-            </div>
-        </div>
-        <div class="citation">"{contrarian_citation}"</div>
+        <h2>Your Pond</h2>
+        <p>{redacted_sections.get('charco', '')}</p>
+        <div class="citation">"{citations.get('charco', '')}"</div>
 
-        <!-- SECCIÓN 5: Tu identidad -->
-        <h2>5. Tu identidad</h2>
-        <h3>Voz de marca</h3>
-        <p>{identity_voice}</p>
-        <h3>Asociaciones deseadas</h3>
-        <ul class="associations-list">
-            {identity_associations_desired}
-        </ul>
-        <h3>Asociaciones prohibidas</h3>
-        <ul class="associations-list">
-            {identity_associations_prohibited}
-        </ul>
-        <div class="citation">"{identity_citation}"</div>
+        <h2>Ideal Client</h2>
+        <p>{redacted_sections.get('icp', '')}</p>
+        <div class="citation">"{citations.get('icp', '')}"</div>
 
-        <!-- SECCIÓN 6: Tu oferta -->
-        <h2>6. Tu oferta</h2>
-        <div class="equation">{offer_equation}</div>
-        <div class="citation">"{offer_citation}"</div>
+        <h2>Contrarian Take</h2>
+        <p>{redacted_sections.get('contrarian', '')}</p>
+        <div class="citation">"{citations.get('contrarian', '')}"</div>
 
-        <!-- SECCIÓN 7: Tu lead magnet -->
-        <h2>7. Tu lead magnet</h2>
-        <p>{lead_magnet_text}</p>
-        <div class="citation">"{lead_magnet_citation}"</div>
+        <h2>Associations</h2>
+        <p>{redacted_sections.get('asociaciones', '')}</p>
+        <div class="citation">"{citations.get('asociaciones', '')}"</div>
 
-        <!-- SECCIÓN 8: Tu destino -->
-        <h2>8. Tu destino</h2>
-        <p>{brand_journey_stages}</p>
-        <div class="citation">"{brand_journey_citation}"</div>
+        <h2>Identity</h2>
+        <p>{redacted_sections.get('identidad', '')}</p>
+        <div class="citation">"{citations.get('identidad', '')}"</div>
+
+        <h2>Offer</h2>
+        <p>{redacted_sections.get('oferta', '')}</p>
+        <div class="citation">"{citations.get('oferta', '')}"</div>
+
+        <h2>Lead Magnet</h2>
+        <p>{redacted_sections.get('lead_magnet', '')}</p>
+        <div class="citation">"{citations.get('lead_magnet', '')}"</div>
+
+        <h2>How Brandy will use this</h2>
+        <p>{closing}</p>
     </div>
 </body>
 </html>

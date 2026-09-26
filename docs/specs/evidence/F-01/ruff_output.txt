@@ -1,0 +1,687 @@
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/tools/brand_soul/generator.py:26:1
+   |
+24 |   """
+25 |
+26 | / import os
+27 | | from typing import Dict, Optional, List, Tuple
+28 | | import hashlib
+29 | | import json
+30 | |
+31 | | from app.tools.brand_brain.models import BrandBrain, Section
+32 | | from app.tools.brand_brain.store import get_brand_brain, save_brand_brain
+33 | | from app.tools.brand_soul.template import (
+34 | |     build_soul_html,
+35 | |     get_etapa_context,
+36 | |     detect_etapa_from_brand_brain
+37 | | )
+38 | | from app.config import settings
+   | |_______________________________^
+help: Organize imports
+   |
+25 |
+   - import os
+   - from typing import Dict, Optional, List, Tuple
+26 | import hashlib
+27 | import json
+28 + import os
+29 + from typing import Dict, List, Optional, Tuple
+30 |
+31 + from app.config import settings
+32 | from app.tools.brand_brain.models import BrandBrain, Section
+33 | from app.tools.brand_brain.store import get_brand_brain, save_brand_brain
+34 | from app.tools.brand_soul.template import (
+35 |     build_soul_html,
+36 +     detect_etapa_from_brand_brain,
+37 |     get_etapa_context,
+   -     detect_etapa_from_brand_brain
+38 | )
+   - from app.config import settings
+39 |
+   |
+
+F401 [*] `os` imported but unused
+  --> app/tools/brand_soul/generator.py:26:8
+   |
+24 | """
+25 |
+26 | import os
+   |        ^^
+27 | from typing import Dict, Optional, List, Tuple
+28 | import hashlib
+   |
+help: Remove unused import: `os`
+   |
+25 |
+   - import os
+26 | from typing import Dict, Optional, List, Tuple
+   |
+
+UP035 `typing.Dict` is deprecated, use `dict` instead
+  --> app/tools/brand_soul/generator.py:27:1
+   |
+26 | import os
+27 | from typing import Dict, Optional, List, Tuple
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 | import hashlib
+29 | import json
+   |
+
+UP035 `typing.List` is deprecated, use `list` instead
+  --> app/tools/brand_soul/generator.py:27:1
+   |
+26 | import os
+27 | from typing import Dict, Optional, List, Tuple
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 | import hashlib
+29 | import json
+   |
+
+UP035 `typing.Tuple` is deprecated, use `tuple` instead
+  --> app/tools/brand_soul/generator.py:27:1
+   |
+26 | import os
+27 | from typing import Dict, Optional, List, Tuple
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 | import hashlib
+29 | import json
+   |
+
+F401 [*] `app.tools.brand_brain.store.save_brand_brain` imported but unused
+  --> app/tools/brand_soul/generator.py:32:58
+   |
+31 | from app.tools.brand_brain.models import BrandBrain, Section
+32 | from app.tools.brand_brain.store import get_brand_brain, save_brand_brain
+   |                                                          ^^^^^^^^^^^^^^^^
+33 | from app.tools.brand_soul.template import (
+34 |     build_soul_html,
+   |
+help: Remove unused import: `app.tools.brand_brain.store.save_brand_brain`
+   |
+31 | from app.tools.brand_brain.models import BrandBrain, Section
+   - from app.tools.brand_brain.store import get_brand_brain, save_brand_brain
+32 + from app.tools.brand_brain.store import get_brand_brain
+33 | from app.tools.brand_soul.template import (
+   |
+
+PIE790 [*] Unnecessary `pass` statement
+  --> app/tools/brand_soul/generator.py:43:5
+   |
+41 | class SoulGenerationError(Exception):
+42 |     """Raised when Brand Soul cannot be generated"""
+43 |     pass
+   |     ^^^^
+help: Remove unnecessary `pass`
+   |
+42 |     """Raised when Brand Soul cannot be generated"""
+   -     pass
+43 |
+   |
+
+PIE790 [*] Unnecessary `pass` statement
+  --> app/tools/brand_soul/generator.py:48:5
+   |
+46 | class CitationValidationError(SoulGenerationError):
+47 |     """Raised when generated HTML contains invented citations"""
+48 |     pass
+   |     ^^^^
+help: Remove unnecessary `pass`
+   |
+47 |     """Raised when generated HTML contains invented citations"""
+   -     pass
+48 |
+   |
+
+PIE790 [*] Unnecessary `pass` statement
+  --> app/tools/brand_soul/generator.py:53:5
+   |
+51 | class IncompleteBrainError(SoulGenerationError):
+52 |     """Raised when brain doesn't have all 9 confirmed sections"""
+53 |     pass
+   |     ^^^^
+help: Remove unnecessary `pass`
+   |
+52 |     """Raised when brain doesn't have all 9 confirmed sections"""
+   -     pass
+53 |
+   |
+
+UP006 [*] Use `tuple` instead of `Tuple` for type annotation
+  --> app/tools/brand_soul/generator.py:56:57
+   |
+56 | def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
+   |                                                         ^^^^^
+57 |     """
+58 |     Check if all 9 sections exist and are confirmed.
+   |
+help: Replace with `tuple`
+   |
+55 |
+   - def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
+56 + def _check_all_sections_confirmed(brain: BrandBrain) -> tuple[bool, List[str]]:
+57 |     """
+   |
+
+UP006 [*] Use `list` instead of `List` for type annotation
+  --> app/tools/brand_soul/generator.py:56:69
+   |
+56 | def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
+   |                                                                     ^^^^
+57 |     """
+58 |     Check if all 9 sections exist and are confirmed.
+   |
+help: Replace with `list`
+   |
+55 |
+   - def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
+56 + def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, list[str]]:
+57 |     """
+   |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+  --> app/tools/brand_soul/generator.py:88:54
+   |
+88 | def _extract_literal_citations(brain: BrandBrain) -> Dict[str, str]:
+   |                                                      ^^^^
+89 |     """
+90 |     Extract all literal citation texts from the brand_brain.
+   |
+help: Replace with `dict`
+   |
+87 |
+   - def _extract_literal_citations(brain: BrandBrain) -> Dict[str, str]:
+88 + def _extract_literal_citations(brain: BrandBrain) -> dict[str, str]:
+89 |     """
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> app/tools/brand_soul/generator.py:118:9
+    |
+117 |       try:
+118 | /         from vertexai.generative_models import GenerativeModel
+119 | |         import vertexai
+    | |_______________________^
+120 |
+121 |           # Initialize Vertex AI
+    |
+help: Organize imports
+    |
+117 |     try:
+118 +         import vertexai
+119 |         from vertexai.generative_models import GenerativeModel
+    -         import vertexai
+120 |
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/tools/brand_soul/generator.py:134:12
+    |
+132 |             "Install it with: pip install google-cloud-aiplatform"
+133 |         )
+134 |     except Exception as e:
+    |            ^^^^^^^^^
+135 |         raise RuntimeError(
+136 |             f"Failed to initialize Vertex AI client: {e}. "
+    |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+   --> app/tools/brand_soul/generator.py:158:20
+    |
+156 | def _redact_section_content_with_llm(
+157 |     section: Section,
+158 |     all_citations: Dict[str, str]
+    |                    ^^^^
+159 | ) -> Tuple[str, int]:
+160 |     """
+    |
+help: Replace with `dict`
+    |
+157 |     section: Section,
+    -     all_citations: Dict[str, str]
+158 +     all_citations: dict[str, str]
+159 | ) -> Tuple[str, int]:
+    |
+
+UP006 [*] Use `tuple` instead of `Tuple` for type annotation
+   --> app/tools/brand_soul/generator.py:159:6
+    |
+157 |     section: Section,
+158 |     all_citations: Dict[str, str]
+159 | ) -> Tuple[str, int]:
+    |      ^^^^^
+160 |     """
+161 |     Redact a section's content using Gemini 2.5 Flash-Lite via Vertex AI.
+    |
+help: Replace with `tuple`
+    |
+158 |     all_citations: Dict[str, str]
+    - ) -> Tuple[str, int]:
+159 + ) -> tuple[str, int]:
+160 |     """
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/tools/brand_soul/generator.py:262:12
+    |
+260 |         return redacted.strip() or section_text
+261 |
+262 |     except Exception as e:
+    |            ^^^^^^^^^
+263 |         # If LLM fails, return original text (graceful degradation)
+264 |         print(f"[WARN] LLM redaction failed for section: {e}. Using original text.")
+    |
+
+UP006 [*] Use `tuple` instead of `Tuple` for type annotation
+   --> app/tools/brand_soul/generator.py:268:65
+    |
+268 | def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
+    |                                                                 ^^^^^
+269 |     """
+270 |     Validate that every citation in the HTML exists literally in the brain.
+    |
+help: Replace with `tuple`
+    |
+267 |
+    - def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
+268 + def validate_citations_in_html(html: str, brain: BrandBrain) -> tuple[bool, List[str]]:
+269 |     """
+    |
+
+UP006 [*] Use `list` instead of `List` for type annotation
+   --> app/tools/brand_soul/generator.py:268:77
+    |
+268 | def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
+    |                                                                             ^^^^
+269 |     """
+270 |     Validate that every citation in the HTML exists literally in the brain.
+    |
+help: Replace with `list`
+    |
+267 |
+    - def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
+268 + def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, list[str]]:
+269 |     """
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> app/tools/brand_soul/generator.py:288:5
+    |
+286 |           citation_text fields.
+287 |       """
+288 | /     import re
+289 | |     import html as _html
+    | |________________________^
+290 |
+291 |       # Se revisa TODO texto entrecomillado del documento, no solo el que esta
+    |
+help: Organize imports
+    |
+287 |     """
+288 +     import html as _html
+289 |     import re
+    -     import html as _html
+290 |
+    |
+
+UP045 [*] Use `X | None` for type annotations
+   --> app/tools/brand_soul/generator.py:355:60
+    |
+355 | def _check_cache(brain: BrandBrain, session_token: str) -> Optional[str]:
+    |                                                            ^^^^^^^^^^^^^
+356 |     """
+357 |     Check if a cached HTML exists for this brain.
+    |
+help: Convert to `X | None`
+    |
+354 |
+    - def _check_cache(brain: BrandBrain, session_token: str) -> Optional[str]:
+355 + def _check_cache(brain: BrandBrain, session_token: str) -> str | None:
+356 |     """
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/tools/brand_soul/generator.py:398:12
+    |
+396 |         return row.get("soul_html")
+397 |
+398 |     except Exception as e:
+    |            ^^^^^^^^^
+399 |         print(f"[WARN] Failed to check cache: {e}")
+400 |         return None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/tools/brand_soul/generator.py:439:12
+    |
+437 |         return len(response.data) > 0
+438 |
+439 |     except Exception as e:
+    |            ^^^^^^^^^
+440 |         print(f"[WARN] Failed to save cache: {e}")
+441 |         return False
+    |
+
+UP006 [*] Use `tuple` instead of `Tuple` for type annotation
+   --> app/tools/brand_soul/generator.py:444:48
+    |
+444 | def generate_brand_soul(session_token: str) -> Tuple[str, str]:
+    |                                                ^^^^^
+445 |     """
+446 |     Generate the Brand Soul document for the given session.
+    |
+help: Replace with `tuple`
+    |
+443 |
+    - def generate_brand_soul(session_token: str) -> Tuple[str, str]:
+444 + def generate_brand_soul(session_token: str) -> tuple[str, str]:
+445 |     """
+    |
+
+F841 Local variable `etapa_context` is assigned to but never used
+   --> app/tools/brand_soul/generator.py:502:5
+    |
+500 |     if not etapa_id:
+501 |         etapa_id = "invisible"  # Default fallback
+502 |     etapa_context = get_etapa_context(etapa_id)
+    |     ^^^^^^^^^^^^^
+503 |
+504 |     # 4b. Redact each section with LLM and track tokens
+    |
+help: Remove assignment to unused variable `etapa_context`
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/tools/brand_soul/template.py:13:1
+   |
+11 |   """
+12 |
+13 | / from dataclasses import dataclass
+14 | | from typing import Dict, Optional, Literal
+15 | | from enum import Enum
+   | |_____________________^
+help: Organize imports
+   |
+13 | from dataclasses import dataclass
+   - from typing import Dict, Optional, Literal
+14 | from enum import Enum
+   -
+15 + from typing import Dict, Literal, Optional
+16 |
+   |
+
+F401 [*] `dataclasses.dataclass` imported but unused
+  --> app/tools/brand_soul/template.py:13:25
+   |
+11 | """
+12 |
+13 | from dataclasses import dataclass
+   |                         ^^^^^^^^^
+14 | from typing import Dict, Optional, Literal
+15 | from enum import Enum
+   |
+help: Remove unused import: `dataclasses.dataclass`
+   |
+12 |
+   - from dataclasses import dataclass
+13 | from typing import Dict, Optional, Literal
+   |
+
+UP035 `typing.Dict` is deprecated, use `dict` instead
+  --> app/tools/brand_soul/template.py:14:1
+   |
+13 | from dataclasses import dataclass
+14 | from typing import Dict, Optional, Literal
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 | from enum import Enum
+   |
+
+F401 [*] `typing.Literal` imported but unused
+  --> app/tools/brand_soul/template.py:14:36
+   |
+13 | from dataclasses import dataclass
+14 | from typing import Dict, Optional, Literal
+   |                                    ^^^^^^^
+15 | from enum import Enum
+   |
+help: Remove unused import: `typing.Literal`
+   |
+13 | from dataclasses import dataclass
+   - from typing import Dict, Optional, Literal
+14 + from typing import Dict, Optional
+15 | from enum import Enum
+   |
+
+F401 [*] `enum.Enum` imported but unused
+  --> app/tools/brand_soul/template.py:15:18
+   |
+13 | from dataclasses import dataclass
+14 | from typing import Dict, Optional, Literal
+15 | from enum import Enum
+   |                  ^^^^
+help: Remove unused import: `enum.Enum`
+   |
+14 | from typing import Dict, Optional, Literal
+   - from enum import Enum
+15 |
+   |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+  --> app/tools/brand_soul/template.py:60:16
+   |
+58 | # - One thing that's PROHIBITED (what NOT to do)
+59 |
+60 | ETAPAS_CONFIG: Dict[str, Dict] = {
+   |                ^^^^
+61 |     "invisible": {
+62 |         "name": "Invisibilidad",
+   |
+help: Replace with `dict`
+   |
+59 |
+   - ETAPAS_CONFIG: Dict[str, Dict] = {
+60 + ETAPAS_CONFIG: dict[str, Dict] = {
+61 |     "invisible": {
+   |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+  --> app/tools/brand_soul/template.py:60:26
+   |
+58 | # - One thing that's PROHIBITED (what NOT to do)
+59 |
+60 | ETAPAS_CONFIG: Dict[str, Dict] = {
+   |                          ^^^^
+61 |     "invisible": {
+62 |         "name": "Invisibilidad",
+   |
+help: Replace with `dict`
+   |
+59 |
+   - ETAPAS_CONFIG: Dict[str, Dict] = {
+60 + ETAPAS_CONFIG: Dict[str, dict] = {
+61 |     "invisible": {
+   |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+   --> app/tools/brand_soul/template.py:100:41
+    |
+100 | def get_etapa_context(stage_id: str) -> Dict[str, str]:
+    |                                         ^^^^
+101 |     """
+102 |     Get the complete context for a specific etapa.
+    |
+help: Replace with `dict`
+    |
+99  |
+    - def get_etapa_context(stage_id: str) -> Dict[str, str]:
+100 + def get_etapa_context(stage_id: str) -> dict[str, str]:
+101 |     """
+    |
+
+UP045 [*] Use `X | None` for type annotations
+   --> app/tools/brand_soul/template.py:118:51
+    |
+118 | def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
+    |                                                   ^^^^^^^^^^^^^
+119 |     """
+120 |     Detect the current business stage from the brand_brain data.
+    |
+help: Convert to `X | None`
+    |
+117 |
+    - def detect_etapa_from_brand_brain(brand_brain) -> Optional[str]:
+118 + def detect_etapa_from_brand_brain(brand_brain) -> str | None:
+119 |     """
+    |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+   --> app/tools/brand_soul/template.py:160:24
+    |
+158 |     summary: str,
+159 |     closing: str,
+160 |     redacted_sections: Dict[str, str],
+    |                        ^^^^
+161 |     citations: Dict[str, str]
+162 | ) -> str:
+    |
+help: Replace with `dict`
+    |
+159 |     closing: str,
+    -     redacted_sections: Dict[str, str],
+160 +     redacted_sections: dict[str, str],
+161 |     citations: Dict[str, str]
+    |
+
+UP006 [*] Use `dict` instead of `Dict` for type annotation
+   --> app/tools/brand_soul/template.py:161:16
+    |
+159 |     closing: str,
+160 |     redacted_sections: Dict[str, str],
+161 |     citations: Dict[str, str]
+    |                ^^^^
+162 | ) -> str:
+163 |     """
+    |
+help: Replace with `dict`
+    |
+160 |     redacted_sections: Dict[str, str],
+    -     citations: Dict[str, str]
+161 +     citations: dict[str, str]
+162 | ) -> str:
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> tests/test_brand_soul_f01_prose.py:1:1
+  |
+1 | / import pytest
+2 | | from unittest.mock import patch, MagicMock
+3 | | from app.tools.brand_soul.generator import generate_brand_soul
+4 | | from tests.test_soul import complete_confirmed_brain
+  | |____________________________________________________^
+5 |
+6 |   @patch("app.tools.brand_soul.generator.get_brand_brain")
+  |
+help: Organize imports
+  |
+1 + from unittest.mock import MagicMock, patch
+2 +
+3 | import pytest
+  - from unittest.mock import patch, MagicMock
+4 +
+5 | from app.tools.brand_soul.generator import generate_brand_soul
+6 | from tests.test_soul import complete_confirmed_brain
+7 |
+8 +
+9 | @patch("app.tools.brand_soul.generator.get_brand_brain")
+  |
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_brand_soul_f01_prose.py:1:8
+  |
+1 | import pytest
+  |        ^^^^^^
+2 | from unittest.mock import patch, MagicMock
+3 | from app.tools.brand_soul.generator import generate_brand_soul
+  |
+help: Remove unused import: `pytest`
+  |
+  - import pytest
+1 | from unittest.mock import patch, MagicMock
+  |
+
+F401 [*] `unittest.mock.MagicMock` imported but unused
+ --> tests/test_brand_soul_f01_prose.py:2:34
+  |
+1 | import pytest
+2 | from unittest.mock import patch, MagicMock
+  |                                  ^^^^^^^^^
+3 | from app.tools.brand_soul.generator import generate_brand_soul
+4 | from tests.test_soul import complete_confirmed_brain
+  |
+help: Remove unused import: `unittest.mock.MagicMock`
+  |
+1 | import pytest
+  - from unittest.mock import patch, MagicMock
+2 + from unittest.mock import patch
+3 | from app.tools.brand_soul.generator import generate_brand_soul
+  |
+
+F401 [*] `tests.test_soul.complete_confirmed_brain` imported but unused
+ --> tests/test_brand_soul_f01_prose.py:4:29
+  |
+2 | from unittest.mock import patch, MagicMock
+3 | from app.tools.brand_soul.generator import generate_brand_soul
+4 | from tests.test_soul import complete_confirmed_brain
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^
+5 |
+6 | @patch("app.tools.brand_soul.generator.get_brand_brain")
+  |
+help: Remove unused import: `tests.test_soul.complete_confirmed_brain`
+  |
+3 | from app.tools.brand_soul.generator import generate_brand_soul
+  - from tests.test_soul import complete_confirmed_brain
+4 |
+  |
+
+F811 Redefinition of unused `complete_confirmed_brain` from line 4
+  --> tests/test_brand_soul_f01_prose.py:15:5
+   |
+13 |     mock_check_cache,
+14 |     mock_get_brain,
+15 |     complete_confirmed_brain
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^ `complete_confirmed_brain` redefined here
+16 | ):
+17 |     """
+   |
+  ::: tests/test_brand_soul_f01_prose.py:4:29
+   |
+ 2 | from unittest.mock import patch, MagicMock
+ 3 | from app.tools.brand_soul.generator import generate_brand_soul
+ 4 | from tests.test_soul import complete_confirmed_brain
+   |                             ------------------------ previous definition of `complete_confirmed_brain` here
+ 5 |
+ 6 | @patch("app.tools.brand_soul.generator.get_brand_brain")
+   |
+help: Remove definition: `complete_confirmed_brain`
+
+F811 Redefinition of unused `complete_confirmed_brain` from line 4
+  --> tests/test_brand_soul_f01_prose.py:56:5
+   |
+54 |     mock_check_cache,
+55 |     mock_get_brain,
+56 |     complete_confirmed_brain
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^ `complete_confirmed_brain` redefined here
+57 | ):
+58 |     """
+   |
+  ::: tests/test_brand_soul_f01_prose.py:4:29
+   |
+ 2 | from unittest.mock import patch, MagicMock
+ 3 | from app.tools.brand_soul.generator import generate_brand_soul
+ 4 | from tests.test_soul import complete_confirmed_brain
+   |                             ------------------------ previous definition of `complete_confirmed_brain` here
+ 5 |
+ 6 | @patch("app.tools.brand_soul.generator.get_brand_brain")
+   |
+help: Remove definition: `complete_confirmed_brain`
+
+Found 42 errors.
+[*] 31 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).
