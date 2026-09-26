@@ -9,10 +9,12 @@ Files in this directory are literal command output, not a verdict.
 - `pytest_brand_soul_suite.txt` — `python -m pytest -q tests/test_soul.py
   tests/test_soul_credit_cost.py tests/test_soul_rate_limit.py tests/test_brain_hash.py
   tests/test_brand_soul_f01_prose.py`.
-- `ruff_check.txt` — `ruff check` on every `.py` file this piece touched
-  (`app/tools/brand_soul/generator.py`, `app/tools/brand_soul/template.py`,
-  `tests/test_soul.py`, `tests/test_soul_credit_cost.py`,
-  `tests/test_brand_soul_f01_prose.py`).
+- `ruff_check.txt` — `ruff --version && ruff check` (the direct `ruff` binary, 0.15.8
+  in this environment, matching the round-2 review's exact command) on every `.py`
+  file this piece touched (`app/tools/brand_soul/generator.py`,
+  `app/tools/brand_soul/template.py`, `tests/test_soul.py`,
+  `tests/test_soul_credit_cost.py`, `tests/test_brand_soul_f01_prose.py`). Also
+  re-verified clean under `python -m ruff` (0.16.9).
 - `health_check.md` — the status-code table from walking `/api/brain/extract` ->
   `/api/soul` (404) -> `/api/soul/generate` (LLM mocked) -> `/api/soul` (200) ->
   `/api/soul/generate` again (regenerate), produced by
@@ -20,6 +22,9 @@ Files in this directory are literal command output, not a verdict.
 - `extract_response.json` — the JSON body `/api/brain/extract` returned during that walk.
 - `generated_sample.html` — the Brand Soul document `/api/soul/generate` returned
   during that walk (LLM mocked, deterministic fallback prose).
+- `word_counts.md` — per-section word counts (Executive Summary, all 9 chapters,
+  closing note) — see it for the round-2 review fixes (Executive Summary word cap,
+  English `ETAPAS_CONFIG`).
 
 `pytest_full_suite.txt` (the `tests/` run) shows 6 failures and 1 collection error
 outside `tests/test_soul*.py`, `tests/test_brain_hash.py`, and

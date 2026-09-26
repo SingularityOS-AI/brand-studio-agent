@@ -50,49 +50,53 @@ class CoolPaperPalette:
 
 
 # =============================================================================
-# ETAPAS SEGUÉS FRAMEWORK
+# STAGES FRAMEWORK (Segués, 6 levels)
 # =============================================================================
-# Based on the 6 levels framework. Each stage has:
-# - Name (Spanish)
+# Each stage has:
+# - Name
 # - One skill to unlock (the ONLY thing that matters)
 # - One thing that's PROHIBITED (what NOT to do)
+#
+# F-01: this framework copy is written by us, not quoted from the founder, so
+# it stays in English like the rest of the document. Founder-provided facts
+# and literal citations are a separate matter and keep their own language.
 
 ETAPAS_CONFIG: dict[str, dict] = {
     "invisible": {
-        "name": "Invisibilidad",
-        "skill_to_unlock": "tu perspectiva — tu cicatriz",
-        "prohibited": "optimizar horarios; ninguna hora mágica salva un mensaje que suena como el de todos",
-        "description": "Nadie te conoce. Tu perspectiva única es lo único que puede romper el silencio."
+        "name": "Invisibility",
+        "skill_to_unlock": "your perspective — your scar",
+        "prohibited": "optimizing schedules; no magic hour saves a message that sounds like everyone else's",
+        "description": "Nobody knows you. Your unique perspective is the only thing that can break the silence."
     },
     "exploracion": {
-        "name": "Exploración",
-        "skill_to_unlock": "hablar el idioma de tu charco de dolor",
-        "prohibited": "hablar de tu solución; hasta que entiendan el problema, no odian lo que odias",
-        "description": "Estás probando qué problema resuena. No hay stillness — hay aprendizaje."
+        "name": "Exploration",
+        "skill_to_unlock": "speaking the language of your pond of pain",
+        "prohibited": "talking about your solution; until they understand the problem, they don't hate what you hate",
+        "description": "You're testing which problem resonates. There is no stillness here — only learning."
     },
     "precision": {
-        "name": "Precisión",
-        "skill_to_unlock": "tu postura contraria — lo que el charco acepta pero tú rechazas",
-        "prohibited": "generalizar; el nicho es un charco, no el océano",
-        "description": "Ya sabes quiénes son. Ahora necesitas posicionarte contra lo que todos aceptan."
+        "name": "Precision",
+        "skill_to_unlock": "your contrarian stance — what the pond accepts but you reject",
+        "prohibited": "generalizing; the niche is a pond, not the ocean",
+        "description": "You already know who they are. Now you need to position against what everyone accepts."
     },
     "momentum": {
-        "name": "Moméntum",
-        "skill_to_unlock": "tu oferta irrechazable — la ecuación de valor que cierra la venta",
-        "prohibited": "hacer ofertas blandas; sin riesgo inverso, es una oferta, no irrechazable",
-        "description": "La gente te conoce y confía. El momento para convertir esa confianza en ventas."
+        "name": "Momentum",
+        "skill_to_unlock": "your irresistible offer — the value equation that closes the sale",
+        "prohibited": "making soft offers; without reversed risk, it's an offer, not an irresistible one",
+        "description": "People know you and trust you. This is the moment to turn that trust into sales."
     },
     "sistema": {
-        "name": "Sistema",
-        "skill_to_unlock": "tu lead magnet — el primer paso gratis que abre la puerta",
-        "prohibited": "pensar en escala; un lead magnet que no convierte no escala no importa",
-        "description": "Ya cierras ventas. Ahora necesitas un sistema que traiga leads mientras duermes."
+        "name": "System",
+        "skill_to_unlock": "your lead magnet — the first free step that opens the door",
+        "prohibited": "thinking about scale; a lead magnet that doesn't convert doesn't matter how much it scales",
+        "description": "You already close sales. Now you need a system that brings in leads while you sleep."
     },
     "dominio": {
-        "name": "Dominio",
-        "skill_to_unlock": "tu brand journey — el viaje completo de no-problema a cliente",
-        "prohibited": "automatizar sin entender; cada etapa del viaje tiene una psicología",
-        "description": "El sistema funciona. Ahora dominas cada etapa del viaje del cliente."
+        "name": "Mastery",
+        "skill_to_unlock": "your brand journey — the complete path from no-problem to customer",
+        "prohibited": "automating without understanding; every stage of the journey has its own psychology",
+        "description": "The system works. Now you master every stage of the customer's journey."
     }
 }
 

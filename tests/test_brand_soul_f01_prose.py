@@ -248,13 +248,57 @@ def test_executive_summary_is_short_prose_not_a_chapter_dump(rich_confirmed_brai
     summary = _build_executive_summary(rich_confirmed_brain)
 
     word_count = _word_count(summary)
-    assert 100 <= word_count <= 220, f"expected ~120-200 words, got {word_count}"
+    assert 120 <= word_count <= 200, f"spec requires 120-200 words, got {word_count}"
 
     _assert_no_dump_patterns(summary)
     assert "---" not in summary
     # The regression this guards against: dumping all 9 chapters together.
     for _, heading in CHAPTERS:
         assert heading not in summary
+
+
+def test_executive_summary_stays_under_200_words_with_verbose_fields():
+    """
+    Founders don't always answer in three words. When every field the summary
+    reads is a long, verbose sentence, the deterministic cap must still bring
+    the total to <= 200 words -- by dropping whole low-priority sentences,
+    never by cutting a sentence mid-way.
+    """
+    verbose_value = (
+        "a long, deliberately verbose answer that a real founder might actually give during the "
+        "interview, running well past a short phrase and into several full clauses worth of detail"
+    )
+
+    brain = BrandBrain()
+    for section_id, key in [
+        ("diagnostico", "etapa"),
+        ("charco", "problema"),
+        ("icp", "quien_decide"),
+        ("contrarian", "postura_opuesta"),
+        ("oferta", "resultado_sonado"),
+        ("lead_magnet", "tipo"),
+        ("brand_journey", "resultado_deseado"),
+    ]:
+        brain.sections.append(
+            Section(
+                id=section_id,
+                label=section_id,
+                status="confirmado",
+                content={key: verbose_value},
+                citation_text=f"citation for {section_id}",
+                citation_source="usuario",
+            )
+        )
+    # brand_journey also needs de_que_ser_conocido; give it the same verbose value.
+    brain.get_section("brand_journey").content["de_que_ser_conocido"] = verbose_value
+
+    summary = _build_executive_summary(brain)
+    word_count = _word_count(summary)
+
+    assert word_count <= 200, f"cap must hold even with verbose fields, got {word_count}"
+    # Whole sentences only: the summary must end with sentence-ending punctuation,
+    # never mid-word/mid-clause the way a hard character truncation would.
+    assert summary.rstrip().endswith((".", "!", "?"))
 
 
 def test_closing_note_is_short_prose_not_a_chapter_dump(rich_confirmed_brain):

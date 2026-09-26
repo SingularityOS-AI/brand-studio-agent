@@ -659,6 +659,19 @@ def _build_chapter(section: Section, heading: str, etapa_context: dict) -> dict:
 # =============================================================================
 
 
+def _cap_word_count(sentences: list[str], max_words: int, min_sentences: int = 1) -> str:
+    """
+    Join sentences (already in priority order, most important first) with a
+    single space, dropping whole sentences from the end -- lowest priority
+    first -- until the total is at or under max_words. Never cuts a sentence
+    mid-way: each drop removes one complete sentence.
+    """
+    kept = list(sentences)
+    while len(kept) > min_sentences and len(" ".join(kept).split()) > max_words:
+        kept.pop()
+    return " ".join(kept)
+
+
 def _build_executive_summary(brain: BrandBrain) -> str:
     diag = brain.get_section("diagnostico").content
     charco = brain.get_section("charco").content
@@ -677,18 +690,37 @@ def _build_executive_summary(brain: BrandBrain) -> str:
     resultado_deseado = _s(journey.get("resultado_deseado")) or "a clear long-term destination"
     de_que_ser_conocido = _s(journey.get("de_que_ser_conocido")) or "a distinct reputation"
 
-    return (
-        "This Brand Soul is the strategic backbone behind every script, offer, and piece of content this "
-        f"founder ships from here on — nine confirmed decisions distilled into one read. The brand sits at "
-        f"the '{etapa}' stage, and the single problem it exists to solve is {problema}. The buyer who signs "
-        f"the check is {quien_decide}, which keeps every message anchored to a real budget instead of a "
-        f"vague audience. Where the market defaults to conventional wisdom, this brand takes the contrarian "
-        f"stand that {postura_opuesta}, and backs it with an offer promising {resultado_sonado}. The first "
-        f"free step into that offer is a {tipo_lead} lead magnet, built to earn trust before asking for "
-        f"money. None of this is static: the destination is {resultado_deseado}, reached by becoming known "
-        f"for {de_que_ser_conocido}. Every chapter that follows unpacks one piece of this same throughline, "
-        "always tied back to the founder's own words."
-    )
+    # Priority order, most essential first -- the cap below drops from the
+    # end (lowest priority) one whole sentence at a time, never mid-sentence.
+    sentences = [
+        (
+            "This Brand Soul is the strategic backbone behind every script, offer, and piece of content "
+            "this founder ships from here on — nine confirmed decisions distilled into one read."
+        ),
+        f"The brand sits at the '{etapa}' stage, and the single problem it exists to solve is {problema}.",
+        (
+            f"The buyer who signs the check is {quien_decide}, which keeps every message anchored to a "
+            "real budget instead of a vague audience."
+        ),
+        (
+            "Where the market defaults to conventional wisdom, this brand takes the contrarian stand that "
+            f"{postura_opuesta}, and backs it with an offer promising {resultado_sonado}."
+        ),
+        (
+            f"The first free step into that offer is a {tipo_lead} lead magnet, built to earn trust "
+            "before asking for money."
+        ),
+        (
+            f"None of this is static: the destination is {resultado_deseado}, reached by becoming known "
+            f"for {de_que_ser_conocido}."
+        ),
+        (
+            "Every chapter that follows unpacks one piece of this same throughline, always tied back to "
+            "the founder's own words."
+        ),
+    ]
+
+    return _cap_word_count(sentences, max_words=200, min_sentences=3)
 
 
 def _build_closing_note(brain: BrandBrain) -> str:

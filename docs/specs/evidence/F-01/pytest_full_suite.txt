@@ -2,14 +2,14 @@
 ........................................................................ [ 16%]
 ........................................................................ [ 25%]
 ........................................................................ [ 33%]
-.......................s................................................ [ 42%]
+........................s............................................... [ 42%]
 ........................................................................ [ 50%]
-.................................................sssssssssF...F......... [ 58%]
-...................................FF................................... [ 67%]
-.........s........................ss.s....F.s......s....s..sss.s.s.sE... [ 75%]
+..................................................sssssssssF...F........ [ 58%]
+....................................FF.................................. [ 67%]
+..........s........................ss.s....F.s......s....s..sss.s.s.sE.. [ 75%]
 ........................................................................ [ 84%]
-.................................F...................................... [ 92%]
-...........................................ssss................          [100%]
+..................................F..................................... [ 92%]
+............................................ssss................         [100%]
 ==================================== ERRORS ====================================
 ___________ ERROR at setup of test_p92_post_progress_host_validation ___________
 file /home/user/brand-studio-agent/tests/test_render_service_p92_rebote.py, line 514
@@ -22,7 +22,7 @@ E       fixture 'mocker' not found
 =================================== FAILURES ===================================
 _____________________ test_normal_request_pass_and_deduct ______________________
 
-client_with_auth = <starlette.testclient.TestClient object at 0x7f16cae0e710>
+client_with_auth = <starlette.testclient.TestClient object at 0x7f1d190c3c50>
 
     def test_normal_request_pass_and_deduct(client_with_auth):
         """
@@ -41,8 +41,8 @@ E       assert 499 <= 249
 tests/test_guard_jwt.py:111: AssertionError
 ______________________ test_budget_exhausted_returns_402 _______________________
 
-client_with_auth = <starlette.testclient.TestClient object at 0x7f16cac0b390>
-monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f16cab60bd0>
+client_with_auth = <starlette.testclient.TestClient object at 0x7f1d055d3010>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f1d05743d90>
 
     def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
         """
@@ -94,7 +94,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     response = connection.handle_request(
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <TunnelHTTPConnection ['http://127.0.0.1:35439', HTTP/1.1, CLOSED, Request Count: 1]>
+self = <TunnelHTTPConnection ['http://127.0.0.1:44541', HTTP/1.1, CLOSED, Request Count: 1]>
 request = <Request [b'GET']>
 
     def handle_request(self, request: Request) -> Response:
@@ -220,7 +220,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     response = await connection.handle_async_request(
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <AsyncTunnelHTTPConnection ['http://127.0.0.1:35439', HTTP/1.1, CLOSED, Request Count: 1]>
+self = <AsyncTunnelHTTPConnection ['http://127.0.0.1:44541', HTTP/1.1, CLOSED, Request Count: 1]>
 request = <Request [b'GET']>
 
     async def handle_async_request(self, request: Request) -> Response:
@@ -377,8 +377,8 @@ E                 + eee1d24ff8f553eb732237c7dd9b945a78313ed49ad6de02872a47277741
 tests/test_render_service_p75_container.py:96: AssertionError
 ___________ test_manual_patch_during_in_flight_regeneration_not_lost ___________
 
-valid_script = Script(id=None, session_id='test_session', idea_id='idea_123', title='Stop Wasting 10 Hours/Week on Spreadsheets', ang...ing_format='selfie_natural', timestamp=datetime.datetime(2026, 9, 26, 22, 17, 55, 36595, tzinfo=datetime.timezone.utc))
-tmp_path = PosixPath('/tmp/pytest-of-root/pytest-5/test_manual_patch_during_in_fl0')
+valid_script = Script(id=None, session_id='test_session', idea_id='idea_123', title='Stop Wasting 10 Hours/Week on Spreadsheets', ang...ding_format='selfie_natural', timestamp=datetime.datetime(2026, 9, 26, 22, 37, 57, 7362, tzinfo=datetime.timezone.utc))
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-7/test_manual_patch_during_in_fl0')
 
     @pytest.mark.asyncio
     async def test_manual_patch_during_in_flight_regeneration_not_lost(valid_script, tmp_path):
@@ -457,7 +457,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
           ^^^^^^^^^^^^^^^^
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <asyncio.locks.Lock object at 0x7f16caf3af90 [locked]>
+self = <asyncio.locks.Lock object at 0x7f1d057e43d0 [locked]>
 
     def _get_loop(self):
         loop = events._get_running_loop()
@@ -468,7 +468,7 @@ self = <asyncio.locks.Lock object at 0x7f16caf3af90 [locked]>
                     self._loop = loop
         if loop is not self._loop:
 >           raise RuntimeError(f'{self!r} is bound to a different event loop')
-E           RuntimeError: <asyncio.locks.Lock object at 0x7f16caf3af90 [locked]> is bound to a different event loop
+E           RuntimeError: <asyncio.locks.Lock object at 0x7f1d057e43d0 [locked]> is bound to a different event loop
 
 /usr/lib/python3.11/asyncio/mixins.py:20: RuntimeError
 =============================== warnings summary ===============================
@@ -518,4 +518,4 @@ FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_t
 FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
 FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
 ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
-6 failed, 821 passed, 28 skipped, 9 warnings, 1 error in 9.80s
+6 failed, 822 passed, 28 skipped, 9 warnings, 1 error in 9.50s

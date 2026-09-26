@@ -483,9 +483,11 @@ def test_get_etapa_context_valid_stage():
     """
     context = get_etapa_context("momentum")
 
-    assert context["name"] == "Moméntum"  # Takes accent from template
-    assert context["skill_to_unlock"] == "tu oferta irrechazable — la ecuación de valor que cierra la venta"
-    assert "hacer ofertas blandas" in context["prohibited"]
+    # F-01: this framework copy is written by us, so it is English like the
+    # rest of the document (founder-provided facts and citations stay as-is).
+    assert context["name"] == "Momentum"
+    assert context["skill_to_unlock"] == "your irresistible offer — the value equation that closes the sale"
+    assert "making soft offers" in context["prohibited"]
     assert "description" in context
 
 
