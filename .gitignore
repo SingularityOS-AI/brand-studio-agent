@@ -56,10 +56,10 @@ desktop.ini
 .vscode/
 *.swp
 
-# Internal strategy — this repo ships code only.
-# Specs, competitive analysis and hackathon planning live outside it.
+# Internal strategy stays local (.claude/). Build specs for coding agents are
+# public on purpose and live in docs/specs/ (no secrets, no patient data, ever).
 .claude/
-specs/
+/specs/
 *_RESPUESTAS.json
 spec_respuestas.json
 SUBMISSION.json
