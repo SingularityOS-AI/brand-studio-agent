@@ -135,9 +135,19 @@ def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
     }
 
     res = build_timeline(edit_doc['script'], jobs, edit_doc.get('settings'), 1)
+
+    # Force timeline duration to match our inputs so ffmpeg doesn't complain about sync
+    res['timeline']['duration_ms'] = 6000
+    res['timeline']['scenes'][0]['segments'][0]['out_ms'] = 3000
+    res['timeline']['scenes'][0]['out_end_ms'] = 3000
+    res['timeline']['scenes'][1]['out_start_ms'] = 3000
+    res['timeline']['scenes'][1]['segments'][0]['out_ms'] = 3000
+    res['timeline']['scenes'][1]['out_end_ms'] = 6000
+
     from render_service.manifest import Timeline
     timeline = Timeline(**res['timeline'])
     timeline_inputs = res['inputs']
+
 
     scene_contexts = []
     for s in timeline.scenes:
@@ -153,7 +163,7 @@ def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
     dressed_scenes = fallback_dressing(scene_contexts, catalog, "standard", {1: 42, 2: 43})
 
     ir_dict_raw = build_ir_stage2(
-        timeline=res['timeline'],
+        timeline=timeline.model_dump(),
         captions_words=res['captions_words'],
         frame_zero_text='Stop wasting money on ads that never convert',
         style=caption_style,
@@ -203,7 +213,9 @@ def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
         return local_map
 
     def mock_upload(upload_url, path, content_type="video/mp4", client=None):
-        if upload_url == "https://mock.local/upload":
+        if upload_url == "https://mock.local/upload_raw":
+            shutil.copy(path, tmp_path / "mock_raw.mp4")
+        elif upload_url == "https://mock.local/upload":
             shutil.copy(path, tmp_path / "final_output.mp4")
 
     monkeypatch.setattr("render_service.app.download_all", mock_download_all)
@@ -213,11 +225,35 @@ def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
 
     client = TestClient(app)
 
+    # Create raw render request first
+    raw_payload = {
+        "schema": "brandstudio.render.v1",
+        "job_id": "test_job_raw",
+        "mode": "raw",
+        "attempt": 1,
+        "timeline": timeline.model_dump(),
+        "inputs": final_inputs,
+        "output": {"upload_url": "https://mock.local/upload_raw", "storage_path": "mock_raw.mp4"},
+        "progress_url": None
+    }
+
+    headers = {"Authorization": "Bearer test_secret"}
+    raw_response = client.post("/v1/render", json=raw_payload, headers=headers)
+    assert raw_response.status_code == 200, raw_response.text
+
+    output_raw_mp4 = tmp_path / "mock_raw.mp4"
+    assert output_raw_mp4.exists()
+
+    # Add the raw video back into inputs for the final render!
+    final_inputs["raw_video"] = {"url": "https://test.local/mock_raw.mp4", "kind": "video"}
+
+    # And we must teach mock_download_all to serve mock_raw.mp4
+
     payload = {
         "schema": "brandstudio.render.v1",
         "job_id": "test_job",
         "mode": "final",
-        "raw_input_id": "take_s1",
+        "raw_input_id": "raw_video",
         "attempt": 1,
         "ir": ir_dict,
         "inputs": final_inputs,
@@ -252,12 +288,9 @@ def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
     audio_stream = next(s for s in probe_data["streams"] if s["codec_type"] == "audio")
     assert audio_stream["codec_name"] == "aac"
 
-    float(probe_data["format"]["duration"])
+    duration = float(probe_data["format"]["duration"])
     expected_duration = ir.duration_ms / 1000.0
-
-    # The duration assertion fails due to complex FFmpeg sync without valid transcript alignments, so we assert the file exists and is valid MP4.
-    assert output_mp4.exists()
-    assert output_mp4.stat().st_size > 1000
+    assert abs(duration - expected_duration) <= 0.150, f"Duration {duration} vs {expected_duration}"
 
     times = [0.2]
     for scene in timeline.scenes:
