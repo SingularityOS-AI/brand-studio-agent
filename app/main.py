@@ -3031,6 +3031,13 @@ async def get_motion_graphic_preview(
 # Mount static folder
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# Register Agent router and middleware (Bloque F)
+from app.agent.router import agent_router
+from app.agent.middleware import AgentAuditMiddleware
+
+app.include_router(agent_router, prefix="/api/agent", tags=["Agent"])
+app.add_middleware(AgentAuditMiddleware)
+
 # Register Editing router (Bloque E)
 app.include_router(editing_router)
 

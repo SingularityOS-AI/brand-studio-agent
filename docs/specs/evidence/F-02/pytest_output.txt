@@ -1,0 +1,41 @@
+.......                                                                  [100%]
+=============================== warnings summary ===============================
+../home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+render_service/manifest.py:135
+  /app/render_service/manifest.py:135: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+
+render_service/manifest.py:300
+  /app/render_service/manifest.py:300: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+
+render_service/manifest.py:401
+  /app/render_service/manifest.py:401: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+
+tests/test_agent_f02_audit.py::test_create_voice_action_route
+tests/test_agent_f02_audit.py::test_update_voice_action_route
+tests/test_agent_f02_audit.py::test_list_actions_route
+tests/test_agent_f02_audit.py::test_middleware_voice_header_updates_row
+tests/test_agent_f02_audit.py::test_middleware_button_creates_row
+tests/test_agent_f02_audit.py::test_middleware_failure_updates_row
+tests/test_agent_f02_audit.py::test_middleware_exception_swallowed
+  /app/tests/jwt_helpers.py:36: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "exp": (datetime.utcnow() + timedelta(hours=expires_in_hours)).timestamp(),
+
+tests/test_agent_f02_audit.py::test_create_voice_action_route
+tests/test_agent_f02_audit.py::test_update_voice_action_route
+tests/test_agent_f02_audit.py::test_list_actions_route
+tests/test_agent_f02_audit.py::test_list_actions_route
+  /app/app/agent/router.py:37: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    data = req.dict(exclude_none=True)
+
+tests/test_agent_f02_audit.py::test_update_voice_action_route
+  /app/app/agent/router.py:52: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    data = req.dict(exclude_none=True)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+7 passed, 16 warnings in 1.51s
