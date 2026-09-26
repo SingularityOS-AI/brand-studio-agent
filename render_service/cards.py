@@ -28,7 +28,8 @@ def card_html(ov: OverlayCue, style: CaptionStyle) -> str:
     Html and body have transparent background, zero margins, and exact ov.w x ov.h size.
     Text is escaped using html.escape to prevent injection.
     """
-    escaped_text = html.escape(ov.text or "")
+    raw_text = ov.text or ov.asset or ""
+    escaped_text = html.escape(raw_text)
     font_size = FONT_SIZES.get(ov.kind, "64px")
     font_family = f'"{style.font}", sans-serif'
     accent_color = style.accent

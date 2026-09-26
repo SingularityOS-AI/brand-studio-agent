@@ -77,3 +77,22 @@
   - **URL:** https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/OFL.txt
   - **SHA256:** `061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41`
   - **Size:** 4394 bytes
+
+- **File:** `Montserrat-Bold.ttf`
+  - **Family:** Montserrat
+  - **URL:** https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Bold.ttf
+  - **SHA256:** `bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61`
+  - **Size:** 454864 bytes
+
+- **File:** `Inter-Bold.ttf`
+  - **Family:** Inter
+  - **URL:** https://github.com/rsms/inter/releases/download/v4.0/Inter-4.0.zip
+  - **SHA256:** `0cb1bc1335372d9e3a0cf6f5311c7cce87af90d2a777fdeec18be605a2a70bc1`
+  - **Size:** 415072 bytes
+
+- **File:** `Roboto-Bold.ttf`
+  - **Family:** Roboto
+  - **URL:** https://raw.githubusercontent.com/googlefonts/roboto/v2.138/src/hinted/Roboto-Bold.ttf
+  - **SHA256:** `61f89f8db49261c2f6106e8dccc35df7b2f7ed909020db40a3fc905e95f99334`
+  - **Size:** 514260 bytes
+

@@ -238,6 +238,18 @@ def post_progress(
 ) -> None:
     if not url:
         return
+
+    allowed_hosts = [
+        h.strip().lower()
+        for h in os.getenv(
+            "RENDER_PROGRESS_HOSTS", "brand-studio-agent.onrender.com"
+        ).split(",")
+        if h.strip()
+    ]
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
+        return
+
     own_client = False
     if client is None:
         client = httpx.Client(timeout=3.0)
@@ -250,3 +262,4 @@ def post_progress(
     finally:
         if own_client:
             client.close()
+

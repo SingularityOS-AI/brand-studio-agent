@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from pathlib import Path
@@ -15,6 +16,109 @@ from render_service.manifest import OverlayCue, RenderIR, RenderRequest, ZoomKey
 logger = logging.getLogger(__name__)
 
 FONTS_DIR: Path = Path(__file__).parent / "fonts"
+
+
+def layout_text(
+    kind: str,
+    lines_or_text: Any,
+) -> tuple[list[str], int]:
+    """Pure function calculating text line breaks and font size for FrameZero, Hero, and Block.
+
+    Shared text layout rules (usable width 900px, K=0.58):
+    - FrameZero: words packed greedily into max 16 chars per line, max 3 lines (3rd line absorbs rest).
+      font_px = min(110, floor(900 / (0.58 * len(longest_line))))
+    - Hero: single word.
+      font_px = min(170, floor(900 / (0.58 * len(word))))
+    - Block: lines as provided.
+      font_px = min(84, floor(900 / (0.58 * len(longest_line))))
+    """
+    k_factor = 0.58
+    usable_width = 900.0
+    norm_kind = kind.lower().replace("_", "")
+
+    if norm_kind in ("framezero", "fz"):
+        if isinstance(lines_or_text, str):
+            words = lines_or_text.strip().split()
+        elif isinstance(lines_or_text, list):
+            words = []
+            for item in lines_or_text:
+                if isinstance(item, str):
+                    words.extend(item.strip().split())
+                elif isinstance(item, list):
+                    for tok in item:
+                        t_str = tok.text if hasattr(tok, "text") else str(tok)
+                        words.extend(t_str.strip().split())
+        else:
+            words = []
+
+        if not words:
+            return ([], 110)
+
+        lines: list[str] = []
+        curr: list[str] = []
+        for w in words:
+            if len(lines) == 2:
+                curr.append(w)
+            else:
+                candidate = " ".join(curr + [w]) if curr else w
+                if len(candidate) <= 16 or not curr:
+                    curr.append(w)
+                else:
+                    lines.append(" ".join(curr))
+                    curr = [w]
+        if curr:
+            lines.append(" ".join(curr))
+
+        max_len = max((len(line) for line in lines), default=1)
+        font_px = min(110, math.floor(usable_width / (k_factor * max_len)))
+        return (lines, font_px)
+
+    elif norm_kind == "hero":
+        if isinstance(lines_or_text, str):
+            word = lines_or_text.strip()
+        elif isinstance(lines_or_text, list):
+            if lines_or_text and isinstance(lines_or_text[0], list):
+                flat = []
+                for sub in lines_or_text:
+                    flat.extend(t.text if hasattr(t, "text") else str(t) for t in sub)
+                word = " ".join(flat).strip()
+            else:
+                word = " ".join(str(x) for x in lines_or_text).strip()
+        else:
+            word = str(lines_or_text).strip()
+
+        word_len = len(word)
+        if word_len == 0:
+            return ([""], 170)
+        font_px = min(170, math.floor(usable_width / (k_factor * word_len)))
+        return ([word], font_px)
+
+    elif norm_kind == "block":
+        if isinstance(lines_or_text, str):
+            raw_lines = [line for line in lines_or_text.splitlines() if line]
+        elif isinstance(lines_or_text, list):
+            raw_lines = []
+            for item in lines_or_text:
+                if isinstance(item, str):
+                    raw_lines.append(item)
+                elif isinstance(item, list):
+                    line_str = " ".join(t.text if hasattr(t, "text") else str(t) for t in item)
+                    raw_lines.append(line_str)
+                else:
+                    raw_lines.append(str(item))
+        else:
+            raw_lines = []
+
+        if not raw_lines:
+            return ([], 84)
+
+        max_len = max((len(line) for line in raw_lines), default=1)
+        font_px = min(84, math.floor(usable_width / (k_factor * max_len)))
+        return (raw_lines, font_px)
+
+    else:
+        return ([], 84)
+
 
 
 def fmt_num(v: float) -> str:
@@ -65,7 +169,7 @@ def zoom_at(keys: list[ZoomKey], t_ms: int | float) -> tuple[float, float, float
     return (float(kn.scale), float(kn.cx), float(kn.cy))
 
 
-def zoom_expr(keys: list[ZoomKey], var: str = "t") -> tuple[str, str, str]:
+def zoom_expr(keys: list[ZoomKey], var: str = "on/30") -> tuple[str, str, str]:
     """Generates FFmpeg expression strings (scale, cx, cy) as functions of time in seconds (var).
 
     Returns 3 strings. Sin claves -> ("1", "0.5", "0.5"). Redondea a 4 decimales.
@@ -194,6 +298,7 @@ def write_ass(ir: RenderIR, path: Path) -> None:
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         f"Style: Block,{font_name},84,{c_text},&H000000FF,{c_outline},&H00000000,-1,0,0,0,100,100,0,0,1,6,2,2,90,90,670,1",
         f"Style: Hero,{font_name},170,{c_text},&H000000FF,{c_outline},&H00000000,-1,0,0,0,100,100,0,0,1,8,0,5,90,90,0,1",
+        # ASS BackColour &H66000000: AA=0x66 (102 dec = 40% transparency = 60% opacity), BB=00, GG=00, RR=00 (black). On white bg, RGB = 255 * 0.4 = 102 +- 10.
         f"Style: FrameZero,{font_name},110,{c_text},&H000000FF,{c_outline},&H66000000,-1,0,0,0,100,100,0,0,3,7,0,5,90,90,0,1",
         "",
         "[Events]",
@@ -203,8 +308,9 @@ def write_ass(ir: RenderIR, path: Path) -> None:
     # 1. Frame zero if present
     if ir.frame_zero:
         fz_start, fz_end = _format_time_span(ir.frame_zero.start_ms, ir.frame_zero.end_ms)
-        fz_text = ass_escape(ir.frame_zero.text)
-        lines.append(f"Dialogue: 0,{fz_start},{fz_end},FrameZero,,0,0,0,,{fz_text}")
+        fz_lines, fz_font_px = layout_text("FrameZero", ir.frame_zero.text)
+        fz_text = "\\N".join(ass_escape(line) for line in fz_lines)
+        lines.append(f"Dialogue: 0,{fz_start},{fz_end},FrameZero,,0,0,0,,{{\\fs{fz_font_px}}}{fz_text}")
 
     # 2. Captions events
     for event in ir.captions:
@@ -212,6 +318,8 @@ def write_ass(ir: RenderIR, path: Path) -> None:
         all_tokens = [tok for line in event.lines for tok in line]
         if not all_tokens:
             continue
+
+        _cap_lines, font_px = layout_text(style_name, event.lines)
 
         n_tokens = len(all_tokens)
         for idx, active_tok in enumerate(all_tokens):
@@ -235,7 +343,7 @@ def write_ass(ir: RenderIR, path: Path) -> None:
                 rendered_lines.append(" ".join(line_parts))
 
             dialogue_text = "\\N".join(rendered_lines)
-            lines.append(f"Dialogue: 0,{start_str},{end_str},{style_name},,0,0,0,,{dialogue_text}")
+            lines.append(f"Dialogue: 0,{start_str},{end_str},{style_name},,0,0,0,,{{\\fs{font_px}}}{dialogue_text}")
 
     content = "\n".join(lines) + "\n"
     path.write_text(content, encoding="utf-8-sig")
@@ -247,15 +355,11 @@ def _base_video_filters(ir: RenderIR) -> list[str]:
 
     # 1. Zoom filters
     if ir.zoom_keys:
-        s_expr, cx_expr, cy_expr = zoom_expr(ir.zoom_keys, var="t")
-        scale_filter = (
-            f"scale=w='trunc(1080*({s_expr})/2)*2':h='trunc(1920*({s_expr})/2)*2':eval=frame"
+        s_expr, cx_expr, cy_expr = zoom_expr(ir.zoom_keys, var="on/30")
+        zoompan_filter = (
+            f"zoompan=z='{s_expr}':x='(iw-iw/zoom)*({cx_expr})':y='(ih-ih/zoom)*({cy_expr})':d=1:s=1080x1920:fps=30"
         )
-        crop_filter = (
-            f"crop=1080:1920:x='(in_w-1080)*({cx_expr})':y='(in_h-1920)*({cy_expr})'"
-        )
-        filters.append(scale_filter)
-        filters.append(crop_filter)
+        filters.append(zoompan_filter)
 
     # 2. Transition filters
     for tr in ir.transitions:

@@ -245,8 +245,8 @@ def test_3_build_final_args_structure(tmp_path):
     fc_idx = args.index("-filter_complex")
     fc_expr = args[fc_idx + 1]
 
-    assert "eval=frame" in fc_expr
-    assert "crop=1080:1920" in fc_expr
+    assert "zoompan=" in fc_expr
+    assert "fps=30" in fc_expr
     assert "eq=brightness" in fc_expr
     assert "avgblur" in fc_expr
     assert "adelay" in fc_expr
