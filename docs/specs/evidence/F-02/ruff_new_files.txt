@@ -1,0 +1,5 @@
+$ ruff --version
+ruff 0.16.9
+
+$ ruff check app/agent/__init__.py app/agent/middleware.py app/agent/router.py app/agent/store.py tests/test_agent_f02_audit.py
+All checks passed!
