@@ -81,7 +81,7 @@ def _resolve_session_token(request: Request) -> str | None:
     try:
         user_id = supabase_auth.get_user_id(authorization)
         return guard.get_or_create_user_session(user_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 — audit trail must never break the endpoint
         # Auth failures are the endpoint's job to report (401); the audit
         # trail simply has nothing to attribute the request to.
         return None

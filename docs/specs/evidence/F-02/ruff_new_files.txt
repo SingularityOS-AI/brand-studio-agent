@@ -1,23 +1,5 @@
-BLE001 Do not catch blind exception: `Exception`
-  --> app/agent/middleware.py:84:12
-   |
-82 |         user_id = supabase_auth.get_user_id(authorization)
-83 |         return guard.get_or_create_user_session(user_id)
-84 |     except Exception:
-   |            ^^^^^^^^^
-85 |         # Auth failures are the endpoint's job to report (401); the audit
-86 |         # trail simply has nothing to attribute the request to.
-   |
+$ ruff --version
+ruff 0.16.9
 
-BLE001 Do not catch blind exception: `Exception`
-  --> app/agent/store.py:46:16
-   |
-44 |         try:
-45 |             _actions_client = _get_actions_supabase_client()
-46 |         except Exception:
-   |                ^^^^^^^^^
-47 |             return None
-48 |     return _actions_client
-   |
-
-Found 2 errors.
+$ ruff check app/agent/__init__.py app/agent/middleware.py app/agent/router.py app/agent/store.py tests/test_agent_f02_audit.py
+All checks passed!

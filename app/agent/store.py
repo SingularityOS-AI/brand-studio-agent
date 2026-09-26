@@ -43,7 +43,7 @@ def _get_actions_client() -> Any:
     if _actions_client is None:
         try:
             _actions_client = _get_actions_supabase_client()
-        except Exception:
+        except Exception:  # noqa: BLE001 — audit trail must never break the endpoint
             return None
     return _actions_client
 
