@@ -4,6 +4,7 @@ import os
 RENDER_SERVICE_URL = os.getenv("RENDER_SERVICE_URL", "")
 RENDER_SERVICE_SECRET = os.getenv("RENDER_SERVICE_SECRET", "")
 RENDER_CREDITS = int(os.getenv("RENDER_CREDITS", "20"))
+RERENDER_CREDITS = int(os.getenv("RERENDER_CREDITS", "5"))
 REDRESS_CREDITS = int(os.getenv("REDRESS_CREDITS", "2"))
 RAW_PER_HOUR = int(os.getenv("RAW_PER_HOUR", "12"))
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://brand-studio-agent.onrender.com")

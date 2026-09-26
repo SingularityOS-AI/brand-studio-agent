@@ -353,8 +353,10 @@
       }
     },
     render: {
-      label: "Render · 20 credits",
-      credits: 20,
+      // Neutral: the real price (20 / 5 / free) is dynamic — see renderBtnLabel,
+      // built from state.render_price + state.render_price_kind.
+      label: "Render",
+      credits: 0,
       run: async (args) => {
         return await postRender(args.ideaId);
       }
@@ -429,7 +431,9 @@
         if (name === "render" && currentEditingState) {
           lastRenderedEditVersion = currentEditingState.edit_version;
         }
-        if (action.credits > 0) {
+        // "render"'s real price is dynamic (20 / 5 / free) and can't be read from the
+        // static action.credits, so its credits refresh is never gated on it.
+        if (action.credits > 0 || name === "render") {
           updateCreditsUI();
         }
         if (["toggle_face", "reset_face", "trim", "mute_music", "toggle_sfx"].includes(name)) {
@@ -707,6 +711,21 @@
       dressBtnLabel = "Your cut changed — dress again · free";
     }
 
+    // Determine Render button label from the current price + kind (E2-05 / P1).
+    // Never a literal number: always built from state.render_price/render_price_kind.
+    const renderPrice = state.render_price;
+    const renderPriceKind = state.render_price_kind;
+    let renderBtnLabel = "Render";
+    if (typeof renderPrice === "number") {
+      if (renderPriceKind === "engine_updated") {
+        renderBtnLabel = "Render again · free (engine updated)";
+      } else if (renderPriceKind === "again") {
+        renderBtnLabel = `Render again · ${renderPrice} credits`;
+      } else {
+        renderBtnLabel = `Render · ${renderPrice} credits`;
+      }
+    }
+
     // Build Scene Cards HTML
     const scenesHtml = scenes.map((sc) => {
       const currentFaceSetting = settings.face ? settings.face[String(sc.n)] : undefined;
@@ -844,7 +863,7 @@
             ${escapeHtml(dressBtnLabel)}
           </button>
           <button type="button" class="btn btn--go" data-edit-action="render" style="font-size:13px;font-weight:600">
-            Render · 20 credits
+            ${escapeHtml(renderBtnLabel)}
           </button>
           ${!raw.fresh ? `<button type="button" class="btn btn--secondary" data-edit-action="build_raw" style="font-size:13px">Rebuild raw cut · free</button>` : ''}
         </div>

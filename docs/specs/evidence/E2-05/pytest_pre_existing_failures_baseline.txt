@@ -1,0 +1,12 @@
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+6 failed, 807 passed, 28 skipped, 1 deselected, 9 warnings, 1 error in 9.20s
