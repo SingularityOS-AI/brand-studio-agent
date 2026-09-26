@@ -43,13 +43,40 @@ from app.editing.metadata import (
     sanitize_text,
 )
 from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
-from app.editing.timeline import build_timeline
+from app.editing.timeline import build_timeline, cut_hash
 from app.guard import guard
 from app.scripting.scripts import _check_script
 from app.tools.brand_brain.store import get_brand_brain
 
 router = APIRouter(prefix="/api/editing")
 
+
+_signed_url_cache: dict[str, tuple[str, float]] = {}
+
+
+def _cached_signed_url(storage_path: str, ttl: int = 3600) -> str:
+    now = time.time()
+    if storage_path in _signed_url_cache:
+        url, expires_at = _signed_url_cache[storage_path]
+        if now < expires_at:
+            return url
+    url = signed_url(storage_path, ttl=ttl)
+    _signed_url_cache[storage_path] = (url, now + 3000)
+    return url
+
+
+_llm_calls: dict[str, list[float]] = {}
+
+
+def _check_and_record_llm_call(session_token: str) -> None:
+    max_calls = getattr(dispatch_config, "LLM_CALLS_PER_HOUR", 30)
+    now = time.time()
+    one_hour_ago = now - 3600
+    calls = [t for t in _llm_calls.get(session_token, []) if t >= one_hour_ago]
+    if len(calls) >= max_calls:
+        raise EditingError(429, {"code": "too_many_ai_calls"})
+    calls.append(now)
+    _llm_calls[session_token] = calls
 
 
 class EditingError(Exception):
@@ -120,10 +147,23 @@ def _state(
     # Apply saved caption word edits
     captions_saved = edit.get("captions") or {}
     edits_map = captions_saved.get("edits") or {}
+    scene_take_map = {}
+    if timeline and timeline.get("scenes"):
+        for sc in timeline["scenes"]:
+            scene_take_map[int(sc["n"])] = sc.get("take_job_id")
+
     for cw in captions_words:
         w_id = cw.get("id")
         if w_id and w_id in edits_map:
-            cw["edited_text"] = edits_map[w_id]
+            val = edits_map[w_id]
+            if isinstance(val, dict):
+                edited_text = val.get("text")
+                saved_take_id = val.get("take_job_id")
+                curr_take_id = scene_take_map.get(int(cw.get("scene_n", 0)))
+                if saved_take_id is None or saved_take_id == curr_take_id:
+                    cw["edited_text"] = edited_text
+            elif isinstance(val, str):
+                cw["edited_text"] = val
 
     try:
         brand_brain = get_brand_brain(session_token)
@@ -134,13 +174,11 @@ def _state(
     dressing_data = edit.get("dressing") or {}
     dressing_scenes = dressing_data.get("scenes") if isinstance(dressing_data, dict) else None
     sfx_inputs: dict[str, dict[str, Any]] = {}
-    # A dressing was written against one raw cut (its word indices and times).
-    # If the cut changed since, it no longer fits: show captions only and let the
-    # founder dress again for free.
+    cut_h = cut_hash(timeline) if timeline else None
     dressing_fresh = bool(
         dressing_scenes
         and timeline is not None
-        and dressing_data.get("raw_hash") == timeline.get("hash")
+        and dressing_data.get("raw_hash") == cut_h
     )
 
     if timeline is not None:
@@ -177,7 +215,7 @@ def _state(
         # so saving captions or a dressing never makes a finished raw stale.
         raw_dict["fresh"] = bool(t_hash and raw_hash and raw_hash == t_hash)
         if edit_raw.get("status") == "done" and edit_raw.get("storage_path"):
-            raw_dict["signed_url"] = signed_url(edit_raw["storage_path"], ttl=3600)
+            raw_dict["signed_url"] = _cached_signed_url(edit_raw["storage_path"], ttl=3600)
     elif latest_raw_job:
         raw_dict = {
             "status": latest_raw_job.get("status"),
@@ -201,7 +239,7 @@ def _state(
             render_dict["progress"] = (latest_render_job.get("output") or {}).get("pct")
             render_dict["error"] = latest_render_job.get("error")
         if edit_render.get("status") == "done" and edit_render.get("storage_path"):
-            render_dict["signed_url"] = signed_url(edit_render["storage_path"], ttl=3600)
+            render_dict["signed_url"] = _cached_signed_url(edit_render["storage_path"], ttl=3600)
     elif latest_render_job:
         render_dict = {
             "status": latest_render_job.get("status"),
@@ -212,7 +250,7 @@ def _state(
         render_dict = {}
 
     sfx_urls = {
-        inp_id: signed_url(inp_data["storage_path"], ttl=3600)
+        inp_id: _cached_signed_url(inp_data["storage_path"], ttl=3600)
         for inp_id, inp_data in sfx_inputs.items()
         if isinstance(inp_data, dict) and inp_data.get("storage_path")
     }
@@ -357,6 +395,35 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
         return_created=True,
     )
 
+    if not created and job.get("status") == "done":
+        job_out = job.get("output") or {}
+        raw_render_payload = {
+            "job_id": job["id"],
+            "status": "done",
+            "storage_path": job_out.get("storage_path", ""),
+            "duration_ms": job_out.get("duration_ms", 0),
+            "bytes": job_out.get("bytes", 0),
+            "render_s": job_out.get("render_s", 0.0),
+            "scene_marks_ms": job_out.get("scene_marks_ms", []),
+            "timeline_hash": t_hash,
+        }
+        for attempt in range(2):
+            fresh_edit = edit if attempt == 0 else get_or_create_edit(session_token, idea_id)
+            try:
+                save_edit(
+                    session_token,
+                    idea_id,
+                    fields={"raw_render": raw_render_payload},
+                    expected_version=fresh_edit["version"],
+                )
+                break
+            except EditVersionConflict:
+                if attempt == 1:
+                    raise
+        return JSONResponse(
+            status_code=200, content={"job": job, "created": False, "reused": True}
+        )
+
     return JSONResponse(status_code=202, content={"job": job, "created": created})
 
 
@@ -500,9 +567,19 @@ async def patch_captions(request: Request, idea_id: str, word_id: str) -> JSONRe
             content={"detail": "Text length must be between 1 and 40 characters"},
         )
 
+    match = re.match(r"^s(\d+)w\d+$", word_id)
+    scene_n_val = int(match.group(1)) if match else None
+    take_job_id = None
+    if scene_n_val is not None:
+        state_tmp = _state(session_token, idea_id, script, jobs, edit)
+        for sc in (state_tmp.get("timeline") or {}).get("scenes", []):
+            if int(sc.get("n", -1)) == scene_n_val:
+                take_job_id = sc.get("take_job_id")
+                break
+
     captions_dict = copy.deepcopy(edit.get("captions") or {})
     edits_map = captions_dict.setdefault("edits", {})
-    edits_map[word_id] = clean_text
+    edits_map[word_id] = {"text": clean_text, "take_job_id": take_job_id}
 
     try:
         updated_edit = save_edit(
@@ -541,7 +618,7 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
 
     timeline = state["timeline"]
     captions_words = state["captions_words"]
-    raw_hash = timeline.get("hash", "")
+    raw_hash = cut_hash(timeline) if timeline else ""
 
     # "Vestir todo" is included once per raw cut (E-D13): pressing it again on the
     # same cut returns the dressing already made instead of paying Gemini again.
@@ -549,6 +626,11 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
         state.pop("_inputs", None)
         state.pop("_sfx_inputs", None)
         return JSONResponse(status_code=200, content=state)
+
+    try:
+        _check_and_record_llm_call(session_token)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
 
     contexts = scene_contexts(timeline, captions_words, script)
     dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1))
@@ -602,8 +684,16 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
     if not can_spend(0.01):
         return JSONResponse(status_code=503, content={"code": "spend_paused"})
 
-    edit_ver = edit["version"]
-    base_prefix = f"{session_token}:{idea_id}:render:{edit_ver}:"
+    import hashlib
+    import json
+
+    ir_dict = state["ir"]
+    edit_raw = edit.get("raw_render") or {}
+    raw_storage_path = edit_raw.get("storage_path") or ""
+    ir_raw_str = json.dumps(ir_dict, sort_keys=True) + raw_storage_path
+    contenido = hashlib.sha256(ir_raw_str.encode("utf-8")).hexdigest()[:20]
+
+    base_prefix = f"{session_token}:{idea_id}:render:{contenido}:"
     render_jobs = [j for j in jobs if j.get("kind") == "render"]
     failed_count = sum(
         1
@@ -614,9 +704,6 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
 
     idempotency_key = f"{base_prefix}{failed_count}"
     render_credits = getattr(dispatch_config, "RENDER_CREDITS", 20)
-
-    edit_raw = edit.get("raw_render") or {}
-    raw_storage_path = edit_raw.get("storage_path") or ""
 
     job, created = create_job(
         session_token=session_token,
@@ -653,6 +740,12 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
                 mark_cancelled(job, str(e.detail))
                 job["status"] = "cancelled"
                 raise
+        except Exception:
+            revert_charged(job)
+            job["charged"] = False
+            mark_cancelled(job, "Payment error")
+            job["status"] = "cancelled"
+            return JSONResponse(status_code=503, content={"code": "payment_error"})
 
     remaining = guard.get_remaining_credits(session_token)
     return JSONResponse(
@@ -698,7 +791,7 @@ async def update_job_progress_endpoint(
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     token = auth_header[7:].strip()
-    if not hmac.compare_digest(token, secret):
+    if not hmac.compare_digest(token.encode("utf-8"), secret.encode("utf-8")):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     try:
@@ -716,6 +809,11 @@ async def post_metadata(request: Request, idea_id: str) -> JSONResponse:
     """POST metadata endpoint — generates platform publication metadata."""
     try:
         session_token, script, jobs, edit = _load(request, idea_id)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
+
+    try:
+        _check_and_record_llm_call(session_token)
     except EditingError as e:
         return JSONResponse(status_code=e.status_code, content=e.content)
 
@@ -860,6 +958,11 @@ async def post_redress_scene(
             status_code=404, content={"detail": f"Scene {scene_n} not found"}
         )
 
+    try:
+        _check_and_record_llm_call(session_token)
+    except EditingError as e:
+        return JSONResponse(status_code=e.status_code, content=e.content)
+
     contexts = scene_contexts(state["timeline"], state["captions_words"], script)
     seed = (int(time.time()) % 100000) * 1000 + scene_n
 
@@ -912,9 +1015,19 @@ async def post_redress_scene(
         )
     except EditVersionConflict as err:
         release_charge(job)
-        guard.refund_credits(
-            session_token, redress_credits, source=f"refund:{job['id']}"
-        )
+        try:
+            res = guard.refund_credits(
+                session_token, redress_credits, source=f"refund:{job['id']}"
+            )
+            if res is None:
+                token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+                import logging
+                logging.getLogger(__name__).error(f"[router] refund_credits returned None for job {job['id']} (token ...{token_mask})")
+        except Exception as e:
+            mark_charged(job)
+            token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+            import logging
+            logging.getLogger(__name__).error(f"[router] Failed to refund credits for job {job['id']} (token ...{token_mask}): {e}")
         mark_failed(job, f"EditVersionConflict: {err}")
         return JSONResponse(
             status_code=409,
@@ -922,9 +1035,19 @@ async def post_redress_scene(
         )
     except Exception as err:
         release_charge(job)
-        guard.refund_credits(
-            session_token, redress_credits, source=f"refund:{job['id']}"
-        )
+        try:
+            res = guard.refund_credits(
+                session_token, redress_credits, source=f"refund:{job['id']}"
+            )
+            if res is None:
+                token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+                import logging
+                logging.getLogger(__name__).error(f"[router] refund_credits returned None for job {job['id']} (token ...{token_mask})")
+        except Exception as e:
+            mark_charged(job)
+            token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+            import logging
+            logging.getLogger(__name__).error(f"[router] Failed to refund credits for job {job['id']} (token ...{token_mask}): {e}")
         mark_failed(job, str(err))
         return JSONResponse(status_code=500, content={"detail": str(err)})
 

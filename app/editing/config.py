@@ -6,6 +6,8 @@ RENDER_SERVICE_SECRET = os.getenv("RENDER_SERVICE_SECRET", "")
 RENDER_CREDITS = int(os.getenv("RENDER_CREDITS", "20"))
 REDRESS_CREDITS = int(os.getenv("REDRESS_CREDITS", "2"))
 RAW_PER_HOUR = int(os.getenv("RAW_PER_HOUR", "12"))
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://brand-studio-agent.onrender.com")
+LLM_CALLS_PER_HOUR = int(os.getenv("LLM_CALLS_PER_HOUR", "30"))
 GAP_MS = int(os.getenv("GAP_MS", "400"))
 PAD_MS = int(os.getenv("PAD_MS", "100"))
 

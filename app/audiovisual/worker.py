@@ -252,11 +252,12 @@ async def worker_loop(poll_interval: float = 3.0, kinds: list[str] | None = None
     _running = True
     logger.info(f"[worker] Audiovisual worker loop started (kinds={kinds}).")
     try:
-        resumed = resume_stale()
-        if resumed > 0:
-            logger.info(f"[worker] Resumed {resumed} stale jobs on worker startup.")
-
         is_editing_loop = kinds is not None and set(kinds) == set(EDITING_KINDS)
+        if not is_editing_loop:
+            resumed = resume_stale()
+            if resumed > 0:
+                logger.info(f"[worker] Resumed {resumed} stale jobs on worker startup.")
+
         # The refund sweep is a synchronous Supabase query on the only process
         # (it also serves Brandy's voice): once a minute is plenty, not every tick.
         last_refund_sweep = 0.0

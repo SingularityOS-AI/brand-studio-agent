@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -11,6 +12,7 @@ from render_service.manifest import (
     Timeline,
     TimelineScene,
     Trim,
+    canonical_json,
     timeline_hash,
 )
 
@@ -130,6 +132,15 @@ def raw_content_hash(timeline_dict: dict) -> str:
     settings.pop("sfx_enabled", None)
     content["settings"] = settings
     return timeline_hash(content)
+
+
+def cut_hash(timeline_dict: dict) -> str:
+    """Hash of scenes only (visual, segments, takes, broll) for dressing fresh check."""
+    if not timeline_dict:
+        return ""
+    scenes = timeline_dict.get("scenes") or []
+    raw = canonical_json({"scenes": scenes})
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _get_setting_val(settings: dict | None, key: str, scene_n: int) -> Any:

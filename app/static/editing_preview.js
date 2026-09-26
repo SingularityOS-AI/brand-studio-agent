@@ -1,6 +1,88 @@
 (function () {
   "use strict";
 
+  function layoutText(kind, linesOrText) {
+    var K = 0.58;
+    if (!linesOrText) {
+      var defaultPx = kind === "hero" ? 170 : (kind === "block" ? 84 : 110);
+      return { lines: [], fontPx: defaultPx };
+    }
+    if (kind === "frame_zero") {
+      var words = [];
+      if (typeof linesOrText === "string") {
+        words = linesOrText.trim().split(/\s+/).filter(Boolean);
+      } else if (Array.isArray(linesOrText)) {
+        for (var i = 0; i < linesOrText.length; i++) {
+          var item = linesOrText[i];
+          if (typeof item === "string") {
+            var parts = item.trim().split(/\s+/).filter(Boolean);
+            for (var p = 0; p < parts.length; p++) words.push(parts[p]);
+          } else if (item && item.text) {
+            words.push(String(item.text));
+          }
+        }
+      }
+      var lines = [];
+      var currentLine = "";
+      for (var w = 0; w < words.length; w++) {
+        var word = words[w];
+        if (!currentLine) {
+          currentLine = word;
+        } else if (currentLine.length + 1 + word.length <= 16) {
+          currentLine += " " + word;
+        } else {
+          if (lines.length < 2) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine += " " + word;
+          }
+        }
+      }
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      var maxLen = 0;
+      for (var l = 0; l < lines.length; l++) {
+        if (lines[l].length > maxLen) maxLen = lines[l].length;
+      }
+      var fontPx = maxLen > 0 ? Math.min(110, Math.floor(900 / (K * maxLen))) : 110;
+      return { lines: lines, fontPx: fontPx };
+    } else if (kind === "hero") {
+      var str = "";
+      if (typeof linesOrText === "string") {
+        str = linesOrText.trim();
+      } else if (Array.isArray(linesOrText)) {
+        str = linesOrText.map(function (t) {
+          return typeof t === "string" ? t : (t && t.text ? t.text : "");
+        }).join(" ").trim();
+      }
+      var wordLen = str.length;
+      var heroFontPx = wordLen > 0 ? Math.min(170, Math.floor(900 / (K * wordLen))) : 170;
+      return { lines: [str], fontPx: heroFontPx };
+    } else {
+      var blockLines = [];
+      var rawLines = Array.isArray(linesOrText) ? linesOrText : [linesOrText];
+      for (var b = 0; b < rawLines.length; b++) {
+        var rLine = rawLines[b];
+        if (typeof rLine === "string") {
+          blockLines.push(rLine);
+        } else if (Array.isArray(rLine)) {
+          var lineStr = rLine.map(function (t) {
+            return typeof t === "string" ? t : (t && t.text ? t.text : "");
+          }).join(" ");
+          blockLines.push(lineStr);
+        }
+      }
+      var maxBlockLen = 0;
+      for (var m = 0; m < blockLines.length; m++) {
+        if (blockLines[m].length > maxBlockLen) maxBlockLen = blockLines[m].length;
+      }
+      var blockFontPx = maxBlockLen > 0 ? Math.min(84, Math.floor(900 / (K * maxBlockLen))) : 84;
+      return { lines: blockLines, fontPx: blockFontPx };
+    }
+  }
+
   function zoomAt(keys, tMs) {
     if (!keys || !Array.isArray(keys) || keys.length === 0) {
       return { scale: 1.0, cx: 0.5, cy: 0.5 };
@@ -243,7 +325,7 @@
     fzEl.style.textAlign = "center";
     fzEl.style.fontSize = "110px";
     fzEl.style.fontWeight = "bold";
-    fzEl.style.backgroundColor = "rgba(0, 0, 0, 0.4)";
+    fzEl.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
     fzEl.style.padding = "20px 40px";
     fzEl.style.borderRadius = "16px";
     fzEl.style.boxSizing = "border-box";
@@ -443,11 +525,15 @@
 
       // 1. FrameZero
       if (st.frameZero) {
-        fzEl.textContent = st.frameZero;
+        var fzLayout = layoutText("frame_zero", st.frameZero);
+        fzEl.textContent = fzLayout.lines.join("\n");
+        fzEl.style.whiteSpace = "pre-wrap";
         fzEl.style.fontFamily = fontFamily;
         fzEl.style.color = textColor;
+        fzEl.style.fontSize = fzLayout.fontPx + "px";
         fzEl.style.webkitTextStroke = "7px " + outlineColor;
         fzEl.style.paintOrder = "stroke fill";
+        fzEl.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
         fzEl.style.display = "block";
       } else {
         fzEl.style.display = "none";
@@ -466,7 +552,19 @@
           subBox.style.top = "50%";
           subBox.style.bottom = "auto";
           subBox.style.transform = "translateY(-50%)";
-          subBox.style.fontSize = "170px";
+          var heroText = "";
+          for (var h1 = 0; h1 < st.caption.lines.length; h1++) {
+            for (var h2 = 0; h2 < st.caption.lines[h1].length; h2++) {
+              if (st.caption.lines[h1][h2].active) {
+                heroText = st.caption.lines[h1][h2].text;
+              }
+            }
+          }
+          if (!heroText && st.caption.lines[0] && st.caption.lines[0][0]) {
+            heroText = st.caption.lines[0][0].text;
+          }
+          var heroLayout = layoutText("hero", heroText);
+          subBox.style.fontSize = heroLayout.fontPx + "px";
           subBox.style.fontWeight = "bold";
           subBox.style.lineHeight = "1.1";
           subBox.style.webkitTextStroke = "8px " + outlineColor;
@@ -476,7 +574,8 @@
           subBox.style.top = "1250px";
           subBox.style.bottom = "auto";
           subBox.style.transform = "translateY(-100%)";
-          subBox.style.fontSize = "84px";
+          var blockLayout = layoutText("block", st.caption.lines);
+          subBox.style.fontSize = blockLayout.fontPx + "px";
           subBox.style.fontWeight = "bold";
           subBox.style.lineHeight = "1.15";
           subBox.style.webkitTextStroke = "6px " + outlineColor;
@@ -503,7 +602,11 @@
       // 3. Zoom on videoEl
       if (videoEl && st.zoom) {
         videoEl.style.transformOrigin = (st.zoom.cx * 100) + "% " + (st.zoom.cy * 100) + "%";
-        videoEl.style.transform = "scale(" + st.zoom.scale + ")";
+        var baseTransform = "scale(" + st.zoom.scale + ")";
+        if (st.blurPx > 0 && st.blurAxis === "x") {
+          baseTransform += " scaleX(1.05)";
+        }
+        videoEl.style.transform = baseTransform;
       }
 
       // 4. Flash
@@ -511,12 +614,10 @@
 
       // 5. Blur on videoEl
       if (videoEl) {
+        var s = getScale();
         if (st.blurPx > 0) {
-          if (st.blurAxis === "x") {
-            videoEl.style.filter = "blur(" + st.blurPx + "px) scaleX(1.05)";
-          } else {
-            videoEl.style.filter = "blur(" + st.blurPx + "px)";
-          }
+          var scaledBlur = Math.round(st.blurPx * s * 10) / 10;
+          videoEl.style.filter = "blur(" + scaledBlur + "px)";
         } else {
           videoEl.style.filter = "";
         }
@@ -631,12 +732,12 @@
     };
   }
 
-  var API = { mount: mount, stateAt: stateAt, zoomAt: zoomAt };
+  var API = { mount: mount, stateAt: stateAt, zoomAt: zoomAt, layoutText: layoutText };
 
   if (typeof window !== "undefined") {
     window.BrandStudioPreview = API;
   }
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { stateAt: stateAt, zoomAt: zoomAt };
+    module.exports = { stateAt: stateAt, zoomAt: zoomAt, layoutText: layoutText };
   }
 })();

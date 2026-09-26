@@ -544,9 +544,23 @@ def build_ir_stage2(
 
     if sfx_enabled:
         sfx_candidate_events = []
+
+        if ir_stage1.get("frame_zero") is not None:
+            ds1 = dressing_by_n.get(1, {})
+            seed1 = int(ds1.get("seed", 1))
+            sfx_candidate_events.append({
+                "raw_at": 0,
+                "tag": "pop",
+                "seed": seed1,
+                "gain_db": -8.0,
+                "scene_n": 1,
+                "type": "frame_zero_pop",
+            })
+
         for idx, scene in enumerate(timeline_scenes):
             n = int(scene.get("n", idx + 1))
             phase = str(scene.get("phase", ""))
+            visual = str(scene.get("visual", "face"))
             out_start_ms = int(scene.get("out_start_ms", 0))
             ds = dressing_by_n.get(n, {})
             seed = int(ds.get("seed", n))
@@ -569,6 +583,24 @@ def build_ir_stage2(
                     "scene_n": n,
                     "type": "transition",
                 })
+
+            # Whoosh on entering broll scene (if not scene 1)
+            if idx > 0 and visual == "broll" and tr_tag != "none":
+                target_raw_at = out_start_ms - 150
+                has_trans_sfx = any(
+                    ev.get("type") == "transition"
+                    and abs(ev.get("raw_at", 0) - target_raw_at) < 300
+                    for ev in sfx_candidate_events
+                )
+                if not has_trans_sfx:
+                    sfx_candidate_events.append({
+                        "raw_at": target_raw_at,
+                        "tag": tr_tag,
+                        "seed": seed,
+                        "gain_db": -8.0,
+                        "scene_n": n,
+                        "type": "transition",
+                    })
 
             # Riser SFX
             if phase == "rehook":

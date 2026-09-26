@@ -15,6 +15,7 @@
   let activeTab = "preview"; // "preview" | "final"
   let selectedSceneN = null;
   let isAutoAssembling = false;
+  let lastRenderedEditVersion = null;
 
   // --- Host Bridge Helpers ---
   function getBS() {
@@ -117,6 +118,10 @@
       msg = "Too many raw builds this hour.";
     } else if (code === "missing_takes") {
       msg = "Record all required A-roll scenes first.";
+    } else if (code === "payment_error") {
+      msg = "Payment could not be processed. You were not charged.";
+    } else if (code === "too_many_ai_calls") {
+      msg = "Too many AI requests this hour. Try again later.";
     } else if (code === "402") {
       showPaywall();
       return;
@@ -421,8 +426,29 @@
         } else if (args.ideaId) {
           currentEditingState = await loadEditingState(args.ideaId);
         }
+        if (name === "render" && currentEditingState) {
+          lastRenderedEditVersion = currentEditingState.edit_version;
+        }
         if (action.credits > 0) {
           updateCreditsUI();
+        }
+        if (["toggle_face", "reset_face", "trim", "mute_music", "toggle_sfx"].includes(name)) {
+          if (currentEditingState && currentEditingState.raw && currentEditingState.raw.fresh === false) {
+            const rawStatus = currentEditingState.raw.status;
+            if (rawStatus !== "pending" && rawStatus !== "running" && !isAutoAssembling) {
+              isAutoAssembling = true;
+              postRawRender(args.ideaId).then((res) => {
+                isAutoAssembling = false;
+                if (res) {
+                  currentEditingState = res;
+                  renderEditingContent(currentEditingState);
+                  startPolling(args.ideaId);
+                }
+              }).catch(() => {
+                isAutoAssembling = false;
+              });
+            }
+          }
         }
         if (currentEditingState) {
           renderEditingContent(currentEditingState);
@@ -498,11 +524,11 @@
     if (rawProgressEl && state.raw) {
       if (state.raw.status === "pending" || state.raw.status === "running") {
         rawProgressEl.style.display = "block";
-        const pct = state.raw.progress || 10;
+        const hasPct = typeof state.raw.progress === "number" && !isNaN(state.raw.progress);
         const bar = rawProgressEl.querySelector(".progress-bar-fill");
-        if (bar) bar.style.width = pct + "%";
+        if (bar) bar.style.width = hasPct ? state.raw.progress + "%" : "100%";
         const txt = rawProgressEl.querySelector(".progress-bar-text");
-        if (txt) txt.textContent = `Assembling your raw cut… ${pct}%`;
+        if (txt) txt.textContent = hasPct ? `Assembling your raw cut… ${state.raw.progress}%` : "Assembling your raw cut… Working…";
       } else {
         rawProgressEl.style.display = "none";
       }
@@ -512,11 +538,11 @@
     if (renderProgressEl && state.render) {
       if (state.render.status === "pending" || state.render.status === "running") {
         renderProgressEl.style.display = "block";
-        const pct = state.render.progress || 10;
+        const hasPct = typeof state.render.progress === "number" && !isNaN(state.render.progress);
         const bar = renderProgressEl.querySelector(".progress-bar-fill");
-        if (bar) bar.style.width = pct + "%";
+        if (bar) bar.style.width = hasPct ? state.render.progress + "%" : "100%";
         const txt = renderProgressEl.querySelector(".progress-bar-text");
-        if (txt) txt.textContent = `Rendering final MP4… ${pct}%`;
+        if (txt) txt.textContent = hasPct ? `Rendering final MP4… ${state.render.progress}%` : "Rendering final MP4… Working…";
       } else {
         renderProgressEl.style.display = "none";
       }
@@ -555,6 +581,12 @@
 
       if (!state) {
         throw new Error("Could not load editing state.");
+      }
+
+      if (state.render && state.render.status === "done" && state.render.signed_url) {
+        if (lastRenderedEditVersion === null) {
+          lastRenderedEditVersion = state.render.edit_version || state.edit_version;
+        }
       }
 
       // 1. Guard check: missing_takes
@@ -641,6 +673,12 @@
     if (typeof document === "undefined") return;
     const container = document.getElementById("Editing-Content");
     if (!container) return;
+
+    if (state.render && state.render.status === "done" && state.render.signed_url) {
+      if (lastRenderedEditVersion === null) {
+        lastRenderedEditVersion = state.render.edit_version || state.edit_version;
+      }
+    }
 
     const timeline = state.timeline || {};
     const scenes = timeline.scenes || [];
@@ -787,6 +825,8 @@
       `;
     }).join("");
 
+    const isOutdatedRender = hasFinalVideo && lastRenderedEditVersion !== null && state.edit_version > lastRenderedEditVersion;
+
     container.innerHTML = `
       <!-- Error Banner -->
       <div id="Editing-Error-Banner" style="display:none;margin-bottom:16px;padding:12px;background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;border-radius:6px;font-size:13px;font-weight:600"></div>
@@ -852,6 +892,7 @@
                 ${typeof navigator !== "undefined" && navigator.share ? `<button type="button" id="Editing-NativeShareBtn" class="btn btn--secondary" style="flex:1;font-size:12px">Share…</button>` : ''}
               </div>
               <div style="font-size:11px;color:var(--ink-soft);text-align:center;margin-top:4px">Link valid for 7 days</div>
+              ${isOutdatedRender ? `<div style="font-size:12px;color:#D97706;font-weight:600;text-align:center;margin-top:6px">This MP4 is from an earlier edit — render again to include your changes.</div>` : ''}
             ` : (hasRawVideo ? `
               <div style="font-size:12px;color:var(--ink-soft);text-align:center">Previewing assembled raw cut. Click <strong>Render</strong> to generate publication MP4.</div>
             ` : '')}
@@ -866,6 +907,7 @@
             <div style="display:flex;gap:6px;width:100%;box-sizing:border-box">
               ${timelineBlocksHtml || '<div style="font-size:12px;color:var(--ink-soft)">No timeline blocks.</div>'}
             </div>
+            <div id="Editing-Timeline-Tracks" style="margin-top:12px;display:flex;flex-direction:column;gap:4px"></div>
           </div>
 
           <!-- Sound Controls (E5) -->
@@ -873,7 +915,7 @@
             <h3 style="font-size:14px;font-weight:700;margin:0 0 12px;color:var(--ink)">Sound & Effects</h3>
             <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--ink)">
-                <input type="checkbox" id="Editing-MusicMute" ${settings.music_muted ? "checked" : ""} data-edit-action="mute_music">
+                <input type="checkbox" id="Editing-MusicMute" ${!settings.music_muted ? "checked" : ""} data-edit-action="mute_music">
                 Background music
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--ink)">
@@ -913,11 +955,91 @@
       </div>
     `;
 
-    // --- Wire Video Element preserving existing video DOM element if src hasn't changed ---
+    // --- Wire 5 Timeline Track Rows (E6) without innerHTML with data ---
+    const tracksContainer = document.getElementById("Editing-Timeline-Tracks");
+    if (tracksContainer) {
+      tracksContainer.innerHTML = "";
+      const totalMs = (timeline && timeline.duration_ms) || (ir && ir.duration_ms) || 1;
+
+      const trackDefs = [
+        { label: "Captions", items: ir ? (ir.captions || []) : [], getTimes: (ev) => ({ start: ev.start_ms, end: ev.end_ms }), type: "bar", color: "#3B82F6" },
+        { label: "Zoom", items: ir ? (ir.zoom_keys || []).filter((k) => k.scale > 1) : [], getTimes: (k) => ({ start: k.t_ms, end: k.t_ms }), type: "point", color: "#F59E0B" },
+        { label: "Transitions", items: ir ? (ir.transitions || []) : [], getTimes: (tr) => ({ start: tr.at_ms, end: tr.at_ms + (tr.dur_ms || 0) }), type: "bar", color: "#8B5CF6" },
+        { label: "Overlays", items: ir ? (ir.overlays || []) : [], getTimes: (ov) => ({ start: ov.start_ms, end: ov.end_ms }), type: "bar", color: "#10B981" },
+        { label: "SFX", items: ir ? (ir.sfx || []) : [], getTimes: (cue) => ({ start: cue.at_ms, end: cue.at_ms }), type: "point", color: "#EC4899" }
+      ];
+
+      trackDefs.forEach((def) => {
+        const row = document.createElement("div");
+        row.style.display = "flex";
+        row.style.alignItems = "center";
+        row.style.height = "14px";
+        row.style.marginBottom = "2px";
+
+        const labelSpan = document.createElement("span");
+        labelSpan.style.width = "75px";
+        labelSpan.style.fontSize = "10px";
+        labelSpan.style.fontWeight = "600";
+        labelSpan.style.color = "var(--ink-soft)";
+        labelSpan.textContent = def.label;
+        row.appendChild(labelSpan);
+
+        const trackArea = document.createElement("div");
+        trackArea.style.flex = "1";
+        trackArea.style.height = "100%";
+        trackArea.style.position = "relative";
+        trackArea.style.background = "var(--surface-alt)";
+        trackArea.style.borderRadius = "3px";
+        trackArea.style.overflow = "hidden";
+
+        def.items.forEach((item) => {
+          const times = def.getTimes(item);
+          const start = times.start;
+          const end = times.end;
+
+          const mark = document.createElement("div");
+          mark.style.position = "absolute";
+          mark.style.height = "100%";
+          mark.style.backgroundColor = def.color;
+          mark.style.cursor = "pointer";
+
+          if (def.type === "point") {
+            const posPct = Math.max(0, Math.min(100, (start / totalMs) * 100));
+            mark.style.left = posPct + "%";
+            mark.style.width = "4px";
+            mark.style.transform = "translateX(-50%)";
+            mark.style.borderRadius = "2px";
+          } else {
+            const startPct = Math.max(0, Math.min(100, (start / totalMs) * 100));
+            const durPct = Math.max(0.5, Math.min(100 - startPct, ((end - start) / totalMs) * 100));
+            mark.style.left = startPct + "%";
+            mark.style.width = durPct + "%";
+            mark.style.opacity = "0.75";
+            mark.style.borderRadius = "2px";
+          }
+
+          mark.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const v = document.getElementById("Editing-Video");
+            if (v) {
+              v.currentTime = start / 1000;
+            }
+          });
+
+          trackArea.appendChild(mark);
+        });
+
+        row.appendChild(trackArea);
+        tracksContainer.appendChild(row);
+      });
+    }
+
+    // --- Wire Video Element preserving existing video DOM element if storage_path hasn't changed ---
     const playerContainer = document.getElementById("Editing-Player-Container");
     if (playerContainer) {
       let videoEl = document.getElementById("Editing-Video");
       const targetSrc = safeHttpsUrl(activeVideoUrl);
+      const targetStoragePath = (activeTab === "final" && hasFinalVideo) ? (render.storage_path || "") : (raw.storage_path || "");
 
       if (!targetSrc) {
         playerContainer.innerHTML = `
@@ -933,21 +1055,43 @@
           previewMountInstance = null;
         }
       } else {
-        if (!videoEl || videoEl.getAttribute("src") !== targetSrc) {
-          playerContainer.innerHTML = `<video id="Editing-Video" src="${escapeHtml(targetSrc)}" controls playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>`;
+        const currentStoragePath = videoEl ? (videoEl.dataset.storagePath || "") : "";
+        const rawNoticeText = (typeof raw.progress === "number" && !isNaN(raw.progress)) ? `Updating your raw cut… ${raw.progress}%` : "Updating your raw cut…";
+        const isRawStaleNotice = !raw.fresh && activeTab === "preview";
+
+        if (!videoEl || currentStoragePath !== targetStoragePath) {
+          playerContainer.innerHTML = `
+            <video id="Editing-Video" data-storage-path="${escapeHtml(targetStoragePath)}" src="${escapeHtml(targetSrc)}" controls playsinline style="width:100%;height:100%;object-fit:contain;background:#000;${isRawStaleNotice ? 'opacity:0.4;' : ''}"></video>
+            ${isRawStaleNotice ? `<div id="Editing-Raw-Notice" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);color:#fff;font-size:14px;font-weight:600;pointer-events:none;z-index:10">${escapeHtml(rawNoticeText)}</div>` : ''}
+          `;
           videoEl = document.getElementById("Editing-Video");
           if (previewMountInstance) {
             previewMountInstance.destroy();
             previewMountInstance = null;
           }
+        } else {
+          videoEl.style.opacity = isRawStaleNotice ? "0.4" : "1.0";
+          let noticeEl = document.getElementById("Editing-Raw-Notice");
+          if (isRawStaleNotice) {
+            if (!noticeEl) {
+              noticeEl = document.createElement("div");
+              noticeEl.id = "Editing-Raw-Notice";
+              noticeEl.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);color:#fff;font-size:14px;font-weight:600;pointer-events:none;z-index:10";
+              playerContainer.appendChild(noticeEl);
+            }
+            noticeEl.textContent = rawNoticeText;
+          } else if (noticeEl) {
+            noticeEl.remove();
+          }
         }
 
         // Mount or update preview
+        const irToUse = isRawStaleNotice ? null : ir;
         if (window.BrandStudioPreview && activeTab === "preview") {
           if (!previewMountInstance) {
-            previewMountInstance = window.BrandStudioPreview.mount(playerContainer, videoEl, ir);
+            previewMountInstance = window.BrandStudioPreview.mount(playerContainer, videoEl, irToUse);
           } else {
-            previewMountInstance.update(ir);
+            previewMountInstance.update(irToUse);
           }
           if (previewMountInstance && state.sfx_urls) {
             previewMountInstance.setSfxUrls(state.sfx_urls);
@@ -1118,7 +1262,9 @@
       if (!input || input.type !== "checkbox") return;
 
       const actionName = input.dataset.editAction;
-      if (actionName === "mute_music" || actionName === "toggle_sfx") {
+      if (actionName === "mute_music") {
+        await runEditAction(actionName, { ideaId: currentIdeaId, value: !input.checked });
+      } else if (actionName === "toggle_sfx") {
         await runEditAction(actionName, { ideaId: currentIdeaId, value: input.checked });
       }
     });

@@ -102,6 +102,9 @@ def build_raw_request(job: dict[str, Any]) -> dict[str, Any]:
             )
             mg_counter += 1
 
+    public_base = (getattr(dispatch_config, "PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    progress_url = f"{public_base}/api/editing/internal/jobs/{job_id}/progress" if public_base else None
+
     req_data = {
         "schema": "brandstudio.render.v1",
         "job_id": job_id,
@@ -111,6 +114,7 @@ def build_raw_request(job: dict[str, Any]) -> dict[str, Any]:
         "inputs": signed_inputs,
         "convert": convert_items,
         "output": output,
+        "progress_url": progress_url,
     }
     validated = RenderRequest.model_validate(req_data)
     return validated.model_dump(exclude_unset=True)
@@ -150,6 +154,9 @@ def build_final_request(job: dict[str, Any]) -> dict[str, Any]:
         signed_sfx = sign_inputs(sfx_inputs)
         inputs_dict.update(signed_sfx)
 
+    public_base = (getattr(dispatch_config, "PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    progress_url = f"{public_base}/api/editing/internal/jobs/{job_id}/progress" if public_base else None
+
     req_data = {
         "schema": "brandstudio.render.v1",
         "job_id": job_id,
@@ -160,6 +167,7 @@ def build_final_request(job: dict[str, Any]) -> dict[str, Any]:
         "inputs": inputs_dict,
         "convert": [],
         "output": output,
+        "progress_url": progress_url,
     }
     validated = RenderRequest.model_validate(req_data)
     return validated.model_dump(exclude_unset=True)
@@ -296,13 +304,13 @@ async def resolve_render(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def refund_failed_prepaid() -> int:
-    """Finds failed charged render jobs and refunds prepaid credits."""
+    """Finds failed charged render and redress jobs and refunds prepaid credits."""
     try:
-        from app.audiovisual.jobs import find_jobs, release_charge
+        from app.audiovisual.jobs import find_jobs, mark_charged, release_charge
         from app.guard import guard
 
         default_credits = getattr(dispatch_config, "RENDER_CREDITS", 20)
-        failed_jobs = find_jobs(kinds=["render"], statuses=["failed"], charged=True, limit=20)
+        failed_jobs = find_jobs(kinds=["render", "redress"], statuses=["failed"], charged=True, limit=20)
         refunded_count = 0
         for job in failed_jobs:
             if release_charge(job):
@@ -322,6 +330,7 @@ def refund_failed_prepaid() -> int:
                     else:
                         refunded_count += 1
                 except Exception as e:
+                    mark_charged(job)
                     token_mask = (
                         session_token[-6:] if len(session_token) >= 6 else "***"
                     )
