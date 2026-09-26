@@ -23,37 +23,28 @@ Core design principle:
 "The brand_brain is the ONLY source of truth. The LLM only redacts."
 """
 
-import os
-from typing import Dict, Optional, List, Tuple
 import hashlib
 import json
 
-from app.tools.brand_brain.models import BrandBrain, Section
-from app.tools.brand_brain.store import get_brand_brain, save_brand_brain
-from app.tools.brand_soul.template import (
-    build_soul_html,
-    get_etapa_context,
-    detect_etapa_from_brand_brain
-)
 from app.config import settings
+from app.tools.brand_brain.models import BrandBrain, Section
+from app.tools.brand_brain.store import get_brand_brain
+from app.tools.brand_soul.template import build_soul_html
 
 
 class SoulGenerationError(Exception):
     """Raised when Brand Soul cannot be generated"""
-    pass
 
 
 class CitationValidationError(SoulGenerationError):
     """Raised when generated HTML contains invented citations"""
-    pass
 
 
 class IncompleteBrainError(SoulGenerationError):
     """Raised when brain doesn't have all 9 confirmed sections"""
-    pass
 
 
-def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
+def _check_all_sections_confirmed(brain: BrandBrain) -> tuple[bool, list[str]]:
     """
     Check if all 9 sections exist and are confirmed.
 
@@ -85,7 +76,7 @@ def _check_all_sections_confirmed(brain: BrandBrain) -> Tuple[bool, List[str]]:
     return is_complete, missing_sections
 
 
-def _extract_literal_citations(brain: BrandBrain) -> Dict[str, str]:
+def _extract_literal_citations(brain: BrandBrain) -> dict[str, str]:
     """
     Extract all literal citation texts from the brand_brain.
 
@@ -115,8 +106,8 @@ def _get_vertex_ai_client():
         )
 
     try:
-        from vertexai.generative_models import GenerativeModel
         import vertexai
+        from vertexai.generative_models import GenerativeModel
 
         # Initialize Vertex AI
         vertexai.init(
@@ -155,178 +146,35 @@ def _estimate_tokens(text: str) -> int:
 
 def _redact_section_content_with_llm(
     section: Section,
-    all_citations: Dict[str, str]
-) -> Tuple[Dict[str, str], int]:
+    all_citations: dict[str, str]
+) -> tuple[str, int]:
     """
     Redact a section's content using Gemini 2.5 Flash-Lite via Vertex AI.
 
     CRITICAL: The LLM only sees the section content and its own citation.
     It NEVER sees the raw transcript or external context.
-
-    The prompt instructs the LLM to:
-    1. Redact with strategic voice (not like a form)
-    2. Use ONLY facts in the section content
-    3. Keep core assertions accurate
-    4. Temperature = 0 for determinism
-    5. NEVER invent data that isn't in the content
-
-    Args:
-        section: The Section object to redact
-        all_citations: Dict mapping section_id to citation text
-
-    Returns:
-        Tuple of (dict with redacted text fields, estimated_token_count)
-
-    Raises:
-        SoulGenerationError: If LLM call fails
-
-    NOTE: For sections that are pure data transformations (not prose),
-    we return the structured data directly without LLM calls.
     """
     content = section.content
+    citation = all_citations.get(section.id, "")
 
-    # These sections don't need LLM redaction - they're structured data
-    if section.id == "diagnostico":
-        # Extract knowledge level (experto vs estudiante) from etapa field
-        etapa_name = content.get("etapa", "")
-        if "invisible" in etapa_name.lower() or "explorador" in etapa_name.lower():
-            knowledge_level = "ESTUDIANTE"
-            implication = "Estás al principio. Tu perspectiva única es más valiosa que tu experiencia."
-        else:
-            knowledge_level = "EXPERTO"
-            implication = "Ya has recorrido el camino. Tu experiencia es tu ventaja competitiva."
+    # Format the dictionary content into a plain string to avoid JSON inputs
+    content_str = " ".join([f"{str(k).replace('_', ' ').capitalize()}: {v}" for k, v in content.items() if v])
 
-        return {
-            "knowledge_level": knowledge_level,
-            "implication": implication,
-            "citation": all_citations["diagnostico"]
-        }, _estimate_tokens(implication) + 100  # Estimate
+    instruction = (
+        f"Consolidate this information about the '{section.id}' section into a compelling narrative. "
+        "Write 2-4 paragraphs of prose (150-350 words). "
+        "OUTPUT IN ENGLISH. "
+        "DO NOT output JSON, key-value pairs, bullet dumps, or use snake_case keys or curly braces. "
+        "Use a strategic, professional voice."
+    )
 
-    elif section.id == "identidad":
-        voz = content.get("voz", "")
-        colores = content.get("colores", "")
-        tipografias = content.get("tipografias", "")
-        voice_text = f"Voz: {voz}. Colores: {colores}. Tipografías: {tipografias}"
+    redacted_text = _call_llm_for_redaction(
+        section_text=content_str,
+        citation_text=citation,
+        instruction=instruction
+    )
 
-        voz = content.get("voz", "")
-        voice_text = f"Voz de marca: {voz}"
-
-        return {
-            "voice": voice_text,
-            "associations_desired": "",  # Not used in this template
-            "associations_prohibited": "",  # Not used in this template
-            "citation": all_citations["identidad"]
-        }, _estimate_tokens(voice_text) + 200
-
-    elif section.id == "oferta":
-        resultado = content.get("resultado_sonado", "")
-        probabilidad = content.get("probabilidad_percibida", "")
-        retraso = content.get("retraso", "")
-        esfuerzo = content.get("esfuerzo", "")
-
-        equation_parts = [resultado, probabilidad, retraso, esfuerzo]
-        equation_text = " | ".join(filter(None, equation_parts))
-
-        return {
-            "equation": equation_text,
-            "citation": all_citations["oferta"]
-        }, _estimate_tokens(equation_text) + 50
-
-    elif section.id == "lead_magnet":
-        tipo = content.get("tipo", "")
-        problema_a = content.get("problema_A", "")
-
-        text = f"{tipo}: {problema_a}" if tipo or problema_a else ""
-
-        return {
-            "text": text,
-            "citation": all_citations["lead_magnet"]
-        }, _estimate_tokens(text) + 50
-
-    elif section.id == "brand_journey":
-        resultado = content.get("resultado_deseado", "")
-        conocido_por = content.get("de_que_ser_conocido", "")
-        que_hacer = content.get("que_hacer", "")
-        que_aprender = content.get("que_aprender", "")
-
-        stages = [resultado, conocido_por, que_hacer, que_aprender]
-        stages_text = " → ".join(filter(None, stages))
-
-        return {
-            "stages": stages_text,
-            "citation": all_citations["brand_journey"]
-        }, _estimate_tokens(stages_text) + 100
-
-    elif section.id == "credibilidad":
-        # This section is used for evidence, not as a main section in the document
-        return {"citation": all_citations["credibilidad"]}, 50
-
-    elif section.id == "icp":
-        # This section is used for persona info, integrated into other sections
-        return {"citation": all_citations["icp"]}, 50
-
-    # Sections that NEED LLM redaction (prose sections)
-    elif section.id == "charco":
-        problema = content.get("problema", "")
-        if not problema:
-            return {
-                "content": "",
-                "citation": all_citations["charco"]
-            }, 50
-
-        redacted_text = _call_llm_for_redaction(
-            section_text=problema,
-            citation_text=all_citations["charco"],
-            instruction=(
-                "Redacta el punto de dolor de forma estratégica, como lo haría un consultor de marca. "
-                "Usa un tono directo y contundente. No inventes detalles que no estén en el texto original."
-            )
-        )
-
-        return {
-            "content": redacted_text,
-            "citation": all_citations["charco"]
-        }, _estimate_tokens(problema) + _estimate_tokens(redacted_text) + 500
-
-    elif section.id == "contrarian":
-        common_belief = content.get("creencia_comun", "")
-        contrarian_position = content.get("postura_opuesta", "")
-
-        if not common_belief or not contrarian_position:
-            return {
-                "common_belief": common_belief or "",
-                "contrarian_position": contrarian_position or "",
-                "citation": all_citations["contrarian"]
-            }, 100
-
-        redacted_common = _call_llm_for_redaction(
-            section_text=common_belief,
-            citation_text=all_citations["contrarian"],
-            instruction=(
-                "Redacta esta creencia común en una frase clara y breve. "
-                "Mantén el significado exacto, solo mejora la redacción."
-            )
-        )
-
-        redacted_contrarian = _call_llm_for_redaction(
-            section_text=contrarian_position,
-            citation_text=all_citations["contrarian"],
-            instruction=(
-                "Redacta esta posición contraria con fuerza estratégica. "
-                "Haz que suene como una verdad contraintuitiva impactante. "
-                "No añadas argumentos que no estén en el original."
-            )
-        )
-
-        return {
-            "common_belief": redacted_common,
-            "contrarian_position": redacted_contrarian,
-            "citation": all_citations["contrarian"]
-        }, _estimate_tokens(common_belief) + _estimate_tokens(contrarian_position) + _estimate_tokens(redacted_common) + _estimate_tokens(redacted_contrarian) + 1000
-
-    else:
-        return {"citation": all_citations.get(section.id, "")}, 50
-
+    return redacted_text, _estimate_tokens(content_str) + _estimate_tokens(redacted_text) + 500
 
 def _call_llm_for_redaction(
     section_text: str,
@@ -407,7 +255,7 @@ Devuelve SOLO el texto redactado (2-3 párrafos extensos). Sin explicaciones, si
         return section_text
 
 
-def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List[str]]:
+def validate_citations_in_html(html: str, brain: BrandBrain) -> tuple[bool, list[str]]:
     """
     Validate that every citation in the HTML exists literally in the brain.
 
@@ -427,8 +275,8 @@ def validate_citations_in_html(html: str, brain: BrandBrain) -> Tuple[bool, List
         and checks if the literal text (excluding quotes) exists in the brain's
         citation_text fields.
     """
-    import re
     import html as _html
+    import re
 
     # Se revisa TODO texto entrecomillado del documento, no solo el que esta
     # dentro de <div class="citation">.
@@ -494,7 +342,7 @@ def _compute_brain_hash(brain: BrandBrain) -> str:
     return hashlib.sha256(brain_json.encode()).hexdigest()
 
 
-def _check_cache(brain: BrandBrain, session_token: str) -> Optional[str]:
+def _check_cache(brain: BrandBrain, session_token: str) -> str | None:
     """
     Check if a cached HTML exists for this brain.
 
@@ -583,7 +431,7 @@ def _save_cache(brain: BrandBrain, html: str, session_token: str) -> bool:
         return False
 
 
-def generate_brand_soul(session_token: str) -> Tuple[str, str]:
+def generate_brand_soul(session_token: str) -> tuple[str, str]:
     """
     Generate the Brand Soul document for the given session.
 
@@ -637,43 +485,48 @@ def generate_brand_soul(session_token: str) -> Tuple[str, str]:
     # Do not deduct here too.
 
     # 4. Generate new HTML
-    # 4a. Extract etapa context
-    etapa_id = detect_etapa_from_brand_brain(brain)
-    if not etapa_id:
-        etapa_id = "invisible"  # Default fallback
-    etapa_context = get_etapa_context(etapa_id)
-
     # 4b. Redact each section with LLM and track tokens
     all_citations = _extract_literal_citations(brain)
 
-    redacted = {}
+    redacted_sections = {}
     total_tokens = 0
+    full_context = ""
     for section in brain.sections:
-        redacted[section.id], token_count = _redact_section_content_with_llm(section, all_citations)
+        redacted_text, token_count = _redact_section_content_with_llm(section, all_citations)
+        redacted_sections[section.id] = redacted_text
         total_tokens += token_count
+        full_context += f"\n\n--- {section.id} ---\n{redacted_text}"
+
+    summary = _call_llm_for_redaction(
+        section_text=full_context,
+        citation_text="",
+        instruction=(
+            "Write an Executive Summary of this entire brand strategy. "
+            "Write 1-2 paragraphs of prose (120-200 words). "
+            "OUTPUT IN ENGLISH. DO NOT output JSON, key-value pairs, bullet dumps, or use snake_case keys or curly braces."
+        )
+    )
+    total_tokens += _estimate_tokens(full_context) + _estimate_tokens(summary) + 200
+
+    closing = _call_llm_for_redaction(
+        section_text=full_context,
+        citation_text="",
+        instruction=(
+            "Write a concluding section titled 'How Brandy will use this'. "
+            "Explain how the AI agent Brandy will use this strategy to write scripts and create content. "
+            "Write 1-2 paragraphs of prose. "
+            "OUTPUT IN ENGLISH. DO NOT output JSON, key-value pairs, bullet dumps, or use snake_case keys or curly braces."
+        )
+    )
+    total_tokens += _estimate_tokens(full_context) + _estimate_tokens(closing) + 200
 
     # 4c. Build HTML from template
     try:
         html = build_soul_html(
-            etapa_context=etapa_context,
-            charco_content=redacted["charco"]["content"],
-            charco_citation=redacted["charco"]["citation"],
-            knowledge_level=redacted["diagnostico"]["knowledge_level"],
-            knowledge_implication=redacted["diagnostico"]["implication"],
-            knowledge_citation=redacted["diagnostico"]["citation"],
-            common_belief=redacted["contrarian"]["common_belief"],
-            contrarian_position=redacted["contrarian"]["contrarian_position"],
-            contrarian_citation=redacted["contrarian"]["citation"],
-            identity_voice=redacted["identidad"]["voice"],
-            identity_associations_desired=redacted["identidad"]["associations_desired"],
-            identity_associations_prohibited=redacted["identidad"]["associations_prohibited"],
-            identity_citation=redacted["identidad"]["citation"],
-            offer_equation=redacted["oferta"]["equation"],
-            offer_citation=redacted["oferta"]["citation"],
-            lead_magnet_text=redacted["lead_magnet"]["text"],
-            lead_magnet_citation=redacted["lead_magnet"]["citation"],
-            brand_journey_stages=redacted["brand_journey"]["stages"],
-            brand_journey_citation=redacted["brand_journey"]["citation"]
+            summary=summary,
+            closing=closing,
+            redacted_sections=redacted_sections,
+            citations=all_citations
         )
     except KeyError as e:
         raise SoulGenerationError(f"Missing section in redacted content: {e}")

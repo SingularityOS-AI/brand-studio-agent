@@ -1,0 +1,262 @@
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 25%]
+........................................................................ [ 34%]
+...........s............................................................ [ 42%]
+........................................................................ [ 51%]
+.....................................sssssssssF...F..................... [ 59%]
+........................................................................ [ 68%]
+.....................ss.s....F.s......s....s..sss.s.s.sE................ [ 77%]
+........................................................................ [ 85%]
+........................................................................ [ 94%]
+.............................ssss................                        [100%]
+==================================== ERRORS ====================================
+___________ ERROR at setup of test_p92_post_progress_host_validation ___________
+file /app/tests/test_render_service_p92_rebote.py, line 514
+  def test_p92_post_progress_host_validation(monkeypatch: pytest.MonkeyPatch, mocker):
+E       fixture 'mocker' not found
+>       available fixtures: _asyncio_loop_factory, _class_scoped_runner, _empty_audiovisual_libraries_by_default, _function_scoped_runner, _module_scoped_runner, _package_scoped_runner, _session_scoped_runner, anyio_backend, anyio_backend_name, anyio_backend_options, authenticated_client, auto_clean_rate_limits, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, clean_rate_limit, clean_rate_limits, client_with_session, doctest_namespace, event_loop_policy, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, monkeypatch, network_lock_active, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, subtests, test_auth_headers, test_jwt_token, test_user_id, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/app/tests/test_render_service_p92_rebote.py:514
+=================================== FAILURES ===================================
+_____________________ test_normal_request_pass_and_deduct ______________________
+
+client_with_auth = <starlette.testclient.TestClient object at 0x7ff6f4ab0c80>
+
+    def test_normal_request_pass_and_deduct(client_with_auth):
+        """
+        Path 1: Normal request passes rate limit and deducts budget.
+        Should receive token and remaining credits.
+        """
+        response = client_with_auth.get("/api/token")
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert "credits_remaining" in data
+        # Credits should be less than initial 250 after deduct
+>       assert 0 <= data["credits_remaining"] <= 249
+E       assert 499 <= 249
+
+tests/test_guard_jwt.py:111: AssertionError
+______________________ test_budget_exhausted_returns_402 _______________________
+
+client_with_auth = <starlette.testclient.TestClient object at 0x7ff6f485ade0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff6f485b410>
+
+    def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
+        """
+        Path 3: Session exhausting budget gets 402 with configurable payment URL.
+        Exhaust all credits and verify payment required response.
+
+        Rate limit (default 30/min) is neutralized here so this test actually
+        reaches 402 instead of hitting 429 first and silently skipping the
+        assertion it's named for — a session's budget can legitimately outlast
+        a minute of requests in real use.
+        """
+        monkeypatch.setattr(guard, "check_rate_limit", lambda *a, **k: None)
+
+        # Clear any existing sessions to start fresh
+        guard._sessions.clear()
+
+        # Make requests until budget is exhausted (250 credits)
+        for i in range(250):
+            response = client_with_auth.get("/api/token")
+            if response.status_code == 402:
+                break
+            assert response.status_code == 200, f"Request {i} failed: {response.json()}"
+
+        # The session now has 0 credits: the very next call must 402.
+        response = client_with_auth.get("/api/token")
+>       assert response.status_code == 402
+E       assert 200 == 402
+E        +  where 200 = <Response [200 OK]>.status_code
+
+tests/test_guard_jwt.py:189: AssertionError
+________________________ test_fonts_and_sources_hashes _________________________
+
+    def test_fonts_and_sources_hashes():
+        fonts_dir = REPO_ROOT / "render_service" / "fonts"
+        sources_md = fonts_dir / "SOURCES.md"
+        assert fonts_dir.is_dir(), "render_service/fonts directory missing"
+        assert sources_md.is_file(), "render_service/fonts/SOURCES.md missing"
+
+        sources_content = sources_md.read_text(encoding="utf-8")
+
+        from render_service.manifest import FONT_ALLOWLIST
+
+        ttf_files = list(fonts_dir.glob("*.ttf")) + list(fonts_dir.glob("*.otf"))
+        for family in FONT_ALLOWLIST:
+            clean_family = family.replace(" ", "")
+            matching = [
+                f
+                for f in ttf_files
+                if family.lower() in f.name.lower()
+                or clean_family.lower() in f.name.lower()
+            ]
+            assert (
+                len(matching) > 0
+            ), f"No TTF font file found for allowlist family '{family}'"
+
+        file_blocks = sources_content.split("- **File:**")
+        for block in file_blocks[1:]:
+            filename_match = re.search(r"`([^`]+)`", block)
+            sha_match = re.search(r"SHA256:\*\* `([0-9a-fA-F]{64})`", block)
+            if filename_match and sha_match:
+                filename = filename_match.group(1)
+                expected_sha = sha_match.group(1).lower()
+                file_path = fonts_dir / filename
+                assert (
+                    file_path.is_file()
+                ), f"File `{filename}` listed in SOURCES.md does not exist"
+                actual_sha = hashlib.sha256(file_path.read_bytes()).hexdigest().lower()
+>               assert (
+                    actual_sha == expected_sha
+                ), f"SHA256 mismatch for {filename}: expected {expected_sha}, got {actual_sha}"
+E               AssertionError: SHA256 mismatch for Anton-OFL.txt: expected ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4, got eee1d24ff8f553eb732237c7dd9b945a78313ed49ad6de02872a47277741b44a
+E               assert 'eee1d24ff8f5...a47277741b44a' == 'ee67e6ee2279...df5596de9c9e4'
+E
+E                 - ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4
+E                 + eee1d24ff8f553eb732237c7dd9b945a78313ed49ad6de02872a47277741b44a
+
+tests/test_render_service_p75_container.py:96: AssertionError
+=============================== warnings summary ===============================
+render_service/manifest.py:135
+  /app/render_service/manifest.py:135: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+
+render_service/manifest.py:300
+  /app/render_service/manifest.py:300: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+
+render_service/manifest.py:401
+  /app/render_service/manifest.py:401: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+
+../home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_audiovisual_p50.py: 2 warnings
+tests/test_audiovisual_p50b_rebote.py: 3 warnings
+tests/test_audiovisual_p51.py: 6 warnings
+tests/test_audiovisual_p52.py: 1 warning
+tests/test_audiovisual_p55.py: 10 warnings
+tests/test_audiovisual_p56.py: 4 warnings
+tests/test_audiovisual_p57.py: 7 warnings
+tests/test_audiovisual_p60.py: 7 warnings
+tests/test_audiovisual_p64.py: 3 warnings
+tests/test_audiovisual_p66.py: 3 warnings
+tests/test_auth.py: 1 warning
+tests/test_brain_endpoints.py: 1 warning
+tests/test_guard_jwt.py: 4 warnings
+tests/test_soul_rate_limit.py: 1 warning
+tests/test_voice_reserve.py: 7 warnings
+  /app/tests/jwt_helpers.py:36: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "exp": (datetime.utcnow() + timedelta(hours=expires_in_hours)).timestamp(),
+
+tests/test_auth.py::TestSupabaseAuth::test_create_valid_jwt_token_hs256
+  /home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_auth.py::TestSupabaseAuth::test_create_valid_jwt_token_hs256 returned <class 'str'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+tests/test_auth.py::TestSupabaseAuth::test_verify_invalid_signature
+  /home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/jwt/api_jwt.py:149: InsecureKeyLengthWarning: The HMAC key is 12 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+tests/test_brain.py: 16 warnings
+tests/test_brand_soul_f01_prose.py: 18 warnings
+tests/test_convert_wiring.py: 37 warnings
+tests/test_nueve_nodos.py: 13 warnings
+tests/test_scripting.py: 9 warnings
+tests/test_scripts_pieza39.py: 2 warnings
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 84 warnings
+tests/test_soul_credit_cost.py: 9 warnings
+tests/test_soul_rate_limit.py: 9 warnings
+  /app/app/tools/brand_brain/models.py:38: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 16 warnings
+tests/test_brand_soul_f01_prose.py: 18 warnings
+tests/test_convert_wiring.py: 37 warnings
+tests/test_nueve_nodos.py: 13 warnings
+tests/test_scripting.py: 9 warnings
+tests/test_scripts_pieza39.py: 2 warnings
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 84 warnings
+tests/test_soul_credit_cost.py: 9 warnings
+tests/test_soul_rate_limit.py: 9 warnings
+  /app/app/tools/brand_brain/models.py:39: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 8 warnings
+tests/test_brand_soul_f01_prose.py: 2 warnings
+tests/test_convert_wiring.py: 3 warnings
+tests/test_nueve_nodos.py: 15 warnings
+tests/test_scripting.py: 1 warning
+tests/test_scripts_pieza39.py: 1 warning
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 12 warnings
+tests/test_soul_credit_cost.py: 1 warning
+tests/test_soul_rate_limit.py: 1 warning
+  /app/app/tools/brand_brain/models.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 8 warnings
+tests/test_brand_soul_f01_prose.py: 2 warnings
+tests/test_convert_wiring.py: 3 warnings
+tests/test_nueve_nodos.py: 15 warnings
+tests/test_scripting.py: 1 warning
+tests/test_scripts_pieza39.py: 1 warning
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 12 warnings
+tests/test_soul_credit_cost.py: 1 warning
+tests/test_soul_rate_limit.py: 1 warning
+  /app/app/tools/brand_brain/models.py:91: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 7 warnings
+tests/test_nueve_nodos.py: 11 warnings
+  /app/app/tools/brand_brain/models.py:148: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain.py::test_brand_brain_upsert_existing_section
+  /app/app/tools/brand_brain/models.py:130: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    new_section.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain.py::test_brand_brain_upsert_existing_section
+  /app/app/tools/brand_brain/models.py:135: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain_endpoints.py::test_get_brand_brain_endpoint_returns_404_when_not_found
+  /app/tests/test_brain_endpoints.py:39: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().timestamp(),
+
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+  /home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/proto/message.py:392: DeprecationWarning: The argument `including_default_value_fields` has been removed from
+                  Protobuf 5.x. Please use `always_print_fields_with_no_presence` instead.
+
+    warnings.warn(
+
+tests/test_soul_credit_cost.py::test_brand_soul_generation_costs_exactly_20_credits_total
+  /home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/vertexai/generative_models/_generative_models.py:433: UserWarning: This feature is deprecated as of June 24, 2025 and will be removed on June 24, 2026. For details, see https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk.
+    warning_logs.show_deprecation_warning()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+3 failed, 811 passed, 26 skipped, 2 deselected, 596 warnings, 1 error in 14.01s
