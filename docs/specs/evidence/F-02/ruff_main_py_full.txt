@@ -1,0 +1,1193 @@
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/main.py:13:1
+   |
+11 |   """
+12 |
+13 | / import os
+14 | | import asyncio
+15 | | import hashlib
+16 | | import logging
+17 | | from contextlib import asynccontextmanager
+18 | | from pathlib import Path
+19 | | from typing import Any
+20 | | from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+21 | | from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+22 | | from fastapi.staticfiles import StaticFiles
+23 | | from fastapi.middleware.cors import CORSMiddleware
+24 | | import httpx
+25 | |
+26 | | from app.config import settings
+27 | | from app.guard import guard
+28 | | from app.auth.supabase_auth import supabase_auth
+29 | |
+30 | | # Stripe routers (Cobro Real)
+31 | | from app.billing import router as billing_router
+32 | | from app.webhooks import router as webhooks_router
+33 | |
+34 | | # Editing router (Bloque E)
+35 | | from app.editing.router import router as editing_router
+36 | |
+37 | | # Agent actions audit trail (Bloque F — F-02)
+38 | | from app.agent.router import router as agent_router
+39 | | from app.agent.middleware import AgentActionsAuditMiddleware
+   | |____________________________________________________________^
+40 |
+41 |   logger = logging.getLogger(__name__)
+   |
+help: Organize imports
+   |
+12 |
+   - import os
+13 | import asyncio
+14 | import hashlib
+15 | import logging
+16 + import os
+17 | from contextlib import asynccontextmanager
+18 | from pathlib import Path
+19 | from typing import Any
+   - from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+   - from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+20 +
+21 + import httpx
+22 + from fastapi import (
+23 +     Body,
+24 +     FastAPI,
+25 +     HTTPException,
+26 +     Request,
+27 +     Response,
+28 +     WebSocket,
+29 +     WebSocketDisconnect,
+30 +     status,
+31 + )
+32 + from fastapi.middleware.cors import CORSMiddleware
+33 + from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+34 | from fastapi.staticfiles import StaticFiles
+   - from fastapi.middleware.cors import CORSMiddleware
+   - import httpx
+35 |
+   - from app.config import settings
+   - from app.guard import guard
+36 + from app.agent.middleware import AgentActionsAuditMiddleware
+37 +
+38 + # Agent actions audit trail (Bloque F — F-02)
+39 + from app.agent.router import router as agent_router
+40 | from app.auth.supabase_auth import supabase_auth
+41 |
+42 | # Stripe routers (Cobro Real)
+43 | from app.billing import router as billing_router
+   - from app.webhooks import router as webhooks_router
+44 + from app.config import settings
+45 |
+46 | # Editing router (Bloque E)
+47 | from app.editing.router import router as editing_router
+   -
+   - # Agent actions audit trail (Bloque F — F-02)
+   - from app.agent.router import router as agent_router
+   - from app.agent.middleware import AgentActionsAuditMiddleware
+48 + from app.guard import guard
+49 + from app.webhooks import router as webhooks_router
+50 |
+   |
+
+F401 [*] `fastapi.Response` imported but unused
+  --> app/main.py:20:60
+   |
+18 | from pathlib import Path
+19 | from typing import Any
+20 | from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+   |                                                            ^^^^^^^^
+21 | from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+22 | from fastapi.staticfiles import StaticFiles
+   |
+help: Remove unused import: `fastapi.Response`
+   |
+19 | from typing import Any
+   - from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+20 + from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+21 | from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+   |
+
+TRY203 Remove exception handler; error is immediately re-raised
+   --> app/main.py:118:5
+    |
+116 |       try:
+117 |           user_id = supabase_auth.get_user_id(authorization)
+118 | /     except HTTPException:
+119 | |         raise
+    | |_____________^
+120 |
+121 |       # 2. Rate limit check by IP
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:176:89
+    |
+175 |     except httpx.RequestError as exc:
+176 |         raise HTTPException(status_code=502, detail=f"Failed to connect to AssemblyAI: {str(exc)}")
+    |                                                                                         ^^^^^^^^
+177 |     except Exception as e:
+178 |         print(f"[ERROR] Token minting error: {e}")
+    |
+help: Replace with conversion flag
+    |
+175 |     except httpx.RequestError as exc:
+    -         raise HTTPException(status_code=502, detail=f"Failed to connect to AssemblyAI: {str(exc)}")
+176 +         raise HTTPException(status_code=502, detail=f"Failed to connect to AssemblyAI: {exc!s}")
+177 |     except Exception as e:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/main.py:177:12
+    |
+175 |     except httpx.RequestError as exc:
+176 |         raise HTTPException(status_code=502, detail=f"Failed to connect to AssemblyAI: {str(exc)}")
+177 |     except Exception as e:
+    |            ^^^^^^^^^
+178 |         print(f"[ERROR] Token minting error: {e}")
+179 |         raise HTTPException(status_code=500, detail=f"Token minting failed: {str(e)}")
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:179:78
+    |
+177 |     except Exception as e:
+178 |         print(f"[ERROR] Token minting error: {e}")
+179 |         raise HTTPException(status_code=500, detail=f"Token minting failed: {str(e)}")
+    |                                                                              ^^^^^^
+help: Replace with conversion flag
+    |
+178 |         print(f"[ERROR] Token minting error: {e}")
+    -         raise HTTPException(status_code=500, detail=f"Token minting failed: {str(e)}")
+179 +         raise HTTPException(status_code=500, detail=f"Token minting failed: {e!s}")
+180 |
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> app/main.py:309:5
+    |
+307 |       session_token = guard.get_or_create_user_session(user_id)
+308 |
+309 | /     from app.tools.brand_soul.generator import _check_cache
+310 | |     from app.tools.brand_brain.store import get_brand_brain
+    | |___________________________________________________________^
+311 |
+312 |       brain = get_brand_brain(session_token)
+    |
+help: Organize imports
+    |
+308 |
+309 +     from app.tools.brand_brain.store import get_brand_brain
+310 |     from app.tools.brand_soul.generator import _check_cache
+    -     from app.tools.brand_brain.store import get_brand_brain
+311 |
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> app/main.py:392:5
+    |
+391 |       # 4. Generate document
+392 | /     from app.tools.brand_soul.generator import (
+393 | |         generate_brand_soul,
+394 | |         IncompleteBrainError,
+395 | |         CitationValidationError,
+396 | |         SoulGenerationError
+397 | |     )
+    | |_____^
+398 |
+399 |       try:
+    |
+help: Organize imports
+    |
+392 |     from app.tools.brand_soul.generator import (
+393 +         CitationValidationError,
+394 +         IncompleteBrainError,
+395 +         SoulGenerationError,
+396 |         generate_brand_soul,
+    -         IncompleteBrainError,
+    -         CitationValidationError,
+    -         SoulGenerationError
+397 |     )
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:404:58
+    |
+402 |         return JSONResponse(
+403 |             status_code=400,
+404 |             content={"error": f"Brand brain incomplete: {str(e)}"}
+    |                                                          ^^^^^^
+405 |         )
+406 |     except CitationValidationError as e:
+    |
+help: Replace with conversion flag
+    |
+403 |             status_code=400,
+    -             content={"error": f"Brand brain incomplete: {str(e)}"}
+404 +             content={"error": f"Brand brain incomplete: {e!s}"}
+405 |         )
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:410:62
+    |
+408 |         return JSONResponse(
+409 |             status_code=500,
+410 |             content={"error": f"Citation validation failed: {str(e)}. Document not shown."}
+    |                                                              ^^^^^^
+411 |         )
+412 |     except SoulGenerationError as e:
+    |
+help: Replace with conversion flag
+    |
+409 |             status_code=500,
+    -             content={"error": f"Citation validation failed: {str(e)}. Document not shown."}
+410 +             content={"error": f"Citation validation failed: {e!s}. Document not shown."}
+411 |         )
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:415:53
+    |
+413 |         return JSONResponse(
+414 |             status_code=500,
+415 |             content={"error": f"Generation failed: {str(e)}"}
+    |                                                     ^^^^^^
+416 |         )
+417 |     except Exception as e:
+    |
+help: Replace with conversion flag
+    |
+414 |             status_code=500,
+    -             content={"error": f"Generation failed: {str(e)}"}
+415 +             content={"error": f"Generation failed: {e!s}"}
+416 |         )
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/main.py:417:12
+    |
+415 |             content={"error": f"Generation failed: {str(e)}"}
+416 |         )
+417 |     except Exception as e:
+    |            ^^^^^^^^^
+418 |         print(f"[ERROR] Soul generation error: {e}")
+419 |         return JSONResponse(
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:421:61
+    |
+419 |         return JSONResponse(
+420 |             status_code=500,
+421 |             content={"error": f"Internal generation error: {str(e)}"}
+    |                                                             ^^^^^^
+422 |         )
+    |
+help: Replace with conversion flag
+    |
+420 |             status_code=500,
+    -             content={"error": f"Internal generation error: {str(e)}"}
+421 +             content={"error": f"Internal generation error: {e!s}"}
+422 |         )
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> app/main.py:477:1
+    |
+475 | # =============================================================================
+476 |
+477 | from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Organize imports
+    |
+476 |
+    - from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+477 + from app.catalog.demand import NicheReport, clear_demand_cache, validate_niche_demand
+478 |
+    |
+
+F401 [*] `app.catalog.demand.NicheReport` imported but unused
+   --> app/main.py:477:55
+    |
+475 | # =============================================================================
+476 |
+477 | from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+    |                                                       ^^^^^^^^^^^
+help: Remove unused import
+    |
+476 |
+    - from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+477 + from app.catalog.demand import validate_niche_demand
+478 |
+    |
+
+F401 [*] `app.catalog.demand.clear_demand_cache` imported but unused
+   --> app/main.py:477:68
+    |
+475 | # =============================================================================
+476 |
+477 | from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+    |                                                                    ^^^^^^^^^^^^^^^^^^
+help: Remove unused import
+    |
+476 |
+    - from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+477 + from app.catalog.demand import validate_niche_demand
+478 |
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/main.py:543:12
+    |
+541 |     try:
+542 |         report = await validate_niche_demand(niche=niche, use_cache=True)
+543 |     except Exception as e:
+    |            ^^^^^^^^^
+544 |         logger.error(f"[demand] Validation error for '{niche}': {e}")
+545 |         return JSONResponse(
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:547:60
+    |
+545 |         return JSONResponse(
+546 |             status_code=500,
+547 |             content={"error": f"Demand validation failed: {str(e)}"}
+    |                                                            ^^^^^^
+548 |         )
+    |
+help: Replace with conversion flag
+    |
+546 |             status_code=500,
+    -             content={"error": f"Demand validation failed: {str(e)}"}
+547 +             content={"error": f"Demand validation failed: {e!s}"}
+548 |         )
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> app/main.py:561:1
+    |
+559 |   # =============================================================================
+560 |
+561 | / from app.catalog.ideas import generate_catalog
+562 | |
+563 | |
+564 | | # =============================================================================
+565 | | # SCRIPTING ENDPOINTS (Piece 32 — Block C: Scripting)
+566 | | # =============================================================================
+567 | |
+568 | | from app.scripting.scripts import (
+569 | |     generate_script,
+570 | |     audit_script,
+571 | |     regenerate_scene,
+572 | |     update_scene_text,
+573 | |     lock_script,
+574 | |     confirm_script,
+575 | |     ScriptStorageError,
+576 | |     SceneRegenerationInProgressError,
+577 | |     CREDITS_COST_GENERATE,
+578 | |     CREDITS_COST_REGENERATE_SCENE,
+579 | | )
+580 | | from typing import Literal, Optional
+    | |____________________________________^
+help: Organize imports
+    |
+560 |
+    - from app.catalog.ideas import generate_catalog
+561 + from typing import Literal, Optional
+562 |
+563 + from app.catalog.ideas import generate_catalog
+564 |
+565 | # =============================================================================
+566 | # SCRIPTING ENDPOINTS (Piece 32 — Block C: Scripting)
+567 | # =============================================================================
+    -
+568 | from app.scripting.scripts import (
+    -     generate_script,
+569 +     CREDITS_COST_GENERATE,
+570 +     CREDITS_COST_REGENERATE_SCENE,
+571 +     SceneRegenerationInProgressError,
+572 +     ScriptStorageError,
+573 |     audit_script,
+574 +     confirm_script,
+575 +     generate_script,
+576 +     lock_script,
+577 |     regenerate_scene,
+578 |     update_scene_text,
+    -     lock_script,
+    -     confirm_script,
+    -     ScriptStorageError,
+    -     SceneRegenerationInProgressError,
+    -     CREDITS_COST_GENERATE,
+    -     CREDITS_COST_REGENERATE_SCENE,
+579 | )
+    - from typing import Literal, Optional
+580 |
+    |
+
+F401 [*] `app.catalog.ideas.generate_catalog` imported but unused
+   --> app/main.py:561:31
+    |
+559 | # =============================================================================
+560 |
+561 | from app.catalog.ideas import generate_catalog
+    |                               ^^^^^^^^^^^^^^^^
+help: Remove unused import: `app.catalog.ideas.generate_catalog`
+    |
+560 |
+    - from app.catalog.ideas import generate_catalog
+561 |
+    |
+
+F401 [*] `app.scripting.scripts.audit_script` imported but unused
+   --> app/main.py:570:5
+    |
+568 | from app.scripting.scripts import (
+569 |     generate_script,
+570 |     audit_script,
+    |     ^^^^^^^^^^^^
+571 |     regenerate_scene,
+572 |     update_scene_text,
+    |
+help: Remove unused import
+    |
+569 |     generate_script,
+    -     audit_script,
+570 |     regenerate_scene,
+571 |     update_scene_text,
+572 |     lock_script,
+    -     confirm_script,
+573 |     ScriptStorageError,
+    |
+
+F401 [*] `app.scripting.scripts.confirm_script` imported but unused
+   --> app/main.py:574:5
+    |
+572 |     update_scene_text,
+573 |     lock_script,
+574 |     confirm_script,
+    |     ^^^^^^^^^^^^^^
+575 |     ScriptStorageError,
+576 |     SceneRegenerationInProgressError,
+    |
+help: Remove unused import
+    |
+569 |     generate_script,
+    -     audit_script,
+570 |     regenerate_scene,
+571 |     update_scene_text,
+572 |     lock_script,
+    -     confirm_script,
+573 |     ScriptStorageError,
+    |
+
+UP045 [*] Use `X | None` for type annotations
+   --> app/main.py:586:16
+    |
+584 |     interview_transcript: str
+585 |     source_mode: Literal["brand_brain", "raw_footage"] = "brand_brain"
+586 |     idea_kind: Optional[str] = None
+    |                ^^^^^^^^^^^^^
+help: Convert to `X | None`
+    |
+585 |     source_mode: Literal["brand_brain", "raw_footage"] = "brand_brain"
+    -     idea_kind: Optional[str] = None
+586 +     idea_kind: str | None = None
+587 |
+    |
+
+UP045 [*] Use `X | None` for type annotations
+   --> app/main.py:596:18
+    |
+594 | # al estilo de ScriptGenerateRequest arriba.
+595 | class SceneRegenerateRequest(BaseModel):
+596 |     instruction: Optional[str] = None
+    |                  ^^^^^^^^^^^^^
+help: Convert to `X | None`
+    |
+595 | class SceneRegenerateRequest(BaseModel):
+    -     instruction: Optional[str] = None
+596 +     instruction: str | None = None
+597 |
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/main.py:744:12
+    |
+742 |         # Storage error - NO CREDIT DEDUCTION
+743 |         return JSONResponse(status_code=503, content={"error": str(e)})
+744 |     except Exception as e:
+    |            ^^^^^^^^^
+745 |         print(f"[ERROR] Script generation error: {e}")
+746 |         import traceback
+    |
+
+RUF010 [*] Use explicit conversion flag
+   --> app/main.py:748:93
+    |
+746 |         import traceback
+747 |         traceback.print_exc()
+748 |         return JSONResponse(status_code=500, content={"error": f"Script generation failed: {str(e)}"})
+    |                                                                                             ^^^^^^
+749 |
+750 |     # Deduct credits AFTER success
+    |
+help: Replace with conversion flag
+    |
+747 |         traceback.print_exc()
+    -         return JSONResponse(status_code=500, content={"error": f"Script generation failed: {str(e)}"})
+748 +         return JSONResponse(status_code=500, content={"error": f"Script generation failed: {e!s}"})
+749 |
+    |
+
+B008 Do not perform function call `Body` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/main.py:765:25
+    |
+763 |     idea_id: str,
+764 |     scene_n: int,
+765 |     body: dict | None = Body(default=None),
+    |                         ^^^^^^^^^^^^^^^^^^
+766 | ):
+767 |     """
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/main.py:842:12
+    |
+840 |     except ScriptStorageError as e:
+841 |         return JSONResponse(status_code=503, content={"error": str(e)})
+842 |     except Exception as e:
+    |            ^^^^^^^^^
+843 |         print(f"[ERROR] Scene regeneration error: {e}")
+844 |         return JSONResponse(status_code=500, content={"error": str(e)})
+    |
+
+B008 Do not perform function call `Body` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/main.py:860:25
+    |
+858 |     idea_id: str,
+859 |     scene_n: int,
+860 |     body: dict | None = Body(default=None),
+    |                         ^^^^^^^^^^^^^^^^^^
+861 | ):
+862 |     """
+    |
+
+B008 Do not perform function call `Body` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/main.py:964:25
+    |
+962 |     request: Request,
+963 |     idea_id: str,
+964 |     body: dict | None = Body(default=None),
+    |                         ^^^^^^^^^^^^^^^^^^
+965 | ):
+966 |     """
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1002:5
+     |
+1000 |         )
+1001 |
+1002 |     from app.scripting.scripts import confirm_script, ScriptStorageError
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1003 |
+1004 |     try:
+     |
+help: Organize imports
+     |
+1001 |
+     -     from app.scripting.scripts import confirm_script, ScriptStorageError
+1002 +     from app.scripting.scripts import ScriptStorageError, confirm_script
+1003 |
+     |
+
+F811 [*] Redefinition of unused `confirm_script` from line 574
+    --> app/main.py:1002:39
+     |
+1000 |         )
+1001 |
+1002 |     from app.scripting.scripts import confirm_script, ScriptStorageError
+     |                                       ^^^^^^^^^^^^^^ `confirm_script` redefined here
+1003 |
+1004 |     try:
+     |
+    ::: app/main.py:574:5
+     |
+ 572 |     update_scene_text,
+ 573 |     lock_script,
+ 574 |     confirm_script,
+     |     -------------- previous definition of `confirm_script` here
+ 575 |     ScriptStorageError,
+ 576 |     SceneRegenerationInProgressError,
+     |
+help: Remove definition: `confirm_script`
+     |
+1001 |
+     -     from app.scripting.scripts import confirm_script, ScriptStorageError
+1002 +     from app.scripting.scripts import ScriptStorageError
+1003 |
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1073:5
+     |
+1071 |       session_token = guard.get_or_create_user_session(user_id)
+1072 |
+1073 | /     from app.scripting.scripts import _check_script, ScriptStorageError
+1074 | |     from app.audiovisual.pricing import estimate
+1075 | |     from app.audiovisual.jobs import list_jobs
+     | |______________________________________________^
+1076 |
+1077 |       try:
+     |
+help: Organize imports
+     |
+1072 |
+     -     from app.scripting.scripts import _check_script, ScriptStorageError
+1073 +     from app.audiovisual.jobs import list_jobs
+1074 |     from app.audiovisual.pricing import estimate
+     -     from app.audiovisual.jobs import list_jobs
+1075 +     from app.scripting.scripts import ScriptStorageError, _check_script
+1076 |
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:1096:12
+     |
+1094 |     try:
+1095 |         est = estimate(script)
+1096 |     except Exception as e:
+     |            ^^^^^^^^^
+1097 |         return JSONResponse(status_code=400, content={"error": str(e)})
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1195:5
+     |
+1193 |         raise HTTPException(status_code=401, detail="Invalid session")
+1194 |
+1195 |     from app.scripting.scripts import _check_script, ScriptStorageError
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1196 |
+1197 |     try:
+     |
+help: Organize imports
+     |
+1194 |
+     -     from app.scripting.scripts import _check_script, ScriptStorageError
+1195 +     from app.scripting.scripts import ScriptStorageError, _check_script
+1196 |
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1237:5
+     |
+1235 |           raise HTTPException(status_code=401, detail="Invalid session")
+1236 |
+1237 | /     from app.scripting.scripts import (
+1238 | |         _check_script,
+1239 | |         _fill_missing_asset_prompts,
+1240 | |         _get_script_lock,
+1241 | |         _save_script,
+1242 | |         ScriptStorageError,
+1243 | |     )
+     | |_____^
+1244 |
+1245 |       try:
+     |
+help: Organize imports
+     |
+1237 |     from app.scripting.scripts import (
+1238 +         ScriptStorageError,
+1239 |         _check_script,
+1240 |         _fill_missing_asset_prompts,
+1241 |         _get_script_lock,
+1242 |         _save_script,
+     -         ScriptStorageError,
+1243 |     )
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1303:5
+     |
+1301 |           raise HTTPException(status_code=401, detail="Invalid session")
+1302 |
+1303 | /     from app.scripting.scripts import _check_script, ScriptStorageError
+1304 | |     from app.audiovisual.pricing import estimate, CREDITS_TABLE, COST_USD_TABLE
+1305 | |     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+     | |__________________________________________________________________________^
+1306 |
+1307 |       try:
+     |
+help: Organize imports
+     |
+1302 |
+     -     from app.scripting.scripts import _check_script, ScriptStorageError
+     -     from app.audiovisual.pricing import estimate, CREDITS_TABLE, COST_USD_TABLE
+1303 |     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+1304 +     from app.audiovisual.pricing import COST_USD_TABLE, CREDITS_TABLE, estimate
+1305 +     from app.scripting.scripts import ScriptStorageError, _check_script
+1306 |
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1395:5
+     |
+1393 |         )
+1394 |
+1395 |     from app.scripting.scripts import _get_script_lock, _save_script, _clean_optional_text
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1396 |
+1397 |     async with _get_script_lock(session_token, idea_id):
+     |
+help: Organize imports
+     |
+1394 |
+     -     from app.scripting.scripts import _get_script_lock, _save_script, _clean_optional_text
+1395 +     from app.scripting.scripts import (
+1396 +         _clean_optional_text,
+1397 +         _get_script_lock,
+1398 +         _save_script,
+1399 +     )
+1400 |
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:1417:16
+     |
+1415 |         try:
+1416 |             remaining_balance = guard.deduct_credits(session_token, amount=base_cost)
+1417 |         except Exception as e:
+     |                ^^^^^^^^^
+1418 |             logger.error(f"[generate] Failed to deduct base credits for {session_token}: {e}")
+1419 |             mark_cancelled(music_job["id"], error="Launch payment failed")
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1498:5
+     |
+1496 |           raise HTTPException(status_code=401, detail="Invalid session")
+1497 |
+1498 | /     from app.scripting.scripts import _check_script, ScriptStorageError
+1499 | |     from app.audiovisual.pricing import CREDITS_TABLE, COST_USD_TABLE
+1500 | |     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+1501 | |     import time
+1502 | |     import uuid
+     | |_______________^
+1503 |
+1504 |       try:
+     |
+help: Organize imports
+     |
+1497 |
+     -     from app.scripting.scripts import _check_script, ScriptStorageError
+     -     from app.audiovisual.pricing import CREDITS_TABLE, COST_USD_TABLE
+     -     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+1498 |     import time
+1499 |     import uuid
+1500 |
+1501 +     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled
+1502 +     from app.audiovisual.pricing import COST_USD_TABLE, CREDITS_TABLE
+1503 +     from app.scripting.scripts import ScriptStorageError, _check_script
+1504 +
+1505 |     try:
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1632:5
+     |
+1630 |             mark_cancelled(j["id"], error="Regenerated by user")
+1631 |
+1632 |     from app.scripting.scripts import _get_script_lock, _save_script, _clean_optional_text
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1633 |
+1634 |     async with _get_script_lock(session_token, idea_id):
+     |
+help: Organize imports
+     |
+1631 |
+     -     from app.scripting.scripts import _get_script_lock, _save_script, _clean_optional_text
+1632 +     from app.scripting.scripts import (
+1633 +         _clean_optional_text,
+1634 +         _get_script_lock,
+1635 +         _save_script,
+1636 +     )
+1637 |
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1687:9
+     |
+1686 |       try:
+1687 | /         import asyncio
+1688 | |         from app.audiovisual.genai_client import get_genai_client
+1689 | |         from app.config import settings
+1690 | |         from google.genai import types
+     | |______________________________________^
+1691 |
+1692 |           client = get_genai_client()
+     |
+help: Organize imports
+     |
+1687 |         import asyncio
+1688 +
+1689 +         from google.genai import types
+1690 +
+1691 |         from app.audiovisual.genai_client import get_genai_client
+1692 |         from app.config import settings
+     -         from google.genai import types
+1693 |
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:1744:12
+     |
+1742 |             if cleaned_text:
+1743 |                 return cleaned_text[:400]
+1744 |     except Exception as e:
+     |            ^^^^^^^^^
+1745 |         logger.warning(f"[patch_scene_asset_type] LLM prompt generation failed: {e}")
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1813:5
+     |
+1811 |           )
+1812 |
+1813 | /     from app.scripting.scripts import _check_script, _get_script_lock, _save_script, ScriptStorageError
+1814 | |     from app.audiovisual.pricing import estimate, COST_USD_TABLE
+1815 | |     from app.audiovisual.spend_guard import AI_KINDS, can_spend
+1816 | |     from app.audiovisual.jobs import list_jobs
+     | |______________________________________________^
+1817 |
+1818 |       async with _get_script_lock(session_token, idea_id):
+     |
+help: Organize imports
+     |
+1812 |
+     -     from app.scripting.scripts import _check_script, _get_script_lock, _save_script, ScriptStorageError
+     -     from app.audiovisual.pricing import estimate, COST_USD_TABLE
+1813 +     from app.audiovisual.jobs import list_jobs
+1814 +     from app.audiovisual.pricing import COST_USD_TABLE, estimate
+1815 |     from app.audiovisual.spend_guard import AI_KINDS, can_spend
+     -     from app.audiovisual.jobs import list_jobs
+1816 +     from app.scripting.scripts import (
+1817 +         ScriptStorageError,
+1818 +         _check_script,
+1819 +         _get_script_lock,
+1820 +         _save_script,
+1821 +     )
+1822 |
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1927:5
+     |
+1925 |       session_token = guard.get_or_create_user_session(user_id)
+1926 |
+1927 | /     from app.audiovisual.jobs import list_jobs
+1928 | |     from app.audiovisual.storage import signed_url
+1929 | |     from app.audiovisual.music import load_music_library
+1930 | |     from app.audiovisual.sfx import load_sfx_library
+     | |____________________________________________________^
+1931 |
+1932 |       jobs = list_jobs(session_token, idea_id)
+     |
+help: Organize imports
+     |
+1927 |     from app.audiovisual.jobs import list_jobs
+     -     from app.audiovisual.storage import signed_url
+1928 |     from app.audiovisual.music import load_music_library
+1929 |     from app.audiovisual.sfx import load_sfx_library
+1930 +     from app.audiovisual.storage import signed_url
+1931 |
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:1942:24
+     |
+1940 |                 try:
+1941 |                     j["signed_url"] = signed_url(storage_path)
+1942 |                 except Exception as e:
+     |                        ^^^^^^^^^
+1943 |                     logger.warning(f"Could not generate signed_url for job {j.get('id')}: {e}")
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:1999:5
+     |
+1997 |           raise HTTPException(status_code=401, detail="Invalid session")
+1998 |
+1999 | /     from app.scripting.scripts import _check_script, ScriptStorageError
+2000 | |     from app.audiovisual.storage import create_signed_upload_url
+     | |________________________________________________________________^
+2001 |
+2002 |       try:
+     |
+help: Organize imports
+     |
+1998 |
+     -     from app.scripting.scripts import _check_script, ScriptStorageError
+1999 |     from app.audiovisual.storage import create_signed_upload_url
+2000 +     from app.scripting.scripts import ScriptStorageError, _check_script
+2001 |
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2036:12
+     |
+2034 |             ext=ext,
+2035 |         )
+2036 |     except Exception as e:
+     |            ^^^^^^^^^
+2037 |         logger.error(f"[upload-url] Failed to create signed upload URL: {e}")
+2038 |         return JSONResponse(status_code=500, content={"error": str(e)})
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2070:12
+     |
+2068 |     try:
+2069 |         body = await request.json()
+2070 |     except Exception:
+     |            ^^^^^^^^^
+2071 |         body = {}
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:2089:5
+     |
+2087 |           )
+2088 |
+2089 | /     from app.scripting.scripts import _check_script, ScriptStorageError
+2090 | |     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled, mark_done
+2091 | |     from app.audiovisual.storage import signed_url
+     | |__________________________________________________^
+2092 |
+2093 |       try:
+     |
+help: Organize imports
+     |
+2088 |
+     -     from app.scripting.scripts import _check_script, ScriptStorageError
+2089 |     from app.audiovisual.jobs import create_job, list_jobs, mark_cancelled, mark_done
+2090 |     from app.audiovisual.storage import signed_url
+2091 +     from app.scripting.scripts import ScriptStorageError, _check_script
+2092 |
+     |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+    --> app/main.py:2119:9
+     |
+2117 |       existing_jobs = list_jobs(session_token, idea_id)
+2118 |       for j in existing_jobs:
+2119 | /         if j.get("scene_n") == scene_n and j.get("kind") in ("a_roll_take", "transcript"):
+2120 | |             if j.get("status") not in ("cancelled", "failed"):
+     | |______________________________________________________________^
+2121 |                   mark_cancelled(j["id"], error="Replaced by new take")
+     |
+help: Combine `if` statements using `and`
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2152:12
+     |
+2150 |     try:
+2151 |         take_job["signed_url"] = signed_url(storage_path)
+2152 |     except Exception as e:
+     |            ^^^^^^^^^
+2153 |         logger.warning(f"Could not generate signed_url for take: {e}")
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2353:12
+     |
+2351 |         # PIEZA 31 (bug B3): fallo real de persistencia -- nunca se cobra.
+2352 |         return JSONResponse(status_code=503, content={"error": str(e)})
+2353 |     except Exception as e:
+     |            ^^^^^^^^^
+2354 |         print(f"[ERROR] Catalog generation error: {e}")
+2355 |         import traceback
+     |
+
+RUF010 [*] Use explicit conversion flag
+    --> app/main.py:2359:61
+     |
+2357 |         return JSONResponse(
+2358 |             status_code=500,
+2359 |             content={"error": f"Catalog generation failed: {str(e)}"}
+     |                                                             ^^^^^^
+2360 |         )
+     |
+help: Replace with conversion flag
+     |
+2358 |             status_code=500,
+     -             content={"error": f"Catalog generation failed: {str(e)}"}
+2359 +             content={"error": f"Catalog generation failed: {e!s}"}
+2360 |         )
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2398:12
+     |
+2396 |     try:
+2397 |         body = await request.json()
+2398 |     except Exception:
+     |            ^^^^^^^^^
+2399 |         return JSONResponse(status_code=400, content={"error": "Body debe ser JSON válido"})
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:2532:9
+     |
+2531 |       try:
+2532 | /         from app.catalog import ideas, demand
+2533 | |         from app.catalog.ideas import CatalogStorageError
+2534 | |         from app.tools.brand_brain.store import get_brand_brain
+     | |_______________________________________________________________^
+2535 |
+2536 |           brain = get_brand_brain(session_token)
+     |
+help: Organize imports
+     |
+2531 |     try:
+     -         from app.catalog import ideas, demand
+2532 +         from app.catalog import demand, ideas
+2533 |         from app.catalog.ideas import CatalogStorageError
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2573:12
+     |
+2571 |         # PIEZA 31 (bug B3): fallo real de persistencia -- nunca se cobra.
+2572 |         return JSONResponse(status_code=503, content={"error": str(e)})
+2573 |     except Exception as e:
+     |            ^^^^^^^^^
+2574 |         print(f"[ERROR] Investigate catalog error: {e}")
+2575 |         return JSONResponse(status_code=500, content={"error": str(e)})
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2678:12
+     |
+2676 |         # PIEZA 31 (bug B3): la idea no quedó persistida -- nunca se cobra.
+2677 |         return JSONResponse(status_code=503, content={"error": str(e)})
+2678 |     except Exception as e:
+     |            ^^^^^^^^^
+2679 |         print(f"[ERROR] Regenerate idea error: {e}")
+2680 |         return JSONResponse(status_code=500, content={"error": str(e)})
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+    --> app/main.py:2764:5
+     |
+2763 |       # 3. Extract and persist
+2764 | /     from app.tools.brand_brain.extractor import extract_and_persist
+2765 | |     from app.tools.brand_brain.extractor import ExtractionError
+     | |_______________________________________________________________^
+2766 |
+2767 |       try:
+     |
+help: Organize imports
+     |
+2763 |     # 3. Extract and persist
+     -     from app.tools.brand_brain.extractor import extract_and_persist
+     -     from app.tools.brand_brain.extractor import ExtractionError
+2764 +     from app.tools.brand_brain.extractor import ExtractionError, extract_and_persist
+2765 |
+     |
+
+RUF010 [*] Use explicit conversion flag
+    --> app/main.py:2778:53
+     |
+2776 |         return JSONResponse(
+2777 |             status_code=400,
+2778 |             content={"error": f"Extraction failed: {str(e)}"}
+     |                                                     ^^^^^^
+2779 |         )
+2780 |     except Exception as e:
+     |
+help: Replace with conversion flag
+     |
+2777 |             status_code=400,
+     -             content={"error": f"Extraction failed: {str(e)}"}
+2778 +             content={"error": f"Extraction failed: {e!s}"}
+2779 |         )
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2780:12
+     |
+2778 |             content={"error": f"Extraction failed: {str(e)}"}
+2779 |         )
+2780 |     except Exception as e:
+     |            ^^^^^^^^^
+2781 |         print(f"[ERROR] Extraction error: {e}")
+2782 |         return JSONResponse(
+     |
+
+RUF010 [*] Use explicit conversion flag
+    --> app/main.py:2784:61
+     |
+2782 |         return JSONResponse(
+2783 |             status_code=500,
+2784 |             content={"error": f"Internal extraction error: {str(e)}"}
+     |                                                             ^^^^^^
+2785 |         )
+     |
+help: Replace with conversion flag
+     |
+2783 |             status_code=500,
+     -             content={"error": f"Internal extraction error: {str(e)}"}
+2784 +             content={"error": f"Internal extraction error: {e!s}"}
+2785 |         )
+     |
+
+F841 Local variable `remaining` is assigned to but never used
+    --> app/main.py:2899:9
+     |
+2897 |     # 6. Deduct initial credits for voice session startup (1 credit = minimum)
+2898 |     try:
+2899 |         remaining = guard.deduct_credits(session_token, amount=1)
+     |         ^^^^^^^^^
+2900 |     except HTTPException as e:
+2901 |         if e.status_code == 402:
+     |
+help: Remove assignment to unused variable `remaining`
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2918:12
+     |
+2916 |     except WebSocketDisconnect:
+2917 |         pass  # Client disconnected
+2918 |     except Exception as e:
+     |            ^^^^^^^^^
+2919 |         print(f"[WebSocket Error] {e}")
+2920 |     finally:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/main.py:2972:20
+     |
+2970 |                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Session budget exhausted")
+2971 |                 break
+2972 |             except Exception as e:
+     |                    ^^^^^^^^^
+2973 |                 print(f"[Credit Deduction Error] {e}")
+2974 |                 break
+     |
+
+RUF059 Unpacked variable `storage_path` is never used
+    --> app/main.py:3017:19
+     |
+3015 |     from app.audiovisual.motion_graphics import get_motion_html
+3016 |
+3017 |     html_content, storage_path = get_motion_html(session_token, idea_id, scene_n)
+     |                   ^^^^^^^^^^^^
+3018 |
+3019 |     if html_content is None:
+     |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+Found 66 errors.
+[*] 40 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).

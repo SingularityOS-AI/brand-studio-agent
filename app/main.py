@@ -34,6 +34,10 @@ from app.webhooks import router as webhooks_router
 # Editing router (Bloque E)
 from app.editing.router import router as editing_router
 
+# Agent actions audit trail (Bloque F — F-02)
+from app.agent.router import router as agent_router
+from app.agent.middleware import AgentActionsAuditMiddleware
+
 logger = logging.getLogger(__name__)
 
 
@@ -3033,6 +3037,10 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Register Editing router (Bloque E)
 app.include_router(editing_router)
+
+# Register agent_actions router + audit middleware (Bloque F — F-02)
+app.include_router(agent_router)
+app.add_middleware(AgentActionsAuditMiddleware)
 
 # Register Stripe routers (Cobro Real)
 app.include_router(billing_router)
