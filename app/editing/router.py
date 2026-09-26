@@ -27,6 +27,7 @@ from app.audiovisual.jobs import (
 from app.audiovisual.spend_guard import can_spend
 from app.audiovisual.storage import signed_url
 from app.editing import config as dispatch_config
+from app.editing.dispatch import get_engine_version
 from app.editing.brand_style import derive_caption_style
 from app.editing.dressing import (
     RedressError,
@@ -232,6 +233,48 @@ def _state(
     latest_render_job = render_jobs[0] if render_jobs else None
 
     edit_render = edit.get("render") or {}
+
+    engine_version = get_engine_version()
+
+    # Calculate render price
+    import hashlib
+    import json
+
+    render_credits = getattr(dispatch_config, "RENDER_CREDITS", 20)
+    rerender_credits = getattr(dispatch_config, "RERENDER_CREDITS", 5)
+    render_price = render_credits
+
+    if ir is not None and edit_raw:
+        # Check if there is any done render
+        done_renders = [j for j in render_jobs if j.get("status") == "done"]
+        if done_renders:
+            # Check the latest done render
+            latest_done = done_renders[0]
+            last_input = latest_done.get("input", {}) or {}
+            last_ir = last_input.get("ir")
+            last_raw = last_input.get("raw_storage_path")
+            last_idempotency = latest_done.get("idempotency_key", "")
+
+            # Calculate the current IR+raw hash with the current engine version
+            raw_sp = edit_raw.get("storage_path") or ""
+            current_ir_raw_str = json.dumps(ir, sort_keys=True) + raw_sp
+
+            # Calculate last ir_raw hash
+            last_ir_raw_str = json.dumps(last_ir, sort_keys=True) + (last_raw or "")
+
+            if current_ir_raw_str == last_ir_raw_str:
+                last_full_str = last_ir_raw_str + engine_version
+                last_full_hash = hashlib.sha256(last_full_str.encode("utf-8")).hexdigest()[:20]
+
+                if f":render:{last_full_hash}:" not in last_idempotency:
+                    # Same IR+raw, different engine version hash -> 0 credits
+                    render_price = 0
+                else:
+                    # Same everything
+                    render_price = rerender_credits
+            else:
+                render_price = rerender_credits
+
     if edit_render:
         render_dict = dict(edit_render)
         if latest_render_job:
@@ -272,6 +315,8 @@ def _state(
             "stale": bool(dressing_scenes) and not dressing_fresh,
         },
         "metadata": edit.get("metadata") or {},
+        "render_price": render_price,
+        "engine_version": engine_version,
         "sfx_urls": sfx_urls,
         "_inputs": inputs,
         "_sfx_inputs": sfx_inputs,
@@ -690,7 +735,8 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
     ir_dict = state["ir"]
     edit_raw = edit.get("raw_render") or {}
     raw_storage_path = edit_raw.get("storage_path") or ""
-    ir_raw_str = json.dumps(ir_dict, sort_keys=True) + raw_storage_path
+    engine_version = state.get("engine_version", get_engine_version())
+    ir_raw_str = json.dumps(ir_dict, sort_keys=True) + raw_storage_path + engine_version
     contenido = hashlib.sha256(ir_raw_str.encode("utf-8")).hexdigest()[:20]
 
     base_prefix = f"{session_token}:{idea_id}:render:{contenido}:"
@@ -703,7 +749,7 @@ async def post_final_render(request: Request, idea_id: str) -> JSONResponse:
     )
 
     idempotency_key = f"{base_prefix}{failed_count}"
-    render_credits = getattr(dispatch_config, "RENDER_CREDITS", 20)
+    render_credits = state.get("render_price", getattr(dispatch_config, "RENDER_CREDITS", 20))
 
     job, created = create_job(
         session_token=session_token,

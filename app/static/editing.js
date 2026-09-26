@@ -353,8 +353,8 @@
       }
     },
     render: {
-      label: "Render · 20 credits",
-      credits: 20,
+      label: "Render",
+      credits: 0,
       run: async (args) => {
         return await postRender(args.ideaId);
       }
@@ -844,7 +844,7 @@
             ${escapeHtml(dressBtnLabel)}
           </button>
           <button type="button" class="btn btn--go" data-edit-action="render" style="font-size:13px;font-weight:600">
-            Render · 20 credits
+            ${state.render_price === undefined || state.render_price === 20 ? 'Render · 20 credits' : (state.render_price === 0 ? 'Render again · free (engine updated)' : `Render again · ${state.render_price} credits`)}
           </button>
           ${!raw.fresh ? `<button type="button" class="btn btn--secondary" data-edit-action="build_raw" style="font-size:13px">Rebuild raw cut · free</button>` : ''}
         </div>
