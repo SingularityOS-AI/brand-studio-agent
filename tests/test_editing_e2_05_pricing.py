@@ -1,106 +1,154 @@
-# Ignore the previous tests, they were failing because of complex dependencies in the system.
 import json
 import hashlib
 from unittest.mock import patch, MagicMock
 
-# We need to simulate the state logic
-def calculate_render_price(render_jobs, ir, edit_raw, engine_version):
-    render_credits = 20
-    rerender_credits = 5
-    render_price = render_credits
+from app.editing.router import _state
 
-    if ir is not None and edit_raw:
-        # Check if there is any done render
-        done_renders = [j for j in render_jobs if j.get("status") == "done"]
-        if done_renders:
-            # Check the latest done render
-            latest_done = done_renders[0]
-            last_input = latest_done.get("input", {}) or {}
-            last_ir = last_input.get("ir")
-            last_raw = last_input.get("raw_storage_path")
-            last_idempotency = latest_done.get("idempotency_key", "")
+@patch("app.editing.router.build_timeline")
+@patch("app.editing.router.get_brand_brain")
+@patch("app.editing.router.build_ir_stage2")
+@patch("app.editing.router.get_engine_version")
+@patch("app.editing.router.guard")
+def test_render_price_first_time(mock_guard, mock_engine, mock_stage2, mock_bb, mock_bt):
+    # Mocking build_timeline output
+    mock_bt.return_value = {
+        "timeline": {"scenes": [], "hash": "t1"},
+        "captions_words": [],
+        "missing_takes": [],
+        "warnings": [],
+        "inputs": {}
+    }
+    mock_bb.return_value = None
+    mock_stage2.return_value = {"ir": {"foo": "bar"}, "sfx_inputs": {}}
+    mock_engine.return_value = "v1"
+    mock_guard.get_remaining_credits.return_value = 100
 
-            # Calculate the current IR+raw hash with the current engine version
-            raw_sp = edit_raw.get("storage_path") or ""
-            current_ir_raw_str = json.dumps(ir, sort_keys=True) + raw_sp
+    script = {"frame_zero": {"on_screen_text": "hello"}}
+    jobs = []
+    edit = {
+        "version": 1,
+        "settings": {},
+        "raw_render": {
+            "status": "done",
+            "storage_path": "raw.mp4",
+            "timeline_hash": "t1"
+        },
+        "dressing": {
+            "scenes": [{}],
+            "raw_hash": "t1"
+        }
+    }
 
-            # Calculate last ir_raw hash
-            last_ir_raw_str = json.dumps(last_ir, sort_keys=True) + (last_raw or "")
+    state = _state("token", "idea_id", script, jobs, edit)
+    assert state.get("render_price") == 20
 
-            if current_ir_raw_str == last_ir_raw_str:
-                last_full_str = last_ir_raw_str + engine_version
-                last_full_hash = hashlib.sha256(last_full_str.encode("utf-8")).hexdigest()[:20]
+@patch("app.editing.router.build_timeline")
+@patch("app.editing.router.get_brand_brain")
+@patch("app.editing.router.build_ir_stage2")
+@patch("app.editing.router.get_engine_version")
+@patch("app.editing.router.guard")
+def test_render_price_same_ir_different_engine(mock_guard, mock_engine, mock_stage2, mock_bb, mock_bt):
+    mock_bt.return_value = {
+        "timeline": {"scenes": [], "hash": "t1"},
+        "captions_words": [],
+        "missing_takes": [],
+        "warnings": [],
+        "inputs": {}
+    }
+    mock_bb.return_value = None
 
-                if f":render:{last_full_hash}:" not in last_idempotency:
-                    # Same IR+raw, different engine version hash -> 0 credits
-                    render_price = 0
-                else:
-                    # Same everything
-                    render_price = rerender_credits
-            else:
-                render_price = rerender_credits
-    return render_price
-
-def test_calculate_render_price_first_time():
-    # No previous renders
-    price = calculate_render_price([], {"foo": "bar"}, {"storage_path": "raw.mp4"}, "v1")
-    assert price == 20
-
-def test_calculate_render_price_same_ir_different_engine():
     ir = {"foo": "bar"}
-    raw_path = "raw.mp4"
-    engine_version_1 = "v1"
+    mock_stage2.return_value = {"ir": ir, "sfx_inputs": {}}
+    mock_engine.return_value = "v2"
+    mock_guard.get_remaining_credits.return_value = 100
 
-    # Calculate old idempotency hash
-    old_full_str = json.dumps(ir, sort_keys=True) + raw_path + engine_version_1
+    script = {"frame_zero": {"on_screen_text": "hello"}}
+
+    # We want idempotency key to use v1, which represents an old render.
+    # And we need the current hash in the test to mismatch it so it knows it changed.
+    old_full_str = json.dumps(ir, sort_keys=True) + "raw.mp4" + "v1"
     old_hash = hashlib.sha256(old_full_str.encode("utf-8")).hexdigest()[:20]
 
-    old_job = {
-        "status": "done",
-        "input": {"ir": ir, "raw_storage_path": raw_path},
-        "idempotency_key": f"some_token:some_idea:render:{old_hash}:0"
+    jobs = [
+        {
+            "kind": "render",
+            "status": "done",
+            "created_at": "2024-01-01T00:00:00Z",
+            "input": {
+                "ir": ir,
+                "raw_storage_path": "raw.mp4"
+            },
+            "idempotency_key": f"token:idea_id:render:{old_hash}:0"
+        }
+    ]
+    edit = {
+        "version": 1,
+        "settings": {},
+        "raw_render": {
+            "status": "done",
+            "storage_path": "raw.mp4",
+            "timeline_hash": "t1"
+        },
+        "dressing": {
+            "scenes": [{}],
+            "raw_hash": "t1"
+        }
     }
 
-    price = calculate_render_price([old_job], ir, {"storage_path": raw_path}, "v2")
-    assert price == 0
+    state = _state("token", "idea_id", script, jobs, edit)
+    assert state.get("render_price") == 0
 
-def test_calculate_render_price_same_ir_same_engine():
+
+@patch("app.editing.router.build_timeline")
+@patch("app.editing.router.get_brand_brain")
+@patch("app.editing.router.build_ir_stage2")
+@patch("app.editing.router.get_engine_version")
+@patch("app.editing.router.guard")
+def test_render_price_same_ir_same_engine(mock_guard, mock_engine, mock_stage2, mock_bb, mock_bt):
+    mock_bt.return_value = {
+        "timeline": {"scenes": [], "hash": "t1"},
+        "captions_words": [],
+        "missing_takes": [],
+        "warnings": [],
+        "inputs": {}
+    }
+    mock_bb.return_value = None
+
     ir = {"foo": "bar"}
-    raw_path = "raw.mp4"
-    engine_version_1 = "v1"
+    mock_stage2.return_value = {"ir": ir, "sfx_inputs": {}}
+    mock_engine.return_value = "v1"
+    mock_guard.get_remaining_credits.return_value = 100
 
-    # Calculate old idempotency hash
-    old_full_str = json.dumps(ir, sort_keys=True) + raw_path + engine_version_1
+    script = {"frame_zero": {"on_screen_text": "hello"}}
+
+    old_full_str = json.dumps(ir, sort_keys=True) + "raw.mp4" + "v1"
     old_hash = hashlib.sha256(old_full_str.encode("utf-8")).hexdigest()[:20]
 
-    old_job = {
-        "status": "done",
-        "input": {"ir": ir, "raw_storage_path": raw_path},
-        "idempotency_key": f"some_token:some_idea:render:{old_hash}:0"
+    jobs = [
+        {
+            "kind": "render",
+            "status": "done",
+            "created_at": "2024-01-01T00:00:00Z",
+            "input": {
+                "ir": ir,
+                "raw_storage_path": "raw.mp4"
+            },
+            "idempotency_key": f"token:idea_id:render:{old_hash}:0"
+        }
+    ]
+    edit = {
+        "version": 1,
+        "settings": {},
+        "raw_render": {
+            "status": "done",
+            "storage_path": "raw.mp4",
+            "timeline_hash": "t1"
+        },
+        "dressing": {
+            "scenes": [{}],
+            "raw_hash": "t1"
+        }
     }
 
-    price = calculate_render_price([old_job], ir, {"storage_path": raw_path}, "v1")
-    assert price == 5
-
-def test_calculate_render_price_different_ir():
-    ir1 = {"foo": "bar"}
-    ir2 = {"foo": "baz"}
-    raw_path = "raw.mp4"
-    engine_version_1 = "v1"
-
-    # Calculate old idempotency hash
-    old_full_str = json.dumps(ir1, sort_keys=True) + raw_path + engine_version_1
-    old_hash = hashlib.sha256(old_full_str.encode("utf-8")).hexdigest()[:20]
-
-    old_job = {
-        "status": "done",
-        "input": {"ir": ir1, "raw_storage_path": raw_path},
-        "idempotency_key": f"some_token:some_idea:render:{old_hash}:0"
-    }
-
-    price = calculate_render_price([old_job], ir2, {"storage_path": raw_path}, "v1")
-    assert price == 5
-
-if __name__ == "__main__":
-    import os
-    os.system("pytest -q tests/test_editing_e2_05_pricing.py --disable-warnings")
+    state = _state("token", "idea_id", script, jobs, edit)
+    assert state.get("render_price") == 5

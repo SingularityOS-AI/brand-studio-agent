@@ -429,7 +429,7 @@
         if (name === "render" && currentEditingState) {
           lastRenderedEditVersion = currentEditingState.edit_version;
         }
-        if (action.credits > 0) {
+        if (action.credits > 0 || name === "render") {
           updateCreditsUI();
         }
         if (["toggle_face", "reset_face", "trim", "mute_music", "toggle_sfx"].includes(name)) {

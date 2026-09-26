@@ -11,6 +11,9 @@ from app.audiovisual.storage import (
     editing_output_path,
     signed_url,
 )
+import time
+from cachetools import TTLCache
+
 from app.editing import config as dispatch_config
 from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
 from render_service.manifest import RenderError, RenderOk, RenderRequest
@@ -27,6 +30,36 @@ class RenderServiceError(Exception):
         self.retryable = retryable
         self.detail = detail
 
+
+_engine_version_cache = TTLCache(maxsize=1, ttl=300)
+
+def get_engine_version() -> str:
+    """Fetches the engine_version from the render service health endpoint."""
+    if "version" in _engine_version_cache:
+        return _engine_version_cache["version"]
+
+    service_url = getattr(dispatch_config, "RENDER_SERVICE_URL", "")
+    url = (service_url or "").strip()
+    if not url:
+        return "unknown"
+
+    target_url = f"{url.rstrip('/')}/health"
+    timeout = getattr(dispatch_config, "HTTP_TIMEOUT", 290)
+
+    try:
+        import httpx
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(target_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                version = data.get("engine_version", "unknown")
+                _engine_version_cache["version"] = version
+                return version
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"[dispatch] Failed to get engine version: {e}")
+
+    return "unknown"
 
 def sign_inputs(inputs_spec: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """

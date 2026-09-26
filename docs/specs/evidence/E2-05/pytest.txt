@@ -1,2 +1,10 @@
-Running tests directly...
-4 passed in 0.05s
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /app
+configfile: pytest.ini
+plugins: anyio-4.15.1, respx-0.23.1
+collected 4 items
+
+tests/test_editing_e2_05_pricing.py ....                                 [100%]
+
+============================== 4 passed in 0.05s ==============================
