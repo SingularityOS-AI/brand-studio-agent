@@ -2,7 +2,7 @@
 
 Spec: `docs/specs/F/spec.md`. Rules: `AGENTS.md`. Deadline 2026-09-30 11:00 VET.
 
-## 1. Architecture decision (CEO chooses in `architecture-decision-E2-F.html`; plan assumes A)
+## 1. Architecture decision — **signed by the CEO 2026-09-26: A**
 
 **A — Browser-side agent over one Action Registry (recommended).** Brandy's WebSocket
 stays in the browser (today: `wss://agents.assemblyai.com/v1/ws`, `app/static/app.js`
@@ -17,6 +17,16 @@ middleware writes the audit trail for voice *and* button requests.
 tools itself; the browser only streams audio. Harder to tamper with, but it is a rewrite
 of the voice path 4 days before the deadline, and it breaks principle 2 (the server would
 need its own copies of the frontend flows).
+
+## 1b. Reference pattern (from the CEO's DeepSeek harness, adapted)
+Every tool call Brandy makes goes through one pipeline inside `actions.js`, in this order:
+1. **log** `tool.call` (panel shows a *pending* card);
+2. **pre-execute guards**: step scope, argument validation, unknown ids → deny with a `say`;
+3. **approval**: the confirmation engine (paid/destructive only) — denied/absent skips the body;
+4. **execute** the button's function with a timeout (30 s; long jobs return `queued`);
+5. **post-execute**: turn the raw result into a short, factual `say` for Brandy (never raw JSON);
+6. **result**: frozen `tool.result` back to Brandy + the `agent_actions` row updated.
+The `agent_actions` table is the append-only session log that lets anyone replay what happened.
 
 ## 2. Shared semantics
 - **Action**: `{id, step, title, cost(args) -> credits|Promise, needsConfirm, run(args)}`.

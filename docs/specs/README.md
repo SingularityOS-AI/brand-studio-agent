@@ -21,6 +21,16 @@ Evidence for every piece: `evidence/<piece-id>/` (literal outputs only, no verdi
 A piece may start only when its "Depends on" pieces are **merged**. `app/static/app.js`:
 one open PR at a time across both lanes.
 
+## Batches (start a batch only when the previous pieces it needs are merged)
+| Batch | Lane A (Editing) | Lane B (Agentic) |
+|---|---|---|
+| 1 (now) | E2-01, E2-05 (Jules) | F-01, F-02 (Jules) |
+| 2 | E2-04 (Jules) + E2-02 (Antigravity) after E2-01 | F-04 (Antigravity) after F-02 |
+| 3 | E2-03 (Jules) after E2-02 · E2-06 (Antigravity) | F-03 (Antigravity) · F-06 engine module (Jules) |
+| 4 | E2-07 (Jules) after E2-06 · E2-08 (Antigravity) | F-05 → F-06 wiring → F-07 (Antigravity) |
+| 5 | E2-09, E2-10, E2-11 (Jules), E2-12 (Antigravity) | F-08, F-09 (Antigravity), F-10 spike (Jules) |
+| 6 | E2-13 if alive | F-11 |
+
 ## Who does what
 - **Antigravity 2.0** (the CEO pastes the prompt): pieces that need a real browser,
   Chromium or a local UI (E2-02, E2-06, E2-08, E2-09, E2-12, E2-13, F-03, F-04, F-05, F-07+).

@@ -2,7 +2,11 @@
 
 Spec: `docs/specs/E2/spec.md`. Rules: `AGENTS.md`. Deadline 2026-09-30 11:00 VET.
 
-## 1. Architecture decision (CEO chooses in `architecture-decision-E2-F.html`; plan assumes A)
+## 1. Architecture decision — **signed by the CEO 2026-09-26: A**
+
+CEO note: "I don't care if it is HyperFrames or not, as long as it works and looks good."
+So: A (seek-capture) is the path; HyperFrames stays allowed as a *fallback* inside
+`convert_html` only if it never breaks the edit. Visual quality is part of "done".
 
 **A — Seek-capture renderer (recommended).** One small module in the render service
 (`render_service/seek_capture.py`) opens an HTML composition in headless Chromium
