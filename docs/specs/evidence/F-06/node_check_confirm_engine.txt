@@ -1,0 +1,1 @@
+node --check app/static/confirm_engine.js -> exit 0, no output
