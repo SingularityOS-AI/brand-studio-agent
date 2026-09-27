@@ -255,6 +255,7 @@ def _run_harness() -> tuple[dict, dict]:
         [_node_bin(), "-e", NODE_HARNESS, str(PANEL_JS)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=str(REPO_ROOT),
         check=False,
     )
