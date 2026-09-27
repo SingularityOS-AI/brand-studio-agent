@@ -928,7 +928,11 @@
     <div class="brandbar">
       <span class="brandmark"></span>
       <span class="disp" style="font-size:14px;font-weight:600;letter-spacing:-.01em">Brand Studio</span>
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;font-weight:600;color:var(--ink-soft);user-select:none" title="Agentic mode lets Brandy run the pipeline for you. Voice time uses credits faster.">
+          <input type="checkbox" id="AgenticToggleBtn" checked style="cursor:pointer;accent-color:var(--accent)">
+          <span>Agentic mode</span>
+        </label>
         <span class="mono" style="font-size:11px;color:#5C6675;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.2s ease" title="Start fresh">new session</span>
       </div>
     </div>
@@ -2046,6 +2050,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- HyperFrames Player for Motion Graphics Preview (Pieza 54) -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/@hyperframes/player@0/+esm"></script>
+<!-- Agentic modules (Block F: F-04, F-05, F-06, F-07) -->
+<script src="/static/actions.js"></script>
+<script src="/static/confirm_engine.js"></script>
+<script src="/static/agent.js"></script>
 <script src="/static/app.js"></script>
 <!-- Production panel: audit trail/queue for every action (Block F, F-03) -->
 <script src="/static/production_panel.js"></script>
