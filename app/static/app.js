@@ -576,7 +576,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
       ws.onopen = () => {
         if (myGeneration !== sessionGeneration) return; // Not the active session
         console.log('[WebSocket] Connected to AssemblyAI Voice Agent');
-        setUIStatus('connecting', 'Conectando agente...');
+        setUIStatus('connecting', 'Connecting agent...');
         startSilenceWatchdog();
 
         // Start voice credits renewal timer (renew every 50 seconds, before 60s expire)
@@ -747,13 +747,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
         isReady = true;
         isSessionActive = true;
         setUIStatus('active');
-        if (orbState) orbState.textContent = 'Escuchando...';
+        if (orbState) orbState.textContent = 'Listening...';
         console.log('[Session] Ready:', msg.session_id);
         break;
 
       case 'input.speech.started':
         markVoiceActivity();
-        if (orbState) orbState.textContent = 'Hablando...';
+        if (orbState) orbState.textContent = 'You\'re speaking...';
         break;
 
       case 'transcript.user':
@@ -762,7 +762,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         appendUserMessage(msg.text);
         // Track turn for extraction
         fullTranscript.push({ speaker: 'user', text: msg.text });
-        if (orbState) orbState.textContent = 'Pensando...';
+        if (orbState) orbState.textContent = 'Thinking...';
         // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): el fundador ya respondio,
         // vuelve a la linea base.
         if (waitingForAnswer) {
@@ -776,7 +776,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       case 'reply.started':
         markVoiceActivity();
-        if (orbState) orbState.textContent = 'Brandy hablando...';
+        if (orbState) orbState.textContent = 'Brandy speaking...';
         break;
 
       case 'reply.audio':
@@ -808,7 +808,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
           console.log('[Barge-in] Flushing audio');
           flushAudioPlayback();
         }
-        if (orbState) orbState.textContent = 'Escuchando...';
+        if (orbState) orbState.textContent = 'Listening...';
         break;
 
       case 'session.error':
@@ -1450,10 +1450,10 @@ Always respond in English. Keep your responses conversational and engaging.`;
     if (state === 'active') {
       orb.classList.remove('orb--hablando');
       orb.classList.add('orb--escuchando');
-      if (orbState) orbState.textContent = message || 'Escuchando...';
+      if (orbState) orbState.textContent = message || 'Listening...';
       if (micBtn) micBtn.style.background = '#D5DAE4';
     } else if (state === 'connecting') {
-      if (orbState) orbState.textContent = message || 'Conectando...';
+      if (orbState) orbState.textContent = message || 'Connecting...';
     } else {
       // Idle
       orb.classList.remove('orb--escuchando');
