@@ -1,0 +1,3 @@
+requested caption_y: 520
+measured bottom edge (max y with green caption pixel): 503
+tolerance: +-20px

@@ -1,0 +1,2 @@
+$ ruff check render_service/manifest.py render_service/ffmpeg_dress.py app/editing/ir.py app/editing/router.py tests/test_editing_e2_06_caption_y.py tests/test_editing_p79_ir.py
+All checks passed!
