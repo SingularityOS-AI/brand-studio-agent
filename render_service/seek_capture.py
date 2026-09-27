@@ -154,7 +154,7 @@ def capture(
             anim_duration = min(float(longest_duration or 0.0), max_anim_s)
 
             # Step 1/fps: call tl.seek(t, false) on every timeline and screenshot
-            num_frames = max(1, int(round(anim_duration * fps)) + 1)
+            num_frames = max(1, round(anim_duration * fps) + 1)
 
             for frame_idx in range(num_frames):
                 t = min(frame_idx / fps, anim_duration) if anim_duration > 0 else 0.0

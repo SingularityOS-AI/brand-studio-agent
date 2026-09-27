@@ -166,7 +166,7 @@ def convert_html(
         if out_path.is_file() and out_path.stat().st_size > 0:
             logger.info("Motion graphic conversion succeeded (mg_path=seek)")
             return out_path
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — intentional fallback boundary
         logger.warning(
             "Seek-capture failed, falling back to HyperFrames: %s",
             e,
@@ -202,7 +202,7 @@ def convert_html(
             if out_path.is_file() and out_path.stat().st_size > 0:
                 logger.info("Motion graphic conversion succeeded (mg_path=hyperframes)")
                 return out_path
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — intentional fallback boundary
             logger.warning(
                 "HyperFrames render failed, falling back to Chromium screenshot: %s",
                 e,
@@ -220,6 +220,7 @@ def convert_html(
         # Try Playwright to ensure tl.progress(1) runs cleanly
         try:
             from playwright.sync_api import sync_playwright
+
             from render_service.seek_capture import GSAP_VENDOR_PATH, prepare_html
 
             prepared_html = prepare_html(html_path, workdir / "prepared_still")
@@ -264,7 +265,7 @@ def convert_html(
                     still_captured = png_path.is_file() and png_path.stat().st_size > 0
                 finally:
                     browser.close()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — intentional fallback boundary
             logger.warning(
                 "Playwright still capture failed: %s; trying modified HTML via CLI", e
             )
@@ -309,7 +310,7 @@ def convert_html(
                     capture_output=True,
                 )
                 still_captured = png_path.is_file() and png_path.stat().st_size > 0
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — intentional fallback boundary
                 logger.warning("Chromium CLI still capture failed: %s", e)
 
         if still_captured:

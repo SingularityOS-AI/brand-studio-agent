@@ -123,6 +123,11 @@ def test_convert_html_fallback_when_seek_fails(monkeypatch, tmp_path: Path):
         raise RuntimeError("Simulated seek_capture failure")
 
     monkeypatch.setattr("render_service.seek_capture.capture", mock_capture)
+    # Force the HyperFrames fallback branch off too: without this, on a machine
+    # with `npx` on PATH but no local `hyperframes` package cached, motion.py's
+    # hyperframes_cmd() would shell out to `npx hyperframes@0.8.75`, which makes
+    # a real network call to the npm registry (forbidden in tests by AGENTS.md).
+    monkeypatch.setattr("render_service.motion.hyperframes_cmd", lambda: None)
 
     html_content = build_html(
         "stat", {"value": "99%", "headline": "Fallback Test"}, duration_s=4.0
