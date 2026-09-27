@@ -1,0 +1,4 @@
+$ ruff --version
+ruff 0.15.8
+$ ruff check tests/test_actions_f04.py
+All checks passed!
