@@ -291,6 +291,7 @@ class OverlayCue(BaseModel):
     w: int = Field(ge=0, le=1080)
     h: int = Field(ge=0, le=1920)
     anim: Literal["pop"]
+    hide_captions: bool = Field(default=False)
 
     @model_validator(mode="after")
     def validate_times_and_bounds(self) -> OverlayCue:

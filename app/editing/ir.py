@@ -23,6 +23,229 @@ _PUNCT_END = re.compile(r"(\.|\?|\!|…|\.\.\.)$")
 TRANSITION_DURATIONS = {"flash": 200, "zoom_through": 330, "whip": 270}
 ZOOM_INTENSITIES = {"soft": 1.08, "medium": 1.15, "strong": 1.25}
 
+# Zone definitions for overlay placement (y ranges)
+ZONE_TOP = (160, 700)
+ZONE_MIDDLE = (700, 1220)
+ZONE_BOTTOM = (1220, 1760)
+
+# Alternative positions for each zone (for collision resolution)
+ZONE_ALTERNATIVES = {
+    "top": ["top", "center", "lower_third"],
+    "middle": ["center", "left", "right", "top", "lower_third"],
+    "bottom": ["lower_third", "center", "top"],
+}
+
+# Block font size for caption height calculation
+BLOCK_FONT_PX = 56
+CAPTION_OUTLINE_PX = 3
+
+
+def _calculate_caption_box(
+    caption_y: int, events: list[dict[str, Any]], t_ms: int
+) -> tuple[int, int, int, int] | None:
+    """Calculate caption box at given time.
+
+    Returns (x, y, w, h) where y is the top of the caption box.
+    Returns None if no caption is active at t_ms.
+    """
+    # Find active caption event at t_ms
+    active_event = None
+    for ev in events:
+        if ev["start_ms"] <= t_ms < ev["end_ms"]:
+            active_event = ev
+            break
+
+    if active_event is None:
+        return None
+
+    # Calculate caption height based on lines
+    num_lines = len(active_event["lines"])
+    # Height = lines × font_px × 1.15 + 2×outline
+    height = int(num_lines * BLOCK_FONT_PX * 1.15 + 2 * CAPTION_OUTLINE_PX)
+    # Width is 900px centered
+    width = 900
+    # Caption y is the bottom edge, so top = caption_y - height
+    top = caption_y - height
+    # Centered horizontally: x = (1080 - 900) / 2 = 90
+    left = 90
+
+    return (left, top, width, height)
+
+
+def _boxes_intersect(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    """Check if two boxes (x, y, w, h) intersect."""
+    ax1, ay1, aw, ah = a
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx1, by1, bw, bh = b
+    bx2, by2 = bx1 + bw, by1 + bh
+
+    return ax1 < bx2 and ax2 > bx1 and ay1 < by2 and ay2 > by1
+
+
+def _get_overlay_zone(ov_box: tuple[int, int, int, int]) -> str:
+    """Determine which zone an overlay box primarily occupies."""
+    _, y, _, h = ov_box
+    center_y = y + h // 2
+
+    if ZONE_TOP[0] <= center_y < ZONE_TOP[1]:
+        return "top"
+    elif ZONE_MIDDLE[0] <= center_y < ZONE_MIDDLE[1]:
+        return "middle"
+    elif ZONE_BOTTOM[0] <= center_y <= ZONE_BOTTOM[1]:
+        return "bottom"
+    # Default to bottom if outside defined zones
+    return "bottom"
+
+
+def _get_position_box(
+    position: str, kind: str, boxes: dict[str, tuple[int, int, int, int]]
+) -> tuple[int, int, int, int]:
+    """Get the box for a given position, handling emoji sizing."""
+    bx, by, bw, bh = boxes.get(position, (90, 1300, 900, 200))
+
+    if kind == "emoji":
+        w = 220
+        h = 220
+        x = bx + (bw - 220) // 2
+        y = by + (bh - 220) // 2
+        return (x, y, w, h)
+    else:
+        return (bx, by, bw, bh)
+
+
+def _move_overlay_to_zone(
+    ov: dict[str, Any], target_zone: str, boxes: dict[str, tuple[int, int, int, int]]
+) -> dict[str, Any]:
+    """Move an overlay to a new zone, keeping x/w/h the same where possible."""
+    ov = dict(ov)  # Copy to avoid modifying original
+    kind = ov["kind"]
+
+    # Get the appropriate position for this zone
+    zone_to_position = {
+        "top": "top",
+        "middle": "center",
+        "bottom": "lower_third",
+    }
+    target_pos = zone_to_position.get(target_zone, "lower_third")
+
+    # Calculate new box
+    new_box = _get_position_box(target_pos, kind, boxes)
+    ov["x"] = new_box[0]
+    ov["y"] = new_box[1]
+    ov["w"] = new_box[2]
+    ov["h"] = new_box[3]
+
+    return ov
+
+
+def _resolve_overlay_collisions(
+    overlays: list[dict[str, Any]],
+    captions: list[dict[str, Any]],
+    caption_y: int,
+    boxes: dict[str, tuple[int, int, int, int]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve overlay-caption collisions by repositioning or hiding captions.
+
+    Returns: (resolved_overlays, filtered_captions, overlays_with_hide_captions)
+    """
+    resolved = []
+    hide_captions_windows: list[tuple[int, int]] = []
+
+    for ov in overlays:
+        ov_box = (ov["x"], ov["y"], ov["w"], ov["h"])
+        ov_start = ov["start_ms"]
+        ov_end = ov["end_ms"]
+
+        # Calculate midpoint for caption check
+        mid_ms = (ov_start + ov_end) // 2
+
+        # Get caption box at overlay midpoint
+        caption_box = _calculate_caption_box(caption_y, captions, mid_ms)
+
+        if caption_box is None:
+            # No caption at this time, overlay can stay
+            resolved.append(ov)
+            continue
+
+        # Check intersection
+        if not _boxes_intersect(ov_box, caption_box):
+            # No collision
+            resolved.append(ov)
+            continue
+
+        # Determine current zone
+        current_zone = _get_overlay_zone(ov_box)
+
+        # Try to find a free zone
+        # Check which zones are occupied by the caption
+        caption_top_y = caption_box[1]
+        caption_bottom_y = caption_top_y + caption_box[3]
+
+        # Determine which zones the caption occupies
+        caption_zones = set()
+        for zone_name, (z_min, z_max) in [
+            ("top", ZONE_TOP),
+            ("middle", ZONE_MIDDLE),
+            ("bottom", ZONE_BOTTOM),
+        ]:
+            if caption_top_y < z_max and caption_bottom_y > z_min:
+                caption_zones.add(zone_name)
+
+        # Try alternatives in order of preference
+        moved = False
+        position_alternatives = ZONE_ALTERNATIVES.get(current_zone, ["top"])
+
+        for alt_position in position_alternatives:
+            # Get the zone this position would occupy
+            alt_pos_box = _get_position_box(alt_position, ov["kind"], boxes)
+            alt_zone = _get_overlay_zone(alt_pos_box)
+
+            # Skip if this zone is occupied by caption
+            if alt_zone in caption_zones:
+                continue
+
+            # Check if there's already an overlay in this zone at this time
+            zone_occupied = False
+            for existing in resolved:
+                # Check temporal overlap
+                if not (ov_end <= existing["start_ms"] or ov_start >= existing["end_ms"]):
+                    # Temporal overlap, check spatial
+                    existing_box = (existing["x"], existing["y"], existing["w"], existing["h"])
+                    if _get_overlay_zone(existing_box) == alt_zone:
+                        # Same zone, might overlap if both active
+                        zone_occupied = True
+                        break
+
+            if not zone_occupied:
+                # Move to this position
+                ov = _move_overlay_to_zone(ov, alt_zone, boxes)
+                resolved.append(ov)
+                moved = True
+                break
+
+        if not moved:
+            # No free zone available, hide captions for this overlay's duration
+            ov["hide_captions"] = True
+            resolved.append(ov)
+            hide_captions_windows.append((ov_start, ov_end))
+
+    # Now filter captions that overlap with hide_captions windows
+    filtered_captions = []
+    for ev in captions:
+        ev_start = ev["start_ms"]
+        ev_end = ev["end_ms"]
+
+        # Check if this caption overlaps any hide window
+        should_hide = False
+        for win_start, win_end in hide_captions_windows:
+            if ev_start < win_end and ev_end > win_start:
+                should_hide = True
+                break
+
+        if not should_hide:
+            filtered_captions.append(ev)
+
+    return resolved, filtered_captions, [ov for ov in resolved if ov.get("hide_captions")]
 
 
 def _format_token(word: dict[str, Any]) -> dict[str, Any]:
@@ -909,6 +1132,7 @@ def build_ir_stage2(
                 start_m = max(0, int(cw.get("start_ms", 0)))
                 emp_words_set.add((n, start_m, txt))
 
+    # Process captions
     events = ir_stage1["captions"]
     for ev in events:
         tokens = [tok for line in ev["lines"] for tok in line]
@@ -926,17 +1150,43 @@ def build_ir_stage2(
         ev["emphasis"] = emp_list
         CaptionEvent.model_validate(ev)
 
+    # Get caption_y from timeline or use default
+    caption_y = timeline.get("settings", {}).get("caption_y", CAPTION_Y_DEFAULT)
+
+    # Define position boxes for collision resolution
+    position_boxes = {
+        "top": (90, 260, 900, 300),
+        "center": (90, 760, 900, 400),
+        "lower_third": (90, 1300, 900, 200),
+        "left": (60, 700, 420, 420),
+        "right": (600, 700, 420, 420),
+    }
+
+    # Resolve overlay-caption collisions
+    resolved_overlays, filtered_captions, _ = _resolve_overlay_collisions(
+        overlay_cues, events, caption_y, position_boxes
+    )
+
+    # Validate all overlays
+    for ov in resolved_overlays:
+        OverlayCue.model_validate(ov)
+
+    # Update layout with caption_y
+    layout_dict = ir_stage1["layout"] if "layout" in ir_stage1 else {"caption_y": CAPTION_Y_DEFAULT}
+    if "caption_y" not in layout_dict:
+        layout_dict["caption_y"] = caption_y
+
     ir_dict: dict[str, Any] = {
         "schema": "brandstudio.ir.v1",
         "duration_ms": duration_ms,
         "frame_zero": ir_stage1["frame_zero"],
-        "captions": events,
+        "captions": filtered_captions,
         "zoom_keys": all_zoom_keys,
         "transitions": transition_cues,
-        "overlays": overlay_cues,
+        "overlays": resolved_overlays,
         "sfx": sfx_cues,
         "style": style,
-        "layout": ir_stage1["layout"],
+        "layout": layout_dict,
     }
 
     RenderIR.model_validate(ir_dict)
