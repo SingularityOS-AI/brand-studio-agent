@@ -35,12 +35,16 @@ def _node_bin() -> str:
 
 
 def test_node_check_production_panel_js():
-    res = subprocess.run([_node_bin(), "--check", str(PANEL_JS)], capture_output=True, text=True)
+    res = subprocess.run(
+        [_node_bin(), "--check", str(PANEL_JS)], capture_output=True, text=True, check=False
+    )
     assert res.returncode == 0, f"node --check failed for production_panel.js: {res.stderr}"
 
 
 def test_node_check_app_js():
-    res = subprocess.run([_node_bin(), "--check", str(APP_JS)], capture_output=True, text=True)
+    res = subprocess.run(
+        [_node_bin(), "--check", str(APP_JS)], capture_output=True, text=True, check=False
+    )
     assert res.returncode == 0, f"node --check failed for app.js: {res.stderr}"
 
 
@@ -252,6 +256,7 @@ def _run_harness() -> tuple[dict, dict]:
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        check=False,
     )
     assert res.returncode == 0, f"Node harness failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
     lines = [line for line in res.stdout.strip().splitlines() if line.strip()]

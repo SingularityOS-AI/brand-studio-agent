@@ -8,15 +8,17 @@ Piece: `docs/specs/F/pieces/F-03_production_panel_audit.md`. Files touched:
 - `node_check.txt`: `node --check` on both JS files this piece adds/touches
   (`app/static/production_panel.js`, `app/static/app.js`). No output on
   either = clean syntax.
-- `ruff_check.txt`: `ruff check tests/test_panel_f03.py` (the only new Python
-  file), run with the repo's ambient `ruff 0.15.8` (matching the version
-  F-02/F-04's own evidence used). All checks passed. Note: `pip install -r
-  requirements.txt` into a fresh venv pulls `ruff 0.16.9`, which enables
-  `PLW1510` (`subprocess.run` without `check=`) by default and flags this
-  file's three `subprocess.run(...)` calls -- the exact same pattern already
-  used unmodified in `tests/test_actions_f04.py` and
-  `tests/test_editing_p82c_editing_js.py`. Not a regression this piece
-  introduced; ran the check with the version those pieces' evidence used.
+- `ruff_check.txt`: `ruff check tests/test_panel_f03.py`, run with `ruff
+  0.16.9` (the version `pip install -r requirements.txt` resolves into a
+  fresh venv) -- the version that actually flagged this file's three
+  `subprocess.run(...)` calls with `PLW1510` (no explicit `check=`) in an
+  earlier pass. Fixed by adding `check=False` to all three; also verified
+  clean against the repo's ambient `ruff 0.15.8`, which doesn't flag
+  `PLW1510` by default and is what F-02/F-04's own evidence was generated
+  with (their `subprocess.run(...)` calls, e.g.
+  `tests/test_actions_f04.py:30`, still lack `check=` and would fail this
+  same rule under 0.16.9 -- pre-existing in this codebase, not introduced
+  here, and out of scope for this piece's file list).
 - `dom_render_mixed_list.txt`: literal DOM-text evidence for the piece's
   "Done when" line ("DOM test renders a mixed list correctly and escapes a
   malicious utterance"). Same fake-DOM Node harness as

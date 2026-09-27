@@ -23,7 +23,7 @@ E       fixture 'mocker' not found
 =================================== FAILURES ===================================
 _____________________ test_normal_request_pass_and_deduct ______________________
 
-client_with_auth = <starlette.testclient.TestClient object at 0x7f173a763050>
+client_with_auth = <starlette.testclient.TestClient object at 0x7feafc5483d0>
 
     def test_normal_request_pass_and_deduct(client_with_auth):
         """
@@ -42,8 +42,8 @@ E       assert 499 <= 249
 tests/test_guard_jwt.py:111: AssertionError
 ______________________ test_budget_exhausted_returns_402 _______________________
 
-client_with_auth = <starlette.testclient.TestClient object at 0x7f173a742f10>
-monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f173a6ba5d0>
+client_with_auth = <starlette.testclient.TestClient object at 0x7feafc63c8d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feafc299110>
 
     def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
         """
@@ -95,7 +95,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     response = connection.handle_request(
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <TunnelHTTPConnection ['http://127.0.0.1:35327', HTTP/1.1, CLOSED, Request Count: 1]>
+self = <TunnelHTTPConnection ['http://127.0.0.1:44837', HTTP/1.1, CLOSED, Request Count: 1]>
 request = <Request [b'GET']>
 
     def handle_request(self, request: Request) -> Response:
@@ -221,7 +221,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     response = await connection.handle_async_request(
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <AsyncTunnelHTTPConnection ['http://127.0.0.1:35327', HTTP/1.1, CLOSED, Request Count: 1]>
+self = <AsyncTunnelHTTPConnection ['http://127.0.0.1:44837', HTTP/1.1, CLOSED, Request Count: 1]>
 request = <Request [b'GET']>
 
     async def handle_async_request(self, request: Request) -> Response:
@@ -378,8 +378,8 @@ E                 + eee1d24ff8f553eb732237c7dd9b945a78313ed49ad6de02872a47277741
 tests/test_render_service_p75_container.py:96: AssertionError
 ___________ test_manual_patch_during_in_flight_regeneration_not_lost ___________
 
-valid_script = Script(id=None, session_id='test_session', idea_id='idea_123', title='Stop Wasting 10 Hours/Week on Spreadsheets', ang...ding_format='selfie_natural', timestamp=datetime.datetime(2026, 9, 27, 2, 53, 6, 301896, tzinfo=datetime.timezone.utc))
-tmp_path = PosixPath('/tmp/pytest-of-root/pytest-5/test_manual_patch_during_in_fl0')
+valid_script = Script(id=None, session_id='test_session', idea_id='idea_123', title='Stop Wasting 10 Hours/Week on Spreadsheets', ang...ing_format='selfie_natural', timestamp=datetime.datetime(2026, 9, 27, 3, 19, 47, 294267, tzinfo=datetime.timezone.utc))
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-7/test_manual_patch_during_in_fl0')
 
     @pytest.mark.asyncio
     async def test_manual_patch_during_in_flight_regeneration_not_lost(valid_script, tmp_path):
@@ -458,7 +458,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
           ^^^^^^^^^^^^^^^^
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <asyncio.locks.Lock object at 0x7f173a189210 [locked]>
+self = <asyncio.locks.Lock object at 0x7feafc208590 [locked]>
 
     def _get_loop(self):
         loop = events._get_running_loop()
@@ -469,7 +469,7 @@ self = <asyncio.locks.Lock object at 0x7f173a189210 [locked]>
                     self._loop = loop
         if loop is not self._loop:
 >           raise RuntimeError(f'{self!r} is bound to a different event loop')
-E           RuntimeError: <asyncio.locks.Lock object at 0x7f173a189210 [locked]> is bound to a different event loop
+E           RuntimeError: <asyncio.locks.Lock object at 0x7feafc208590 [locked]> is bound to a different event loop
 
 /usr/lib/python3.11/asyncio/mixins.py:20: RuntimeError
 =============================== warnings summary ===============================
@@ -523,4 +523,4 @@ FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_t
 FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
 FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
 ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
-6 failed, 859 passed, 43 skipped, 10 warnings, 1 error in 15.72s
+6 failed, 859 passed, 43 skipped, 10 warnings, 1 error in 29.67s
