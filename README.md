@@ -152,15 +152,17 @@ Real AI calls cost real money, so the app is built to fail closed:
 | **E2-03** Empty-scene guard | blank MG → face/image fallback + HTTP warning | #15 |
 | **F-03** Production panel | live agentic audit trail, card queue, zero innerHTML | #13 |
 | **F-06** Confirmation engine | 45s TTL, explicit phrase required, "yes" alone rejected | #12 |
+| **F-07** Script voice tools | voice-controlled script tools (generate, review, iterate, lock) | #16 |
+| **E2-08** 3-step editor (EN) | 1 Cut · 2 Auto-edit · 3 Export, English labels, loading screen | #17 |
+| **F-05** Agentic mode toggle | Brandy scope selector, step-scoped session.update, English orb states | #17 |
+| **E2-07** No-collision layout | 2D box collision resolution between overlays and captions in IR | #18 |
 
 ### In progress / planned
 
 | Piece | What it does |
 |---|---|
-| **E2-07** No-collision layout | subtitle/card anticolision in ffmpeg_dress |
-| **E2-08** 3-step editor (EN) | guided editor for the three editing decisions |
-| **F-05** Agentic mode toggle | Brandy scope selector + on/off toggle in the voice panel |
-| **F-07** Voice script tools | voice-controlled script tools (iterate, lock, regenerate) |
+| **E2-09** UI caption_y drag | visual slider/drag to adjust caption band height |
+| **F-08** Voice audiovisual tools | voice-controlled audiovisual asset regeneration and B-roll |
 
 ---
 
