@@ -1,0 +1,5 @@
+box: 900x400
+text (70 chars): 'Reduce your customer wait time by forty percent this quarter for good.'
+top 20px max R/G/B: 75
+bottom 20px max R/G/B: 74
+threshold (no-text-pixel) max R/G/B: 160

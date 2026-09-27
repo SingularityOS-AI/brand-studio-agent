@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/brand-studio-agent
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 13 items
+
+tests/test_editing_e2_04_card_fit.py .............                       [100%]
+
+=============================== warnings summary ===============================
+render_service/manifest.py:135
+  /home/user/brand-studio-agent/render_service/manifest.py:135: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+
+render_service/manifest.py:300
+  /home/user/brand-studio-agent/render_service/manifest.py:300: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+
+render_service/manifest.py:401
+  /home/user/brand-studio-agent/render_service/manifest.py:401: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 13 passed, 3 warnings in 9.91s ========================

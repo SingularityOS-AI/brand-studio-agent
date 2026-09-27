@@ -1,0 +1,522 @@
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 32%]
+......................................s................................. [ 40%]
+........................................................................ [ 48%]
+........................................................................ [ 56%]
+...........sssssssssF...F............................................FF. [ 64%]
+........................................................................ [ 72%]
+....F.........................E......................................... [ 80%]
+...................................................................F.... [ 89%]
+........................................................................ [ 97%]
+.....ssss................                                                [100%]
+==================================== ERRORS ====================================
+___________ ERROR at setup of test_p92_post_progress_host_validation ___________
+file /home/user/brand-studio-agent/tests/test_render_service_p92_rebote.py, line 514
+  def test_p92_post_progress_host_validation(monkeypatch: pytest.MonkeyPatch, mocker):
+E       fixture 'mocker' not found
+>       available fixtures: _asyncio_loop_factory, _class_scoped_runner, _empty_audiovisual_libraries_by_default, _function_scoped_runner, _module_scoped_runner, _package_scoped_runner, _session_scoped_runner, anyio_backend, anyio_backend_name, anyio_backend_options, authenticated_client, auto_clean_rate_limits, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, clean_rate_limit, clean_rate_limits, client_with_session, doctest_namespace, event_loop_policy, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, monkeypatch, network_lock_active, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, subtests, test_auth_headers, test_jwt_token, test_user_id, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/home/user/brand-studio-agent/tests/test_render_service_p92_rebote.py:514
+=================================== FAILURES ===================================
+_____________________ test_normal_request_pass_and_deduct ______________________
+
+client_with_auth = <starlette.testclient.TestClient object at 0x7fcf85b47fd0>
+
+    def test_normal_request_pass_and_deduct(client_with_auth):
+        """
+        Path 1: Normal request passes rate limit and deducts budget.
+        Should receive token and remaining credits.
+        """
+        response = client_with_auth.get("/api/token")
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert "credits_remaining" in data
+        # Credits should be less than initial 250 after deduct
+>       assert 0 <= data["credits_remaining"] <= 249
+E       assert 499 <= 249
+
+tests/test_guard_jwt.py:111: AssertionError
+______________________ test_budget_exhausted_returns_402 _______________________
+
+client_with_auth = <starlette.testclient.TestClient object at 0x7fcf858ed290>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcf858eda90>
+
+    def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
+        """
+        Path 3: Session exhausting budget gets 402 with configurable payment URL.
+        Exhaust all credits and verify payment required response.
+    
+        Rate limit (default 30/min) is neutralized here so this test actually
+        reaches 402 instead of hitting 429 first and silently skipping the
+        assertion it's named for — a session's budget can legitimately outlast
+        a minute of requests in real use.
+        """
+        monkeypatch.setattr(guard, "check_rate_limit", lambda *a, **k: None)
+    
+        # Clear any existing sessions to start fresh
+        guard._sessions.clear()
+    
+        # Make requests until budget is exhausted (250 credits)
+        for i in range(250):
+            response = client_with_auth.get("/api/token")
+            if response.status_code == 402:
+                break
+            assert response.status_code == 200, f"Request {i} failed: {response.json()}"
+    
+        # The session now has 0 credits: the very next call must 402.
+        response = client_with_auth.get("/api/token")
+>       assert response.status_code == 402
+E       assert 200 == 402
+E        +  where 200 = <Response [200 OK]>.status_code
+
+tests/test_guard_jwt.py:189: AssertionError
+_____________ test_network_lock_blocks_sync_httpx_to_external_host _____________
+
+    @contextlib.contextmanager
+    def map_httpcore_exceptions() -> typing.Iterator[None]:
+        global HTTPCORE_EXC_MAP
+        if len(HTTPCORE_EXC_MAP) == 0:
+            HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+        try:
+>           yield
+
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:250: in handle_request
+    resp = self._pool.handle_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpcore/_sync/connection_pool.py:256: in handle_request
+    raise exc from None
+/usr/local/lib/python3.11/dist-packages/httpcore/_sync/connection_pool.py:236: in handle_request
+    response = connection.handle_request(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <TunnelHTTPConnection ['http://127.0.0.1:39419', HTTP/1.1, CLOSED, Request Count: 1]>
+request = <Request [b'GET']>
+
+    def handle_request(self, request: Request) -> Response:
+        timeouts = request.extensions.get("timeout", {})
+        timeout = timeouts.get("connect", None)
+    
+        with self._connect_lock:
+            if not self._connected:
+                target = b"%b:%d" % (self._remote_origin.host, self._remote_origin.port)
+    
+                connect_url = URL(
+                    scheme=self._proxy_origin.scheme,
+                    host=self._proxy_origin.host,
+                    port=self._proxy_origin.port,
+                    target=target,
+                )
+                connect_headers = merge_headers(
+                    [(b"Host", target), (b"Accept", b"*/*")], self._proxy_headers
+                )
+                connect_request = Request(
+                    method=b"CONNECT",
+                    url=connect_url,
+                    headers=connect_headers,
+                    extensions=request.extensions,
+                )
+                connect_response = self._connection.handle_request(
+                    connect_request
+                )
+    
+                if connect_response.status < 200 or connect_response.status > 299:
+                    reason_bytes = connect_response.extensions.get("reason_phrase", b"")
+                    reason_str = reason_bytes.decode("ascii", errors="ignore")
+                    msg = "%d %s" % (connect_response.status, reason_str)
+                    self._connection.close()
+>                   raise ProxyError(msg)
+E                   httpcore.ProxyError: 403 Forbidden
+
+/usr/local/lib/python3.11/dist-packages/httpcore/_sync/http_proxy.py:297: ProxyError
+
+The above exception was the direct cause of the following exception:
+
+    def test_network_lock_blocks_sync_httpx_to_external_host():
+        """
+        Verify NETWORK_LOCK blocks a synchronous httpx.get() to an external host.
+    
+        Confirms the sync case (via the getaddrinfo wrapper -- httpx resolves the
+        hostname before opening the connection) still works after the round-3
+        change, alongside the new async coverage below.
+        """
+        with pytest.raises(RuntimeError) as exc_info:
+>           httpx.get("https://agents.assemblyai.com/v1/token", timeout=5)
+
+tests/test_network_lock.py:131: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.11/dist-packages/httpx/_api.py:195: in get
+    return request(
+/usr/local/lib/python3.11/dist-packages/httpx/_api.py:109: in request
+    return client.request(
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:825: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:914: in send
+    response = self._send_handling_auth(
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:942: in _send_handling_auth
+    response = self._send_handling_redirects(
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:979: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1014: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:249: in handle_request
+    with map_httpcore_exceptions():
+/usr/lib/python3.11/contextlib.py:158: in __exit__
+    self.gen.throw(typ, value, traceback)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    @contextlib.contextmanager
+    def map_httpcore_exceptions() -> typing.Iterator[None]:
+        global HTTPCORE_EXC_MAP
+        if len(HTTPCORE_EXC_MAP) == 0:
+            HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+        try:
+            yield
+        except Exception as exc:
+            mapped_exc = None
+    
+            for from_exc, to_exc in HTTPCORE_EXC_MAP.items():
+                if not isinstance(exc, from_exc):
+                    continue
+                # We want to map to the most specific exception we can find.
+                # Eg if `exc` is an `httpcore.ReadTimeout`, we want to map to
+                # `httpx.ReadTimeout`, not just `httpx.TimeoutException`.
+                if mapped_exc is None or issubclass(to_exc, mapped_exc):
+                    mapped_exc = to_exc
+    
+            if mapped_exc is None:  # pragma: no cover
+                raise
+    
+            message = str(exc)
+>           raise mapped_exc(message) from exc
+E           httpx.ProxyError: 403 Forbidden
+
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:118: ProxyError
+_________ test_network_lock_blocks_async_httpx_client_to_external_host _________
+
+    @contextlib.contextmanager
+    def map_httpcore_exceptions() -> typing.Iterator[None]:
+        global HTTPCORE_EXC_MAP
+        if len(HTTPCORE_EXC_MAP) == 0:
+            HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+        try:
+>           yield
+
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:394: in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpcore/_async/connection_pool.py:256: in handle_async_request
+    raise exc from None
+/usr/local/lib/python3.11/dist-packages/httpcore/_async/connection_pool.py:236: in handle_async_request
+    response = await connection.handle_async_request(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AsyncTunnelHTTPConnection ['http://127.0.0.1:39419', HTTP/1.1, CLOSED, Request Count: 1]>
+request = <Request [b'GET']>
+
+    async def handle_async_request(self, request: Request) -> Response:
+        timeouts = request.extensions.get("timeout", {})
+        timeout = timeouts.get("connect", None)
+    
+        async with self._connect_lock:
+            if not self._connected:
+                target = b"%b:%d" % (self._remote_origin.host, self._remote_origin.port)
+    
+                connect_url = URL(
+                    scheme=self._proxy_origin.scheme,
+                    host=self._proxy_origin.host,
+                    port=self._proxy_origin.port,
+                    target=target,
+                )
+                connect_headers = merge_headers(
+                    [(b"Host", target), (b"Accept", b"*/*")], self._proxy_headers
+                )
+                connect_request = Request(
+                    method=b"CONNECT",
+                    url=connect_url,
+                    headers=connect_headers,
+                    extensions=request.extensions,
+                )
+                connect_response = await self._connection.handle_async_request(
+                    connect_request
+                )
+    
+                if connect_response.status < 200 or connect_response.status > 299:
+                    reason_bytes = connect_response.extensions.get("reason_phrase", b"")
+                    reason_str = reason_bytes.decode("ascii", errors="ignore")
+                    msg = "%d %s" % (connect_response.status, reason_str)
+                    await self._connection.aclose()
+>                   raise ProxyError(msg)
+E                   httpcore.ProxyError: 403 Forbidden
+
+/usr/local/lib/python3.11/dist-packages/httpcore/_async/http_proxy.py:297: ProxyError
+
+The above exception was the direct cause of the following exception:
+
+    @pytest.mark.asyncio
+    async def test_network_lock_blocks_async_httpx_client_to_external_host():
+        """
+        Verify NETWORK_LOCK blocks httpx.AsyncClient talking to an external host.
+    
+        This is the exact case the Captain found escaping the old (sync-only)
+        lock: `httpx.AsyncClient().get("https://agents.assemblyai.com/v1/token")`
+        -- the same call `app/main.py`'s `mint_temporary_token` makes -- used to
+        reach the real internet with no exception at all on Windows. It must now
+        fail fast with the NETWORK_LOCK RuntimeError, before any real connection
+        is attempted.
+        """
+        with pytest.raises(RuntimeError) as exc_info:
+            async with httpx.AsyncClient(timeout=5) as client:
+>               await client.get("https://agents.assemblyai.com/v1/token")
+
+tests/test_network_lock.py:152: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1768: in get
+    return await self.request(
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1540: in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1629: in send
+    response = await self._send_handling_auth(
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpx/_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:393: in handle_async_request
+    with map_httpcore_exceptions():
+/usr/lib/python3.11/contextlib.py:158: in __exit__
+    self.gen.throw(typ, value, traceback)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    @contextlib.contextmanager
+    def map_httpcore_exceptions() -> typing.Iterator[None]:
+        global HTTPCORE_EXC_MAP
+        if len(HTTPCORE_EXC_MAP) == 0:
+            HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+        try:
+            yield
+        except Exception as exc:
+            mapped_exc = None
+    
+            for from_exc, to_exc in HTTPCORE_EXC_MAP.items():
+                if not isinstance(exc, from_exc):
+                    continue
+                # We want to map to the most specific exception we can find.
+                # Eg if `exc` is an `httpcore.ReadTimeout`, we want to map to
+                # `httpx.ReadTimeout`, not just `httpx.TimeoutException`.
+                if mapped_exc is None or issubclass(to_exc, mapped_exc):
+                    mapped_exc = to_exc
+    
+            if mapped_exc is None:  # pragma: no cover
+                raise
+    
+            message = str(exc)
+>           raise mapped_exc(message) from exc
+E           httpx.ProxyError: 403 Forbidden
+
+/usr/local/lib/python3.11/dist-packages/httpx/_transports/default.py:118: ProxyError
+________________________ test_fonts_and_sources_hashes _________________________
+
+    def test_fonts_and_sources_hashes():
+        fonts_dir = REPO_ROOT / "render_service" / "fonts"
+        sources_md = fonts_dir / "SOURCES.md"
+        assert fonts_dir.is_dir(), "render_service/fonts directory missing"
+        assert sources_md.is_file(), "render_service/fonts/SOURCES.md missing"
+    
+        sources_content = sources_md.read_text(encoding="utf-8")
+    
+        from render_service.manifest import FONT_ALLOWLIST
+    
+        ttf_files = list(fonts_dir.glob("*.ttf")) + list(fonts_dir.glob("*.otf"))
+        for family in FONT_ALLOWLIST:
+            clean_family = family.replace(" ", "")
+            matching = [
+                f
+                for f in ttf_files
+                if family.lower() in f.name.lower()
+                or clean_family.lower() in f.name.lower()
+            ]
+            assert (
+                len(matching) > 0
+            ), f"No TTF font file found for allowlist family '{family}'"
+    
+        file_blocks = sources_content.split("- **File:**")
+        for block in file_blocks[1:]:
+            filename_match = re.search(r"`([^`]+)`", block)
+            sha_match = re.search(r"SHA256:\*\* `([0-9a-fA-F]{64})`", block)
+            if filename_match and sha_match:
+                filename = filename_match.group(1)
+                expected_sha = sha_match.group(1).lower()
+                file_path = fonts_dir / filename
+                assert (
+                    file_path.is_file()
+                ), f"File `{filename}` listed in SOURCES.md does not exist"
+                actual_sha = hashlib.sha256(file_path.read_bytes()).hexdigest().lower()
+>               assert (
+                    actual_sha == expected_sha
+                ), f"SHA256 mismatch for {filename}: expected {expected_sha}, got {actual_sha}"
+E               AssertionError: SHA256 mismatch for Anton-OFL.txt: expected ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4, got eee1d24ff8f553eb732237c7dd9b945a78313ed49ad6de02872a47277741b44a
+E               assert 'eee1d24ff8f5...a47277741b44a' == 'ee67e6ee2279...df5596de9c9e4'
+E                 
+E                 - ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4
+E                 + eee1d24ff8f553eb732237c7dd9b945a78313ed49ad6de02872a47277741b44a
+
+tests/test_render_service_p75_container.py:96: AssertionError
+___________ test_manual_patch_during_in_flight_regeneration_not_lost ___________
+
+valid_script = Script(id=None, session_id='test_session', idea_id='idea_123', title='Stop Wasting 10 Hours/Week on Spreadsheets', ang...ding_format='selfie_natural', timestamp=datetime.datetime(2026, 9, 27, 1, 13, 52, 27772, tzinfo=datetime.timezone.utc))
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-6/test_manual_patch_during_in_fl0')
+
+    @pytest.mark.asyncio
+    async def test_manual_patch_during_in_flight_regeneration_not_lost(valid_script, tmp_path):
+        """
+        Audit repro: a manual PATCH landing while a regeneration is awaiting
+        Gemini must NOT be lost when the regeneration finally saves back. The
+        shared lock means the PATCH simply waits its turn and applies cleanly
+        on top of the freshest state.
+        """
+        os.chdir(tmp_path)
+        gate = asyncio.Event()
+    
+        async def fake_generate(prompt, generation_config=None, **kwargs):
+            await gate.wait()
+            resp = Mock()
+            resp.text = json.dumps({
+                "spoken_text": "Regenerated scene 3 text here right now please",
+                "shot": "medium",
+                "b_roll": None,
+                "on_screen_text": "Regenerated body 1",
+                "acting_note": "Confident tone",
+                "sound": "test",
+            })
+            return resp
+    
+        with patch("app.scripting.scripts.get_brand_brain") as mock_get_brain, \
+             patch("app.catalog.ideas._check_catalog_cache") as mock_cat_cache, \
+             patch("app.scripting.scripts._get_script_client", return_value=None), \
+             patch("vertexai.generative_models.GenerativeModel") as mock_model_class:
+            mock_bb = Mock()
+            type(mock_bb).sections = property(lambda self: [])
+            mock_get_brain.return_value = mock_bb
+            mock_cat_cache.return_value = Mock()
+            mock_cat_cache.return_value.catalog_locked = True
+    
+            mock_model = AsyncMock()
+            mock_model_class.return_value = mock_model
+            mock_model.generate_content_async.side_effect = fake_generate
+    
+            _save_script(valid_script)
+    
+            regen_task = asyncio.create_task(
+                regenerate_scene(
+                    session_id=valid_script.session_id,
+                    idea_id=valid_script.idea_id,
+                    scene_n=3,
+                    instruction="rewrite",
+                )
+            )
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+    
+            patch_task = asyncio.create_task(
+                update_scene_text(
+                    session_id=valid_script.session_id,
+                    idea_id=valid_script.idea_id,
+                    scene_n=6,
+                    spoken_text="Manually edited CTA text while regen is in flight",
+                )
+            )
+            # Let the PATCH queue behind the lock, then let the regen finish.
+            await asyncio.sleep(0)
+            gate.set()
+    
+>           regen_result, patch_result = await asyncio.gather(regen_task, patch_task)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/home/user/brand-studio-agent/tests/test_scripts_pieza43.py:631: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/user/brand-studio-agent/app/scripting/scripts.py:2202: in update_scene_text
+    async with lock:
+/usr/lib/python3.11/asyncio/locks.py:15: in __aenter__
+    await self.acquire()
+/usr/lib/python3.11/asyncio/locks.py:106: in acquire
+    fut = self._get_loop().create_future()
+          ^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <asyncio.locks.Lock object at 0x7fcf856d0210 [locked]>
+
+    def _get_loop(self):
+        loop = events._get_running_loop()
+    
+        if self._loop is None:
+            with _global_lock:
+                if self._loop is None:
+                    self._loop = loop
+        if loop is not self._loop:
+>           raise RuntimeError(f'{self!r} is bound to a different event loop')
+E           RuntimeError: <asyncio.locks.Lock object at 0x7fcf856d0210 [locked]> is bound to a different event loop
+
+/usr/lib/python3.11/asyncio/mixins.py:20: RuntimeError
+=============================== warnings summary ===============================
+../../../usr/local/lib/python3.11/dist-packages/fastapi/testclient.py:1
+  /usr/local/lib/python3.11/dist-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+render_service/manifest.py:135
+  /home/user/brand-studio-agent/render_service/manifest.py:135: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+
+render_service/manifest.py:300
+  /home/user/brand-studio-agent/render_service/manifest.py:300: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+
+render_service/manifest.py:401
+  /home/user/brand-studio-agent/render_service/manifest.py:401: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+
+tests/test_render_e2e_offline.py:18
+  /home/user/brand-studio-agent/tests/test_render_e2e_offline.py:18: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.render,
+
+tests/test_auth.py::TestSupabaseAuth::test_create_valid_jwt_token_hs256
+  /usr/local/lib/python3.11/dist-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_auth.py::TestSupabaseAuth::test_create_valid_jwt_token_hs256 returned <class 'str'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+tests/test_auth.py::TestSupabaseAuth::test_verify_invalid_signature
+  /usr/local/lib/python3.11/dist-packages/jwt/api_jwt.py:149: InsecureKeyLengthWarning: The HMAC key is 12 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+  /usr/local/lib/python3.11/dist-packages/proto/message.py:392: DeprecationWarning: The argument `including_default_value_fields` has been removed from
+                  Protobuf 5.x. Please use `always_print_fields_with_no_presence` instead.
+                  
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+6 failed, 868 passed, 15 skipped, 1 deselected, 9 warnings, 1 error in 63.86s (0:01:03)

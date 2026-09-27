@@ -1,0 +1,5 @@
+crop box: 900x400 at (90,760), midpoint 1.0s
+top 20px max R/G/B: 139
+bottom 20px max R/G/B: 147
+threshold (no-text-pixel) max R/G/B: 160
+bottom row center pixel RGB: (75, 79, 83) (raw bg would be (128, 128, 128))

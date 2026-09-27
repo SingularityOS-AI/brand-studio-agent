@@ -83,6 +83,111 @@
     }
   }
 
+  // Per-character width factors (fraction of font-size, bold weight). A flat 0.58
+  // underestimates bold ASCII capitals and digits enough that the browser's real
+  // layout wraps an extra line the formula never accounted for (measured: bold
+  // capitals are ~0.70-0.74em in Inter/Montserrat).
+  var CARD_CAP_DIGIT_K = 0.74;
+  var CARD_DIGIT_K = 0.64;
+  var CARD_K = 0.58;
+  var CARD_CAP_AND_HEAVY_PUNCT = {};
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ%$&@#".split("").forEach(function (ch) {
+    CARD_CAP_AND_HEAVY_PUNCT[ch] = true;
+  });
+  var CARD_DIGITS = {};
+  "0123456789".split("").forEach(function (ch) {
+    CARD_DIGITS[ch] = true;
+  });
+  var CARD_LINE_HEIGHT = 1.15;
+  var CARD_MAX_LINES = 3;
+  var CARD_MIN_FONT_PX = 28;
+  var CARD_SHRINK_STEP_PX = 2;
+  var CARD_PAD_W = 80;
+  var CARD_PAD_H = 60;
+  var CARD_DEFAULT_FONT_PX = {
+    card_stat: 110,
+    card_quote: 60,
+    card_list: 50,
+    card_lower_third: 44,
+    onscreen_text: 64
+  };
+  var CARD_FALLBACK_FONT_PX = 64;
+
+  function codePointLength(str) {
+    return Array.from(str).length;
+  }
+
+  function charWidthFactor(ch) {
+    if (CARD_CAP_AND_HEAVY_PUNCT[ch]) return CARD_CAP_DIGIT_K;
+    if (CARD_DIGITS[ch]) return CARD_DIGIT_K;
+    return CARD_K;
+  }
+
+  function cardTextWidth(str, fontPx) {
+    var chars = Array.from(str);
+    var sum = 0;
+    for (var i = 0; i < chars.length; i++) {
+      sum += charWidthFactor(chars[i]);
+    }
+    return sum * fontPx;
+  }
+
+  function wrapCardWords(words, fontPx, areaW) {
+    var lines = [];
+    var current = [];
+    for (var i = 0; i < words.length; i++) {
+      var word = words[i];
+      if (lines.length === CARD_MAX_LINES - 1) {
+        current.push(word);
+        continue;
+      }
+      var candidate = current.concat([word]);
+      var candidateStr = candidate.join(" ");
+      var width = cardTextWidth(candidateStr, fontPx);
+      if (width <= areaW || current.length === 0) {
+        current = candidate;
+      } else {
+        lines.push(current.join(" "));
+        current = [word];
+      }
+    }
+    if (current.length > 0) {
+      lines.push(current.join(" "));
+    }
+    return lines;
+  }
+
+  function fitCardText(text, kind, boxW, boxH) {
+    var areaW = boxW - CARD_PAD_W;
+    var areaH = boxH - CARD_PAD_H;
+    var startFontPx = CARD_DEFAULT_FONT_PX.hasOwnProperty(kind)
+      ? CARD_DEFAULT_FONT_PX[kind]
+      : CARD_FALLBACK_FONT_PX;
+
+    var words = text ? text.trim().split(/\s+/).filter(Boolean) : [];
+    if (words.length === 0) {
+      return { lines: [], fontPx: startFontPx };
+    }
+
+    var fontPx = startFontPx;
+    var lines = wrapCardWords(words, fontPx, areaW);
+    while (fontPx > CARD_MIN_FONT_PX) {
+      var totalH = lines.length * fontPx * CARD_LINE_HEIGHT;
+      var maxLineW = 0;
+      for (var l = 0; l < lines.length; l++) {
+        var w = cardTextWidth(lines[l], fontPx);
+        if (w > maxLineW) maxLineW = w;
+      }
+      if (totalH <= areaH && maxLineW <= areaW) {
+        break;
+      }
+      fontPx = Math.max(CARD_MIN_FONT_PX, fontPx - CARD_SHRINK_STEP_PX);
+      lines = wrapCardWords(words, fontPx, areaW);
+    }
+
+    return { lines: lines, fontPx: fontPx };
+  }
+
   function zoomAt(keys, tMs) {
     if (!keys || !Array.isArray(keys) || keys.length === 0) {
       return { scale: 1.0, cx: 0.5, cy: 0.5 };
@@ -403,43 +508,50 @@
         el.style.color = "#ffffff";
         el.style.fontWeight = "bold";
         el.style.fontFamily = fontFamily;
+        el.style.boxSizing = "border-box";
         el.style.display = "flex";
-        el.style.alignItems = "center";
-        el.style.padding = "20px 30px";
+        el.style.flexDirection = "column";
+        el.style.padding = "30px 40px";
         el.style.overflow = "hidden";
-        el.style.wordBreak = "break-word";
-
-        var fontSizes = {
-          card_stat: "110px",
-          card_quote: "60px",
-          card_list: "50px",
-          card_lower_third: "44px",
-          onscreen_text: "64px"
-        };
-        el.style.fontSize = fontSizes[stOv.kind] || "64px";
+        el.style.lineHeight = String(CARD_LINE_HEIGHT);
 
         if (stOv.kind === "card_quote") {
           el.style.fontStyle = "italic";
         }
 
         if (stOv.kind === "card_lower_third") {
-          el.style.justifyContent = "flex-start";
+          el.style.alignItems = "flex-start";
+          el.style.justifyContent = "center";
           el.style.textAlign = "left";
         } else {
+          el.style.alignItems = "center";
           el.style.justifyContent = "center";
           el.style.textAlign = "center";
         }
 
-        var textContent = stOv.text || "";
-        if (stOv.kind === "card_quote" && textContent) {
-          if (!textContent.startsWith('"') && !textContent.startsWith("“")) {
-            textContent = "“" + textContent + "”";
-          }
-        }
-        el.textContent = textContent;
+        setCardLines(el, stOv);
       }
 
       return el;
+    }
+
+    function setCardLines(el, stOv) {
+      var textContent = stOv.text || "";
+      if (stOv.kind === "card_quote" && textContent) {
+        if (!textContent.startsWith('"') && !textContent.startsWith("“")) {
+          textContent = "“" + textContent + "”";
+        }
+      }
+      var fit = fitCardText(textContent, stOv.kind, stOv.w, stOv.h);
+      el.style.fontSize = fit.fontPx + "px";
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
+      }
+      for (var i = 0; i < fit.lines.length; i++) {
+        var lineDiv = document.createElement("div");
+        lineDiv.textContent = fit.lines[i];
+        el.appendChild(lineDiv);
+      }
     }
 
     function updateOverlayNode(el, stOv, fontFamily, accentColor) {
@@ -465,13 +577,7 @@
         var borderColor = stOv.accent ? accentColor : "rgba(255, 255, 255, 0.2)";
         el.style.border = "3px solid " + borderColor;
         el.style.fontFamily = fontFamily;
-        var textContent = stOv.text || "";
-        if (stOv.kind === "card_quote" && textContent) {
-          if (!textContent.startsWith('"') && !textContent.startsWith("“")) {
-            textContent = "“" + textContent + "”";
-          }
-        }
-        el.textContent = textContent;
+        setCardLines(el, stOv);
       }
     }
 
@@ -732,12 +838,23 @@
     };
   }
 
-  var API = { mount: mount, stateAt: stateAt, zoomAt: zoomAt, layoutText: layoutText };
+  var API = {
+    mount: mount,
+    stateAt: stateAt,
+    zoomAt: zoomAt,
+    layoutText: layoutText,
+    fitCardText: fitCardText
+  };
 
   if (typeof window !== "undefined") {
     window.BrandStudioPreview = API;
   }
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { stateAt: stateAt, zoomAt: zoomAt, layoutText: layoutText };
+    module.exports = {
+      stateAt: stateAt,
+      zoomAt: zoomAt,
+      layoutText: layoutText,
+      fitCardText: fitCardText
+    };
   }
 })();
