@@ -88,6 +88,25 @@
   let isSessionActive = false;
   let isReady = false;
 
+  // F-05: Agentic mode toggle state (persisted in localStorage)
+  let agenticMode = true;
+  let _agenticWarnShown = false;
+  (function _initAgenticToggle() {
+    try { agenticMode = localStorage.getItem('agenticMode') !== 'false'; } catch (e) {}
+    const _toggle = document.getElementById('AgenticToggleBtn');
+    if (_toggle) {
+      _toggle.checked = agenticMode;
+      _toggle.addEventListener('change', function () {
+        agenticMode = this.checked;
+        try { localStorage.setItem('agenticMode', agenticMode); } catch (e) {}
+        // Notify agent mid-session if WS is open
+        if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', {}, ws);
+        }
+      });
+    }
+  })();
+
   // Session generation token to prevent race conditions between concurrent sessions
   let sessionGeneration = 0;
 
@@ -674,7 +693,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
             ]
           }
         };
-        ws.send(JSON.stringify(sessionUpdatePayload));
+        // F-05: use BrandStudioAgent.sendSessionUpdate when available so the AI
+        // receives the correct tool scope for the current step and agentic mode.
+        if (window.BrandStudioAgent && typeof BrandStudioAgent.sendSessionUpdate === 'function') {
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', {}, ws);
+        } else {
+          ws.send(JSON.stringify(sessionUpdatePayload));
+        }
       };
 
       ws.onmessage = (event) => {
@@ -3057,6 +3082,10 @@ ${htmlContent}
         renderBrandSoulActionBar([]);
       }
     }
+    // F-05: update agent scope on step change
+    if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'brain', {}, ws);
+    }
   }
 
   // Show BlockB view (catalog)
@@ -3074,9 +3103,11 @@ ${htmlContent}
     if (typeof renderPipelineRail === 'function') {
       renderPipelineRail();
     }
+    // F-05: update agent scope on step change
+    if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'catalog', {}, ws);
+    }
   }
-
-  // Show BlockC view (script) with empty state for interview mode
   function showBlockCView(ideaId) {
     hideEditingView();
     if (typeof cleanupAudiovisualBlobUrls === 'function') {
@@ -3108,6 +3139,10 @@ ${htmlContent}
 
     if (typeof renderPipelineRail === 'function') {
       renderPipelineRail();
+    }
+    // F-05: update agent scope on step change
+    if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'script', {}, ws);
     }
   }
 
@@ -4920,6 +4955,10 @@ ${htmlContent}
 
       if (typeof renderPipelineRail === 'function') {
         renderPipelineRail();
+      }
+      // F-05: update agent scope on step change
+      if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
+        BrandStudioAgent.sendSessionUpdate(agenticMode, 'audiovisual', {}, ws);
       }
     } finally {
       hideDocLoading();
