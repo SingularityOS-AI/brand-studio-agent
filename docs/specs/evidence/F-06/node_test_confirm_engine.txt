@@ -1,0 +1,16 @@
+ok - propose stores a pending proposal with a token and the 45s default TTL
+ok - confirm happy path: explicit confirmation word runs the pending proposal once
+ok - a bare "yes" is not an explicit confirmation -- only the full "yes do it" phrase is
+ok - accepts Spanish confirmation words, case/accent-insensitive
+ok - "confirm" with nothing pending does nothing
+ok - "no, wait, confirm" cancels instead of running
+ok - a plain cancel word drops the proposal
+ok - expired proposal cannot be confirmed
+ok - restatement then correction: a new proposal replaces the pending one
+ok - a long unrelated utterance containing "confirm" does not count as explicit confirmation
+ok - an unrelated utterance drops the proposal instead of leaving it pending
+ok - cancel() clears a pending proposal directly
+ok - browser export path: loading the script as a page script attaches window.createConfirmationEngine
+ok - integration via agent_harness: no execution allowed without a matching, unexpired confirmation
+
+All checks passed. (14 tests)
