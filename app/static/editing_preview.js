@@ -258,6 +258,8 @@
       }
     }
 
+    var captionY = (ir && ir.layout && typeof ir.layout.caption_y === "number") ? ir.layout.caption_y : 1250;
+
     var caption = null;
     if (ir && ir.captions && Array.isArray(ir.captions)) {
       var event = null;
@@ -313,7 +315,8 @@
 
         caption = {
           size: event.size,
-          lines: formattedLines
+          lines: formattedLines,
+          top: captionY
         };
       }
     }
@@ -677,7 +680,7 @@
           subBox.style.paintOrder = "stroke fill";
           subBox.style.textShadow = "none";
         } else {
-          subBox.style.top = "1250px";
+          subBox.style.top = st.caption.top + "px";
           subBox.style.bottom = "auto";
           subBox.style.transform = "translateY(-100%)";
           var blockLayout = layoutText("block", st.caption.lines);

@@ -7,6 +7,7 @@ from typing import Any
 
 from app.audiovisual.sfx import load_sfx_library
 from render_service.manifest import (
+    CAPTION_Y_DEFAULT,
     CaptionEvent,
     CaptionToken,
     FrameZero,
@@ -15,6 +16,7 @@ from render_service.manifest import (
     SfxCue,
     TransitionCue,
     ZoomKey,
+    clamp_caption_y,
 )
 
 _PUNCT_END = re.compile(r"(\.|\?|\!|…|\.\.\.)$")
@@ -88,28 +90,16 @@ def caption_events(
 ) -> list[dict[str, Any]]:
     """Build caption events from words list for given duration_ms.
 
-    Words starting before fz_end are ignored.
-    Words starting in [fz_end, fz_end + 1500) -> single word 'hero' events.
-    Words starting >= fz_end + 1500 -> 'block' events (up to 3 words).
+    Words starting before fz_end are ignored. F6: one Brand Soul caption style for
+    the whole video — every remaining word renders as a uniform 'block' event (up
+    to 3 words); no early 'hero' giant-word events.
     """
     valid_words = [w for w in words if max(0, int(w.get("start_ms", 0))) >= fz_end]
     valid_words.sort(key=lambda w: int(w.get("start_ms", 0)))
 
-    hero_cutoff = fz_end + 1500
-    hero_words = [w for w in valid_words if int(w.get("start_ms", 0)) < hero_cutoff]
-    block_words = [w for w in valid_words if int(w.get("start_ms", 0)) >= hero_cutoff]
+    block_words = valid_words
 
     raw_events: list[dict[str, Any]] = []
-
-    # Process hero words: 1 word per event
-    for w in hero_words:
-        token = _format_token(w)
-        raw_events.append({
-            "size": "hero",
-            "lines": [[token]],
-            "emphasis": [],
-            "words": [w],
-        })
 
     # Process block words: up to 3 words per block
     if block_words:
@@ -186,12 +176,14 @@ def build_ir_stage1(
     captions_words: list[dict[str, Any]],
     frame_zero_text: str | None,
     style: dict[str, Any],
+    settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """RenderIR v1 (dict) con frame_zero + captions; zoom_keys/transitions/overlays/sfx vacíos.
 
     Siempre pasa RenderIR.model_validate antes de devolver.
     """
     duration_ms = int(timeline.get("duration_ms", 0))
+    caption_y = clamp_caption_y((settings or {}).get("caption_y", CAPTION_Y_DEFAULT))
 
     if frame_zero_text and frame_zero_text.strip():
         fz_end = min(1500, duration_ms)
@@ -218,6 +210,7 @@ def build_ir_stage1(
         "overlays": [],
         "sfx": [],
         "style": style,
+        "layout": {"caption_y": caption_y},
     }
 
     RenderIR.model_validate(ir_dict)
@@ -279,6 +272,7 @@ def build_ir_stage2(
     style: dict[str, Any],
     dressing: dict[str, Any],
     *,
+    settings: dict[str, Any] | None = None,
     sfx_library: list[dict[str, Any]] | None = None,
     script: dict[str, Any] | None = None,
     jobs: list[dict[str, Any]] | None = None,
@@ -288,7 +282,7 @@ def build_ir_stage2(
     Returns:
         {"ir": RenderIR dict validado, "sfx_inputs": {input_id: {"storage_path": "...", "kind": "audio" | "image"}}}
     """
-    ir_stage1 = build_ir_stage1(timeline, captions_words, frame_zero_text, style)
+    ir_stage1 = build_ir_stage1(timeline, captions_words, frame_zero_text, style, settings=settings)
     duration_ms = ir_stage1["duration_ms"]
 
     if sfx_library is None:
@@ -942,6 +936,7 @@ def build_ir_stage2(
         "overlays": overlay_cues,
         "sfx": sfx_cues,
         "style": style,
+        "layout": ir_stage1["layout"],
     }
 
     RenderIR.model_validate(ir_dict)
