@@ -1,0 +1,328 @@
+Rendered #Prod-Jobs DOM tree for a mixed voice/button action list
+(GET /api/agent/actions fixture), produced by the same fake-DOM
+Node harness tests/test_panel_f03.py runs. The malicious utterance
+on card 2 ('<img src=x onerror=alert(1)>"><script>alert(2)</script>')
+comes through as literal text inside the 'You said: ...' line --
+no <img>/<script> element is ever created, and the fake DOM's
+innerHTML setter (which throws) was never invoked.
+
+{
+  "fetchCalls": [
+    "/api/agent/actions?limit=50&idea_id=idea-1"
+  ],
+  "jobsDisplay": "block",
+  "emptyDisplay": "none",
+  "subtext": "4 actions for this idea.",
+  "cards": [
+    {
+      "tag": "DIV",
+      "className": "pp-card",
+      "text": "🎤Iterate a scene with an instructionDoneScript−2 credits1m agoYou said: make it punchierBrandy: Iterate scene 2 -- 2 credits. Say confirm to go ahead.Confirmed: confirmOpen",
+      "children": [
+        {
+          "tag": "DIV",
+          "className": "pp-card__head",
+          "text": "🎤Iterate a scene with an instructionDone",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-icon pp-icon--voice",
+              "text": "🎤"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-title",
+              "text": "Iterate a scene with an instruction"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-chip pp-chip--done",
+              "text": "Done"
+            }
+          ]
+        },
+        {
+          "tag": "DIV",
+          "className": "pp-meta",
+          "text": "Script−2 credits1m ago",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-step",
+              "text": "Script"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-cost",
+              "text": "−2 credits"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-time",
+              "text": "1m ago"
+            }
+          ]
+        },
+        {
+          "tag": "DIV",
+          "className": "pp-voice-detail",
+          "text": "You said: make it punchierBrandy: Iterate scene 2 -- 2 credits. Say confirm to go ahead.Confirmed: confirm",
+          "children": [
+            {
+              "tag": "P",
+              "className": "pp-voice-line",
+              "text": "You said: make it punchier",
+              "children": [
+                {
+                  "tag": "STRONG",
+                  "className": "",
+                  "text": "You said: "
+                },
+                {
+                  "tag": "SPAN",
+                  "className": "",
+                  "text": "make it punchier"
+                }
+              ]
+            },
+            {
+              "tag": "P",
+              "className": "pp-voice-line",
+              "text": "Brandy: Iterate scene 2 -- 2 credits. Say confirm to go ahead.",
+              "children": [
+                {
+                  "tag": "STRONG",
+                  "className": "",
+                  "text": "Brandy: "
+                },
+                {
+                  "tag": "SPAN",
+                  "className": "",
+                  "text": "Iterate scene 2 -- 2 credits. Say confirm to go ahead."
+                }
+              ]
+            },
+            {
+              "tag": "P",
+              "className": "pp-voice-line",
+              "text": "Confirmed: confirm",
+              "children": [
+                {
+                  "tag": "STRONG",
+                  "className": "",
+                  "text": "Confirmed: "
+                },
+                {
+                  "tag": "SPAN",
+                  "className": "",
+                  "text": "confirm"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "A",
+          "className": "pp-open",
+          "text": "Open",
+          "href": "/api/script/idea-1/scene/2"
+        }
+      ]
+    },
+    {
+      "tag": "DIV",
+      "className": "pp-card",
+      "text": "🎤Regenerate oneQueuedAudiovisual−3 creditsjust nowYou said: <img src=x onerror=alert(1)>\"><script>alert(2)</script>Brandy: Regenerate scene 5 -- 3 credits. Say confirm to go ahead.",
+      "children": [
+        {
+          "tag": "DIV",
+          "className": "pp-card__head",
+          "text": "🎤Regenerate oneQueued",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-icon pp-icon--voice",
+              "text": "🎤"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-title",
+              "text": "Regenerate one"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-chip pp-chip--queued",
+              "text": "Queued"
+            }
+          ]
+        },
+        {
+          "tag": "DIV",
+          "className": "pp-meta",
+          "text": "Audiovisual−3 creditsjust now",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-step",
+              "text": "Audiovisual"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-cost",
+              "text": "−3 credits"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-time",
+              "text": "just now"
+            }
+          ]
+        },
+        {
+          "tag": "DIV",
+          "className": "pp-voice-detail",
+          "text": "You said: <img src=x onerror=alert(1)>\"><script>alert(2)</script>Brandy: Regenerate scene 5 -- 3 credits. Say confirm to go ahead.",
+          "children": [
+            {
+              "tag": "P",
+              "className": "pp-voice-line",
+              "text": "You said: <img src=x onerror=alert(1)>\"><script>alert(2)</script>",
+              "children": [
+                {
+                  "tag": "STRONG",
+                  "className": "",
+                  "text": "You said: "
+                },
+                {
+                  "tag": "SPAN",
+                  "className": "",
+                  "text": "<img src=x onerror=alert(1)>\"><script>alert(2)</script>"
+                }
+              ]
+            },
+            {
+              "tag": "P",
+              "className": "pp-voice-line",
+              "text": "Brandy: Regenerate scene 5 -- 3 credits. Say confirm to go ahead.",
+              "children": [
+                {
+                  "tag": "STRONG",
+                  "className": "",
+                  "text": "Brandy: "
+                },
+                {
+                  "tag": "SPAN",
+                  "className": "",
+                  "text": "Regenerate scene 5 -- 3 credits. Say confirm to go ahead."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "DIV",
+      "className": "pp-card",
+      "text": "🖱AcceptRunningCatalog5s ago",
+      "children": [
+        {
+          "tag": "DIV",
+          "className": "pp-card__head",
+          "text": "🖱AcceptRunning",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-icon pp-icon--button",
+              "text": "🖱"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-title",
+              "text": "Accept"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-chip pp-chip--running",
+              "text": "Running"
+            }
+          ]
+        },
+        {
+          "tag": "DIV",
+          "className": "pp-meta",
+          "text": "Catalog5s ago",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-step",
+              "text": "Catalog"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-cost",
+              "text": ""
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-time",
+              "text": "5s ago"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "DIV",
+      "className": "pp-card",
+      "text": "🖱RenderFailedEditingFree1h ago",
+      "children": [
+        {
+          "tag": "DIV",
+          "className": "pp-card__head",
+          "text": "🖱RenderFailed",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-icon pp-icon--button",
+              "text": "🖱"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-title",
+              "text": "Render"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-chip pp-chip--failed",
+              "text": "Failed"
+            }
+          ]
+        },
+        {
+          "tag": "DIV",
+          "className": "pp-meta",
+          "text": "EditingFree1h ago",
+          "children": [
+            {
+              "tag": "SPAN",
+              "className": "pp-step",
+              "text": "Editing"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-cost",
+              "text": "Free"
+            },
+            {
+              "tag": "SPAN",
+              "className": "pp-time",
+              "text": "1h ago"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+{"emptyJobsDisplay":"none","emptyEmptyDisplay":"flex","emptyCardCount":0}
