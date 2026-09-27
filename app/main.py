@@ -1638,6 +1638,13 @@ async def regenerate_audiovisual_scene_endpoint(request: Request, idea_id: str, 
             if target_scene and await _ensure_scene_prompt(script, target_scene):
                 _save_script(script)
 
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    instruction = body.get("instruction") if isinstance(body, dict) else None
+
     input_data = {
         "stock_query": _clean_optional_text(getattr(target_scene, "stock_query", None)),
         "visual_prompt": _clean_optional_text(getattr(target_scene, "visual_prompt", None)),
@@ -1646,6 +1653,18 @@ async def regenerate_audiovisual_scene_endpoint(request: Request, idea_id: str, 
         "phase": getattr(target_scene, "phase", None),
         "duration_s": getattr(target_scene, "duration_s", 5.0),
     }
+    if instruction:
+        input_data["instruction"] = instruction
+        if input_data["stock_query"]:
+            input_data["stock_query"] = f"{input_data['stock_query']} {instruction}"
+        else:
+            input_data["stock_query"] = instruction
+
+        if input_data["visual_prompt"]:
+            input_data["visual_prompt"] = f"{input_data['visual_prompt']} {instruction}"
+        else:
+            input_data["visual_prompt"] = instruction
+
     if asset_type == "stock":
         input_data["exclude_ids"] = exclude_ids
     elif asset_type == "motion_graphic":

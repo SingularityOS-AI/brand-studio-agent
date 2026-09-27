@@ -205,6 +205,12 @@
     }
 
     summary += ' Balance: ' + balance + ' credits.';
+
+    const anns = ctx.pendingAnnouncements || (typeof getPendingAnnouncements === 'function' ? getPendingAnnouncements() : []);
+    if (anns && anns.length > 0) {
+      summary += ' Notifications: ' + anns.join('. ') + '.';
+    }
+
     // Trim to 1200 chars if needed
     if (summary.length > 1200) {
       summary = summary.substring(0, 1197) + '...';
@@ -232,7 +238,7 @@
 
   /**
    * Build the tools list for a given step.
-   * Includes: global tools + step-specific actions + confirmation stubs + F-07/F-09 schemas.
+   * Includes: global tools + step-specific actions + confirmation stubs + F-07/F-08/F-09 schemas.
    *
    * @param {string} step - Current step ID
    * @returns {Array} Array of tool definitions
@@ -254,6 +260,8 @@
       tools.push.apply(tools, CATALOG_TOOL_SCHEMAS);
     } else if (step === 'brain') {
       tools.push.apply(tools, SOUL_TOOL_SCHEMAS);
+    } else if (step === 'audiovisual') {
+      tools.push.apply(tools, AUDIOVISUAL_TOOL_SCHEMAS);
     }
 
     return tools;
@@ -751,6 +759,172 @@
     }
   ];
 
+  // -------------------------------------------------------------------------
+  // F-08: Audiovisual tool handlers & schemas
+  // -------------------------------------------------------------------------
+
+  /**
+   * av_read_scene: Read details for a single scene by number (free)
+   */
+  function avReadScene(args) {
+    const root = typeof window !== 'undefined' ? window : {};
+    const bs = root.BrandStudio;
+    if (!bs) {
+      return { status: 'error', say: 'BrandStudio not ready.' };
+    }
+    const scriptData = bs.getCurrentScriptData?.();
+    if (!scriptData) {
+      return { status: 'error', say: 'No script loaded.' };
+    }
+    const sceneN = args?.scene_n || args?.sceneN;
+    const val = validateSceneN(sceneN, scriptData);
+    if (!val.ok) {
+      return { status: 'invalid', say: val.error };
+    }
+    const scene = scriptData.scenes[val.index];
+    const jobs = bs.getCurrentAudiovisualJobs?.() || [];
+    const sceneJobs = jobs.filter(function (j) { return j.scene_n === sceneN; });
+    const latestJob = sceneJobs.length ? sceneJobs[sceneJobs.length - 1] : null;
+    const status = latestJob ? latestJob.status : 'pending';
+    const assetType = scene.asset_type || 'a_roll';
+    const text = scene.text || scene.spoken_text || 'No text';
+
+    return {
+      status: 'done',
+      say: `Scene ${sceneN} (${assetType}): "${text}". Asset status: ${status}.`,
+      sceneN: sceneN,
+      assetType: assetType,
+      text: text,
+      jobStatus: status,
+      job: latestJob,
+    };
+  }
+
+  const AUDIOVISUAL_TOOL_SCHEMAS = [
+    {
+      type: 'function',
+      name: 'av_read_scene',
+      description: 'Read scene audiovisual details (asset type, text, status). Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+        },
+        required: ['scene_n'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'av_set_scene_type',
+      description: 'Set asset type for a scene (a_roll, stock, ai_video, motion_graphic). Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+          type: {
+            type: 'string',
+            description: 'Asset type: a_roll, stock, ai_video, motion_graphic',
+            enum: ['a_roll', 'stock', 'ai_video', 'motion_graphic'],
+          },
+        },
+        required: ['scene_n', 'type'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'av_estimate',
+      description: 'Estimate total credits needed to generate all pending assets. Free.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'av_generate_all',
+      description: 'Generate all pending assets for the script. Cost is total estimate. Requires confirmation.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'av_regenerate_asset',
+      description: 'Regenerate single scene asset with optional instruction. Cost is per-unit asset price. Requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+          instruction: {
+            type: 'string',
+            description: 'Optional instruction for regeneration (e.g. someone using a phone)',
+          },
+        },
+        required: ['scene_n'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'av_open_recording',
+      description: 'Open recording studio for a scene. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+        },
+        required: ['scene_n'],
+      },
+    },
+  ];
+
+  // -------------------------------------------------------------------------
+  // F-10: Proactive Job Announcements (Spike & Fallback)
+  // -------------------------------------------------------------------------
+
+  let pendingAnnouncements = [];
+
+  function addAnnouncement(text) {
+    if (!text || typeof text !== 'string') return;
+    if (pendingAnnouncements.indexOf(text) === -1) {
+      pendingAnnouncements.push(text);
+    }
+  }
+
+  function getPendingAnnouncements() {
+    return pendingAnnouncements.slice();
+  }
+
+  function clearPendingAnnouncements() {
+    const cleared = pendingAnnouncements.slice();
+    pendingAnnouncements = [];
+    return cleared;
+  }
+
+  function onJobFinished(job) {
+    if (!job) return null;
+    const sceneN = job.scene_n || job.sceneN || (job.input && job.input.scene_n);
+    const kind = job.kind || job.asset_type || 'asset';
+    let label = 'asset';
+    if (kind === 'ai_video') label = 'AI video';
+    else if (kind === 'stock') label = 'stock asset';
+    else if (kind === 'motion_graphic') label = 'motion graphic';
+
+    const text = sceneN ? `Your ${label} for scene ${sceneN} is ready` : `Your ${label} is ready`;
+    addAnnouncement(text);
+    return text;
+  }
+
   // Public API
   const BrandStudioAgent = {
     buildStepSummary: buildStepSummary,
@@ -766,13 +940,21 @@
     validateSceneN: validateSceneN,
     scriptPhaseReview: scriptPhaseReview,
     getScriptStepTools: getScriptStepTools,
+    // F-08 Audiovisual tools
+    avReadScene: avReadScene,
+    AUDIOVISUAL_TOOL_SCHEMAS: AUDIOVISUAL_TOOL_SCHEMAS,
     // F-09 Catalog & Soul tools
     findIdeaInCatalog: findIdeaInCatalog,
     CATALOG_TOOL_SCHEMAS: CATALOG_TOOL_SCHEMAS,
     SOUL_TOOL_SCHEMAS: SOUL_TOOL_SCHEMAS,
+    // F-10 Proactive announcements
+    addAnnouncement: addAnnouncement,
+    getPendingAnnouncements: getPendingAnnouncements,
+    clearPendingAnnouncements: clearPendingAnnouncements,
+    onJobFinished: onJobFinished,
     // Constants
     STEP_ORDER: STEP_ORDER,
-    GLOBAL_TOOL_NAMES: GLOBAL_TOOL_NAMES
+    GLOBAL_TOOL_NAMES: GLOBAL_TOOL_NAMES,
   };
 
   // Export to window
