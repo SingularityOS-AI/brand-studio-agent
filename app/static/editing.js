@@ -332,14 +332,14 @@
       }
     },
     dress_all: {
-      label: "Vestir todo · free",
+      label: "Auto-edit · free",
       credits: 0,
       run: async (args) => {
         return await postDress(args.ideaId);
       }
     },
     redress_scene: {
-      label: "Otra versión · 2 credits",
+      label: "Try another take on this scene · 2 credits",
       credits: 2,
       run: async (args) => {
         return await postRedressScene(args.ideaId, args.sceneN);
@@ -563,6 +563,8 @@
     const editingView = document.getElementById("Editing-View");
     const guardEl = document.getElementById("Editing-Guard");
     const contentEl = document.getElementById("Editing-Content");
+    const docLoadingIndicator = document.getElementById("Doc-LoadingIndicator");
+    const docLoadingText = document.querySelector("#Doc-LoadingIndicator .doc-loading-text");
 
     if (editingView) editingView.style.display = "block";
 
@@ -577,6 +579,14 @@
       }
       if (contentEl) contentEl.style.display = "none";
       return;
+    }
+
+    // Show loading indicator while loading edit state
+    if (docLoadingIndicator) {
+      docLoadingIndicator.style.display = "flex";
+    }
+    if (docLoadingText) {
+      docLoadingText.textContent = "Loading your edit…";
     }
 
     try {
@@ -655,6 +665,12 @@
     } catch (err) {
       console.error("[Editing] showEditingView failed:", err);
       showError(err);
+    } finally {
+      // Hide loading indicator after load completes
+      const docLoadingIndicator = document.getElementById("Doc-LoadingIndicator");
+      if (docLoadingIndicator) {
+        docLoadingIndicator.style.display = "none";
+      }
     }
   }
 
@@ -704,11 +720,11 @@
     }
 
     // Determine Dressing status label
-    let dressBtnLabel = "Vestir todo · free";
+    let dressBtnLabel = "Auto-edit · free";
     if (dressing.fresh) {
-      dressBtnLabel = "Dressed ✓";
+      dressBtnLabel = "Auto-edited ✓";
     } else if (dressing.stale) {
-      dressBtnLabel = "Your cut changed — dress again · free";
+      dressBtnLabel = "Your cut changed — auto-edit again · free";
     }
 
     // Determine Render button label from the current price + kind (E2-05 / P1).
@@ -757,7 +773,7 @@
 
             <button type="button" class="btn btn--secondary" data-edit-action="reset_face" data-scene-n="${sc.n}" style="padding:4px 10px;font-size:11px">Reset to Audiovisual choice</button>
 
-            ${dressing.fresh ? `<button type="button" class="btn btn--secondary" data-edit-action="redress_scene" data-scene-n="${sc.n}" style="padding:4px 10px;font-size:12px">Otra versión · 2 credits</button>` : ''}
+            ${dressing.fresh ? `<button type="button" class="btn btn--secondary" data-edit-action="redress_scene" data-scene-n="${sc.n}" style="padding:4px 10px;font-size:12px">Try another take on this scene · 2 credits</button>` : ''}
           </div>
 
           <!-- Trim Controls -->
@@ -853,7 +869,58 @@
       ? `<div id="Editing-Warnings-Banner" style="margin-bottom:16px;padding:12px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;border-radius:6px;font-size:13px;font-weight:600">${state.warnings.map((w) => `<div>${escapeHtml(w)}</div>`).join("")}</div>`
       : "";
 
+    // --- Stepper: 3-step UX (E2-08) ---
+    // Determine active step based on state
+    let activeStep = 1; // 1 = Cut
+    if (raw.signed_url && raw.fresh) {
+      // Raw cut is done, check if dressed
+      if (dressing.fresh) {
+        activeStep = 3; // Auto-edit done, on Export
+      } else {
+        activeStep = 2; // Cut done, on Auto-edit
+      }
+    }
+
+    // Stepper helper: compute styles for step circles
+    const step1Style = activeStep === 1
+      ? 'background:var(--accent);color:#fff;'
+      : (activeStep > 1 ? 'background:#10B981;color:#fff;' : 'background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--line)');
+    const step1LabelStyle = activeStep === 1 ? 'color:var(--accent);' : 'color:var(--ink);';
+
+    const step2Style = activeStep === 2
+      ? 'background:var(--accent);color:#fff;'
+      : (activeStep > 2 ? 'background:#10B981;color:#fff;' : 'background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--line)');
+    const step2LabelStyle = activeStep === 2 ? 'color:var(--accent);' : 'color:var(--ink);';
+
+    const step3Style = activeStep === 3 ? 'background:var(--accent);color:#fff;' : 'background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--line)';
+    const step3LabelStyle = activeStep === 3 ? 'color:var(--accent);' : 'color:var(--ink);';
+
+    const connector12Style = activeStep >= 2 ? 'var(--accent)' : 'var(--line)';
+    const connector23Style = activeStep >= 3 ? 'var(--accent)' : 'var(--line)';
+
+    const stepperHtml = `
+      <div style="display:flex;align-items:center;justify-content:center;gap:24px;margin-bottom:24px;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;${step1Style}">1</div>
+          <span style="font-size:13px;font-weight:600;${step1LabelStyle}">Cut</span>
+        </div>
+        <div style="width:24px;height:2px;background:${connector12Style};border-radius:1px"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;${step2Style}">2</div>
+          <span style="font-size:13px;font-weight:600;${step2LabelStyle}">Auto-edit</span>
+        </div>
+        <div style="width:24px;height:2px;background:${connector23Style};border-radius:1px"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;${step3Style}">3</div>
+          <span style="font-size:13px;font-weight:600;${step3LabelStyle}">Export</span>
+        </div>
+      </div>
+    `;
+
     container.innerHTML = `
+      <!-- 3-step Stepper (E2-08) -->
+      ${stepperHtml}
+
       <!-- Error Banner -->
       <div id="Editing-Error-Banner" style="display:none;margin-bottom:16px;padding:12px;background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;border-radius:6px;font-size:13px;font-weight:600"></div>
 
