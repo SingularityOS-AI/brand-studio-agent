@@ -304,6 +304,7 @@ async def resolve_raw_render(job: dict[str, Any]) -> dict[str, Any]:
         "bytes": ok["bytes"],
         "render_s": ok["render_s"],
         "scene_marks_ms": ok.get("scene_marks_ms", []),
+        "scene_fallbacks": ok.get("scene_fallbacks", []),
         "timeline_hash": timeline["hash"],
     }
 

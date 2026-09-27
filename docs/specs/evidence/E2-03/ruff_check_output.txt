@@ -1,0 +1,661 @@
+ruff ruff 0.16.9
+
+$ ruff check render_service/ffmpeg_raw.py render_service/manifest.py app/editing/dispatch.py app/editing/router.py tests/test_editing_e2_03_empty_scene.py
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/dispatch.py:283:16
+    |
+281 |         except RenderServiceError:
+282 |             raise
+283 |         except Exception:
+    |                ^^^^^^^^^
+284 |             code = "ffmpeg_failed" if resp.status_code == 500 else "fetch_failed"
+285 |             detail = f"HTTP {resp.status_code}: {resp.text[:500]}"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/dispatch.py:398:24
+    |
+396 |                     else:
+397 |                         refunded_count += 1
+398 |                 except Exception as e:
+    |                        ^^^^^^^^^
+399 |                     mark_charged(job)
+400 |                     token_mask = (
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/dispatch.py:407:12
+    |
+405 |                     )
+406 |         return refunded_count
+407 |     except Exception as e:
+    |            ^^^^^^^^^
+408 |         logger.error(f"[dispatch] refund_failed_prepaid error: {e}")
+409 |         return 0
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/editing/router.py:2:1
+   |
+ 1 |   """API router for Bloque E Editing module (Pieza 81)."""
+ 2 | / from __future__ import annotations
+ 3 | |
+ 4 | | import copy
+ 5 | | import hashlib
+ 6 | | import hmac
+ 7 | | import json
+ 8 | | import re
+ 9 | | import time
+10 | | from datetime import datetime, timezone
+11 | | from typing import Any
+12 | |
+13 | | from fastapi import APIRouter, HTTPException, Request, Response, status
+14 | | from fastapi.responses import JSONResponse
+15 | | from pydantic import BaseModel, Field
+16 | |
+17 | | from app.auth.supabase_auth import supabase_auth
+18 | | from app.audiovisual.jobs import (
+19 | |     create_job,
+20 | |     list_jobs,
+21 | |     mark_cancelled,
+22 | |     mark_charged,
+23 | |     mark_done,
+24 | |     mark_failed,
+25 | |     release_charge,
+26 | |     revert_charged,
+27 | |     set_job_progress,
+28 | | )
+29 | | from app.audiovisual.spend_guard import can_spend
+30 | | from app.audiovisual.storage import signed_url
+31 | | from app.editing import config as dispatch_config
+32 | | from app.editing.brand_style import derive_caption_style
+33 | | from app.editing.dispatch import get_cached_engine_version, get_engine_version
+34 | | from app.editing.dressing import (
+35 | |     RedressError,
+36 | |     dress_all,
+37 | |     redress_scene,
+38 | |     scene_contexts,
+39 | | )
+40 | | from app.editing.ir import build_ir_stage1, build_ir_stage2
+41 | | from app.editing.metadata import (
+42 | |     LIMITS,
+43 | |     PLATFORMS,
+44 | |     generate_metadata,
+45 | |     sanitize_hashtags,
+46 | |     sanitize_text,
+47 | | )
+48 | | from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
+49 | | from app.editing.timeline import build_timeline, cut_hash
+50 | | from app.guard import guard
+51 | | from app.scripting.scripts import _check_script
+52 | | from app.tools.brand_brain.store import get_brand_brain
+   | |_______________________________________________________^
+53 |
+54 |   router = APIRouter(prefix="/api/editing")
+   |
+help: Organize imports
+   |
+16 |
+   - from app.auth.supabase_auth import supabase_auth
+17 | from app.audiovisual.jobs import (
+--------------------------------------------------------------------------------
+29 | from app.audiovisual.storage import signed_url
+30 + from app.auth.supabase_auth import supabase_auth
+31 | from app.editing import config as dispatch_config
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:214:12
+    |
+212 |     try:
+213 |         brand_brain = get_brand_brain(session_token)
+214 |     except Exception:
+    |            ^^^^^^^^^
+215 |         brand_brain = None
+216 |     style = derive_caption_style(brand_brain)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> app/editing/router.py:435:13
+    |
+433 |                   if c_dt.timestamp() >= one_hour_ago_ts:
+434 |                       count_last_hour += 1
+435 | /             except Exception:
+436 | |                 pass
+    | |____________________^
+437 |
+438 |       if count_last_hour >= raw_per_hour:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:435:20
+    |
+433 |                 if c_dt.timestamp() >= one_hour_ago_ts:
+434 |                     count_last_hour += 1
+435 |             except Exception:
+    |                    ^^^^^^^^^
+436 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:523:12
+    |
+521 |         raw_body = await request.json()
+522 |         body = SettingsPatchBody.model_validate(raw_body)
+523 |     except Exception:
+    |            ^^^^^^^^^
+524 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:635:12
+    |
+633 |         raw_body = await request.json()
+634 |         body = CaptionsPatchBody.model_validate(raw_body)
+635 |     except Exception:
+    |            ^^^^^^^^^
+636 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:820:16
+    |
+818 |                 job["status"] = "cancelled"
+819 |                 raise
+820 |         except Exception:
+    |                ^^^^^^^^^
+821 |             revert_charged(job)
+822 |             job["charged"] = False
+    |
+
+RUF059 Unpacked variable `session_token` is never used
+   --> app/editing/router.py:838:9
+    |
+836 |     """GET share link endpoint."""
+837 |     try:
+838 |         session_token, script, jobs, edit = _load(request, idea_id)
+    |         ^^^^^^^^^^^^^
+839 |     except EditingError as e:
+840 |         return JSONResponse(status_code=e.status_code, content=e.content)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `script` is never used
+   --> app/editing/router.py:838:24
+    |
+836 |     """GET share link endpoint."""
+837 |     try:
+838 |         session_token, script, jobs, edit = _load(request, idea_id)
+    |                        ^^^^^^
+839 |     except EditingError as e:
+840 |         return JSONResponse(status_code=e.status_code, content=e.content)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `jobs` is never used
+   --> app/editing/router.py:838:32
+    |
+836 |     """GET share link endpoint."""
+837 |     try:
+838 |         session_token, script, jobs, edit = _load(request, idea_id)
+    |                                ^^^^
+839 |     except EditingError as e:
+840 |         return JSONResponse(status_code=e.status_code, content=e.content)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:877:12
+    |
+875 |         raw_body = await request.json()
+876 |         body = ProgressBody.model_validate(raw_body)
+877 |     except Exception:
+    |            ^^^^^^^^^
+878 |         return JSONResponse(status_code=422, content={"detail": "Invalid pct value"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:899:12
+    |
+897 |     try:
+898 |         brand_brain = get_brand_brain(session_token)
+899 |     except Exception:
+    |            ^^^^^^^^^
+900 |         brand_brain = None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:944:12
+    |
+942 |         raw_body = await request.json()
+943 |         body = MetadataPatchBody.model_validate(raw_body)
+944 |     except Exception:
+    |            ^^^^^^^^^
+945 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1018:12
+     |
+1016 |         raw_body = await request.json()
+1017 |         body = RedressBody.model_validate(raw_body)
+1018 |     except Exception:
+     |            ^^^^^^^^^
+1019 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1081:12
+     |
+1079 |             content=e.detail if isinstance(e.detail, dict) else {"detail": e.detail},
+1080 |         )
+1081 |     except Exception as e:
+     |            ^^^^^^^^^
+1082 |         release_charge(job)
+1083 |         mark_failed(job, str(e))
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1103:16
+     |
+1101 | …             import logging
+1102 | …             logging.getLogger(__name__).error(f"[router] refund_credits returned None for job {job['id']} (token ...{token_mask})")
+1103 | …     except Exception as e:
+     |              ^^^^^^^^^
+1104 | …         mark_charged(job)
+1105 | …         token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1113:12
+     |
+1111 |             content={"code": "version_conflict", "current": err.current},
+1112 |         )
+1113 |     except Exception as err:
+     |            ^^^^^^^^^
+1114 |         release_charge(job)
+1115 |         try:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1123:16
+     |
+1121 | …             import logging
+1122 | …             logging.getLogger(__name__).error(f"[router] refund_credits returned None for job {job['id']} (token ...{token_mask})")
+1123 | …     except Exception as e:
+     |              ^^^^^^^^^
+1124 | …         mark_charged(job)
+1125 | …         token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> render_service/ffmpeg_raw.py:3:1
+   |
+ 1 |   """FFmpeg raw video rendering module (PIEZA 74)."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import logging
+ 6 | | from pathlib import Path
+ 7 | | import shutil
+ 8 | | import subprocess
+ 9 | | from typing import Any
+10 | |
+11 | | from render_service.manifest import RenderRequest
+   | |_________________________________________________^
+12 |
+13 |   logger = logging.getLogger(__name__)
+   |
+help: Organize imports
+  |
+5 | import logging
+  - from pathlib import Path
+6 | import shutil
+7 | import subprocess
+8 + from pathlib import Path
+9 | from typing import Any
+  |
+
+RUF046 Value being cast to `int` is already an integer
+   --> render_service/ffmpeg_raw.py:309:35
+    |
+308 |             if is_image:
+309 |                 d_frames = max(1, int(round(d_sec * 30)))
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^
+310 |                 zoom_expr = f"min(1+0.08*on/{d_frames},1.08)"
+311 |                 filter_lines.append(
+    |
+help: Remove unnecessary `int` call
+
+Found 23 errors.
+[*] 2 fixable with the `--fix` option (4 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+--- baseline: same command against the pre-E2-03 checkout (git stash) ---
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/dispatch.py:283:16
+    |
+281 |         except RenderServiceError:
+282 |             raise
+283 |         except Exception:
+    |                ^^^^^^^^^
+284 |             code = "ffmpeg_failed" if resp.status_code == 500 else "fetch_failed"
+285 |             detail = f"HTTP {resp.status_code}: {resp.text[:500]}"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/dispatch.py:397:24
+    |
+395 |                     else:
+396 |                         refunded_count += 1
+397 |                 except Exception as e:
+    |                        ^^^^^^^^^
+398 |                     mark_charged(job)
+399 |                     token_mask = (
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/dispatch.py:406:12
+    |
+404 |                     )
+405 |         return refunded_count
+406 |     except Exception as e:
+    |            ^^^^^^^^^
+407 |         logger.error(f"[dispatch] refund_failed_prepaid error: {e}")
+408 |         return 0
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/editing/router.py:2:1
+   |
+ 1 |   """API router for Bloque E Editing module (Pieza 81)."""
+ 2 | / from __future__ import annotations
+ 3 | |
+ 4 | | import copy
+ 5 | | import hashlib
+ 6 | | import hmac
+ 7 | | import json
+ 8 | | import re
+ 9 | | import time
+10 | | from datetime import datetime, timezone
+11 | | from typing import Any
+12 | |
+13 | | from fastapi import APIRouter, HTTPException, Request, Response, status
+14 | | from fastapi.responses import JSONResponse
+15 | | from pydantic import BaseModel, Field
+16 | |
+17 | | from app.auth.supabase_auth import supabase_auth
+18 | | from app.audiovisual.jobs import (
+19 | |     create_job,
+20 | |     list_jobs,
+21 | |     mark_cancelled,
+22 | |     mark_charged,
+23 | |     mark_done,
+24 | |     mark_failed,
+25 | |     release_charge,
+26 | |     revert_charged,
+27 | |     set_job_progress,
+28 | | )
+29 | | from app.audiovisual.spend_guard import can_spend
+30 | | from app.audiovisual.storage import signed_url
+31 | | from app.editing import config as dispatch_config
+32 | | from app.editing.brand_style import derive_caption_style
+33 | | from app.editing.dispatch import get_cached_engine_version, get_engine_version
+34 | | from app.editing.dressing import (
+35 | |     RedressError,
+36 | |     dress_all,
+37 | |     redress_scene,
+38 | |     scene_contexts,
+39 | | )
+40 | | from app.editing.ir import build_ir_stage1, build_ir_stage2
+41 | | from app.editing.metadata import (
+42 | |     LIMITS,
+43 | |     PLATFORMS,
+44 | |     generate_metadata,
+45 | |     sanitize_hashtags,
+46 | |     sanitize_text,
+47 | | )
+48 | | from app.editing.store import EditVersionConflict, get_or_create_edit, save_edit
+49 | | from app.editing.timeline import build_timeline, cut_hash
+50 | | from app.guard import guard
+51 | | from app.scripting.scripts import _check_script
+52 | | from app.tools.brand_brain.store import get_brand_brain
+   | |_______________________________________________________^
+53 |
+54 |   router = APIRouter(prefix="/api/editing")
+   |
+help: Organize imports
+   |
+16 |
+   - from app.auth.supabase_auth import supabase_auth
+17 | from app.audiovisual.jobs import (
+--------------------------------------------------------------------------------
+29 | from app.audiovisual.storage import signed_url
+30 + from app.auth.supabase_auth import supabase_auth
+31 | from app.editing import config as dispatch_config
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:214:12
+    |
+212 |     try:
+213 |         brand_brain = get_brand_brain(session_token)
+214 |     except Exception:
+    |            ^^^^^^^^^
+215 |         brand_brain = None
+216 |     style = derive_caption_style(brand_brain)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> app/editing/router.py:419:13
+    |
+417 |                   if c_dt.timestamp() >= one_hour_ago_ts:
+418 |                       count_last_hour += 1
+419 | /             except Exception:
+420 | |                 pass
+    | |____________________^
+421 |
+422 |       if count_last_hour >= raw_per_hour:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:419:20
+    |
+417 |                 if c_dt.timestamp() >= one_hour_ago_ts:
+418 |                     count_last_hour += 1
+419 |             except Exception:
+    |                    ^^^^^^^^^
+420 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:507:12
+    |
+505 |         raw_body = await request.json()
+506 |         body = SettingsPatchBody.model_validate(raw_body)
+507 |     except Exception:
+    |            ^^^^^^^^^
+508 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:619:12
+    |
+617 |         raw_body = await request.json()
+618 |         body = CaptionsPatchBody.model_validate(raw_body)
+619 |     except Exception:
+    |            ^^^^^^^^^
+620 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:804:16
+    |
+802 |                 job["status"] = "cancelled"
+803 |                 raise
+804 |         except Exception:
+    |                ^^^^^^^^^
+805 |             revert_charged(job)
+806 |             job["charged"] = False
+    |
+
+RUF059 Unpacked variable `session_token` is never used
+   --> app/editing/router.py:822:9
+    |
+820 |     """GET share link endpoint."""
+821 |     try:
+822 |         session_token, script, jobs, edit = _load(request, idea_id)
+    |         ^^^^^^^^^^^^^
+823 |     except EditingError as e:
+824 |         return JSONResponse(status_code=e.status_code, content=e.content)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `script` is never used
+   --> app/editing/router.py:822:24
+    |
+820 |     """GET share link endpoint."""
+821 |     try:
+822 |         session_token, script, jobs, edit = _load(request, idea_id)
+    |                        ^^^^^^
+823 |     except EditingError as e:
+824 |         return JSONResponse(status_code=e.status_code, content=e.content)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `jobs` is never used
+   --> app/editing/router.py:822:32
+    |
+820 |     """GET share link endpoint."""
+821 |     try:
+822 |         session_token, script, jobs, edit = _load(request, idea_id)
+    |                                ^^^^
+823 |     except EditingError as e:
+824 |         return JSONResponse(status_code=e.status_code, content=e.content)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:861:12
+    |
+859 |         raw_body = await request.json()
+860 |         body = ProgressBody.model_validate(raw_body)
+861 |     except Exception:
+    |            ^^^^^^^^^
+862 |         return JSONResponse(status_code=422, content={"detail": "Invalid pct value"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:883:12
+    |
+881 |     try:
+882 |         brand_brain = get_brand_brain(session_token)
+883 |     except Exception:
+    |            ^^^^^^^^^
+884 |         brand_brain = None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/editing/router.py:928:12
+    |
+926 |         raw_body = await request.json()
+927 |         body = MetadataPatchBody.model_validate(raw_body)
+928 |     except Exception:
+    |            ^^^^^^^^^
+929 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1002:12
+     |
+1000 |         raw_body = await request.json()
+1001 |         body = RedressBody.model_validate(raw_body)
+1002 |     except Exception:
+     |            ^^^^^^^^^
+1003 |         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1065:12
+     |
+1063 |             content=e.detail if isinstance(e.detail, dict) else {"detail": e.detail},
+1064 |         )
+1065 |     except Exception as e:
+     |            ^^^^^^^^^
+1066 |         release_charge(job)
+1067 |         mark_failed(job, str(e))
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1087:16
+     |
+1085 | …             import logging
+1086 | …             logging.getLogger(__name__).error(f"[router] refund_credits returned None for job {job['id']} (token ...{token_mask})")
+1087 | …     except Exception as e:
+     |              ^^^^^^^^^
+1088 | …         mark_charged(job)
+1089 | …         token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1097:12
+     |
+1095 |             content={"code": "version_conflict", "current": err.current},
+1096 |         )
+1097 |     except Exception as err:
+     |            ^^^^^^^^^
+1098 |         release_charge(job)
+1099 |         try:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> app/editing/router.py:1107:16
+     |
+1105 | …             import logging
+1106 | …             logging.getLogger(__name__).error(f"[router] refund_credits returned None for job {job['id']} (token ...{token_mask})")
+1107 | …     except Exception as e:
+     |              ^^^^^^^^^
+1108 | …         mark_charged(job)
+1109 | …         token_mask = session_token[-6:] if len(session_token) >= 6 else "***"
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> render_service/ffmpeg_raw.py:3:1
+   |
+ 1 |   """FFmpeg raw video rendering module (PIEZA 74)."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import logging
+ 6 | | from pathlib import Path
+ 7 | | import subprocess
+ 8 | | from typing import Any
+ 9 | |
+10 | | from render_service.manifest import RenderRequest
+   | |_________________________________________________^
+11 |
+12 |   logger = logging.getLogger(__name__)
+   |
+help: Organize imports
+  |
+5 | import logging
+6 + import subprocess
+7 | from pathlib import Path
+  - import subprocess
+8 | from typing import Any
+  |
+
+RUF046 Value being cast to `int` is already an integer
+   --> render_service/ffmpeg_raw.py:172:35
+    |
+171 |             if is_image:
+172 |                 d_frames = max(1, int(round(d_sec * 30)))
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^
+173 |                 zoom_expr = f"min(1+0.08*on/{d_frames},1.08)"
+174 |                 filter_lines.append(
+    |
+help: Remove unnecessary `int` call
+
+Found 23 errors.
+[*] 2 fixable with the `--fix` option (4 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+All 23 findings above are pre-existing (identical file:line before/after this diff, confirmed via git stash); tests/test_editing_e2_03_empty_scene.py (new) is clean.

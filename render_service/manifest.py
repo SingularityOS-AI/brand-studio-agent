@@ -462,6 +462,16 @@ class RenderRequest(BaseModel):
         return self
 
 
+class SceneFallback(BaseModel):
+    """A motion-graphic scene the render service judged empty and replaced (E2-03)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_n: int = Field(ge=1)
+    used: Literal["face", "image"]
+    reason: Literal["empty_motion_graphic"]
+
+
 class RenderOk(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -472,6 +482,7 @@ class RenderOk(BaseModel):
     render_s: float = Field(ge=0.0)
     scene_marks_ms: list[int]
     converted: list[str] = Field(default_factory=list)
+    scene_fallbacks: list[SceneFallback] = Field(default_factory=list)
 
 
 class RenderError(BaseModel):

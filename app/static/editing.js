@@ -846,9 +846,19 @@
 
     const isOutdatedRender = hasFinalVideo && lastRenderedEditVersion !== null && state.edit_version > lastRenderedEditVersion;
 
+    // Founder-facing warnings (E2-03: an empty motion graphic replaced by the
+    // scene's face take or AI image reads here, e.g. "Scene 3's motion graphic
+    // could not be drawn, so we used your face.").
+    const warningsBannerHtml = (Array.isArray(state.warnings) && state.warnings.length > 0)
+      ? `<div id="Editing-Warnings-Banner" style="margin-bottom:16px;padding:12px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;border-radius:6px;font-size:13px;font-weight:600">${state.warnings.map((w) => `<div>${escapeHtml(w)}</div>`).join("")}</div>`
+      : "";
+
     container.innerHTML = `
       <!-- Error Banner -->
       <div id="Editing-Error-Banner" style="display:none;margin-bottom:16px;padding:12px;background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;border-radius:6px;font-size:13px;font-weight:600"></div>
+
+      <!-- Warnings Banner (E2-03) -->
+      ${warningsBannerHtml}
 
       <!-- Action Bar Header (E10 + E3) -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--line)">

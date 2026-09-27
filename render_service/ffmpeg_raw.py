@@ -4,12 +4,149 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import shutil
 import subprocess
 from typing import Any
 
 from render_service.manifest import RenderRequest
 
 logger = logging.getLogger(__name__)
+
+# E2-03 empty-scene guard (bug B2 safety net): a motion-graphic scene is judged
+# empty when > 90% of its luma samples, taken every 250ms, are near-uniform.
+_EMPTY_SCENE_SAMPLE_HZ = 4.0  # 1 sample / 250ms
+_EMPTY_SCENE_LUMA_STDDEV_THRESHOLD = 4.0
+_EMPTY_SCENE_RATIO = 0.9
+_EMPTY_SCENE_SAMPLE_W = 160
+_EMPTY_SCENE_SAMPLE_H = 90
+
+
+def _fallback_image_input_id(scene_n: int) -> str:
+    """Naming convention for an optional still fallback for a motion-graphic scene.
+
+    Nothing upstream populates this input yet; a scene's AI image is used as the
+    empty-scene fallback only when the manifest happens to declare an image InputRef
+    under this key. Otherwise the guard falls back to the founder's face take.
+    """
+    return f"broll_s{scene_n}_image"
+
+
+def _sample_luma_stddevs(
+    video_path: Path,
+    sample_hz: float = _EMPTY_SCENE_SAMPLE_HZ,
+    timeout_s: int = 30,
+) -> list[float]:
+    """Samples video_path at sample_hz and returns each sampled frame's luma std-dev.
+
+    Frames are downscaled to a small fixed size before sampling: this is only used to
+    tell a near-uniform (blank) scene from a normal one, never to inspect the image.
+    Returns an empty list (never raises) when ffmpeg is unavailable or sampling fails,
+    so a sampling problem never blocks the raw render.
+    """
+    ffmpeg_exe = shutil.which("ffmpeg")
+    if not ffmpeg_exe:
+        return []
+
+    w, h = _EMPTY_SCENE_SAMPLE_W, _EMPTY_SCENE_SAMPLE_H
+    cmd = [
+        ffmpeg_exe,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(video_path),
+        "-vf",
+        f"fps={sample_hz},scale={w}:{h}:flags=fast_bilinear,format=gray",
+        "-f",
+        "rawvideo",
+        "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, check=True, timeout=timeout_s, capture_output=True)
+    except Exception as e:  # noqa: BLE001 — a sampling failure must never break the render
+        logger.warning("Empty-scene luma sampling failed for %s: %s", video_path, e)
+        return []
+
+    raw = proc.stdout
+    frame_size = w * h
+    stddevs: list[float] = []
+    for i in range(0, len(raw) - frame_size + 1, frame_size):
+        frame = raw[i : i + frame_size]
+        n = len(frame)
+        if n == 0:
+            continue
+        mean = sum(frame) / n
+        variance = sum((b - mean) ** 2 for b in frame) / n
+        stddevs.append(variance ** 0.5)
+    return stddevs
+
+
+def _is_empty_motion_graphic(
+    stddevs: list[float],
+    threshold: float = _EMPTY_SCENE_LUMA_STDDEV_THRESHOLD,
+    empty_ratio: float = _EMPTY_SCENE_RATIO,
+) -> bool:
+    """True when more than empty_ratio of stddevs are near-uniform (< threshold)."""
+    if not stddevs:
+        return False
+    empty_count = sum(1 for s in stddevs if s < threshold)
+    return (empty_count / len(stddevs)) > empty_ratio
+
+
+def _guard_empty_motion_graphics(
+    request: RenderRequest, local_inputs: dict[str, Path]
+) -> tuple[RenderRequest, list[dict[str, Any]]]:
+    """Safety net for bug B2 (piece E2-03): no MP4 ever ships a blank MG scene.
+
+    Samples every already-converted motion-graphic scene. A scene sampled as empty
+    is swapped for the scene's AI image (see _fallback_image_input_id), if the
+    manifest declares one, else the founder's face take. Returns the possibly
+    patched request and the scene_fallbacks list for the raw response.
+    """
+    timeline = request.timeline
+    assert timeline is not None
+
+    scene_fallbacks: list[dict[str, Any]] = []
+    patched_scenes = []
+
+    for scene in timeline.scenes:
+        broll = scene.broll
+        if not (scene.visual == "broll" and broll and broll.kind == "motion_graphic"):
+            patched_scenes.append(scene)
+            continue
+
+        video_path = local_inputs.get(broll.input_id)
+        if not video_path or str(video_path).lower().endswith(".html"):
+            # Not yet converted (or missing): build_raw_args' own .html fallback
+            # already sends this scene to face.
+            patched_scenes.append(scene)
+            continue
+
+        stddevs = _sample_luma_stddevs(Path(video_path))
+        if not _is_empty_motion_graphic(stddevs):
+            patched_scenes.append(scene)
+            continue
+
+        fallback_id = _fallback_image_input_id(scene.n)
+        fallback_path = local_inputs.get(fallback_id)
+        fallback_ref = request.inputs.get(fallback_id)
+        if fallback_path and fallback_ref and fallback_ref.kind == "image":
+            new_broll = broll.model_copy(
+                update={"kind": "ai_image", "input_id": fallback_id}
+            )
+            patched_scenes.append(scene.model_copy(update={"broll": new_broll}))
+            scene_fallbacks.append(
+                {"scene_n": scene.n, "used": "image", "reason": "empty_motion_graphic"}
+            )
+        else:
+            patched_scenes.append(scene.model_copy(update={"visual": "face"}))
+            scene_fallbacks.append(
+                {"scene_n": scene.n, "used": "face", "reason": "empty_motion_graphic"}
+            )
+
+    patched_timeline = timeline.model_copy(update={"scenes": patched_scenes})
+    patched_request = request.model_copy(update={"timeline": patched_timeline})
+    return patched_request, scene_fallbacks
 
 
 def build_raw_args(
@@ -301,6 +438,8 @@ def build_raw(
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
+    request, scene_fallbacks = _guard_empty_motion_graphics(request, local_inputs)
+
     out_path = workdir / "raw_out.mp4"
     filter_file = workdir / "filter.txt"
 
@@ -322,4 +461,5 @@ def build_raw(
         "path": out_path,
         "duration_ms": request.timeline.duration_ms,
         "scene_marks_ms": scene_marks_ms,
+        "scene_fallbacks": scene_fallbacks,
     }
