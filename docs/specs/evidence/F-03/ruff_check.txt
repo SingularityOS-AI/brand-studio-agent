@@ -1,0 +1,4 @@
+$ ruff --version
+ruff 0.16.9
+$ ruff check tests/test_panel_f03.py
+All checks passed!

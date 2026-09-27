@@ -1,0 +1,5 @@
+$ node --check app/static/production_panel.js
+(no output = clean syntax)
+
+$ node --check app/static/app.js
+(no output = clean syntax)

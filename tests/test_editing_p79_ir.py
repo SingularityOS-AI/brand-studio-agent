@@ -42,9 +42,7 @@ def test_1_frame_zero_filters_early_words():
     RenderIR.model_validate(ir)
 
 
-def test_2_no_hero_events_uniform_block_after_frame_zero():
-    """F6 (E2-06): the old 'hero' window right after frame zero is gone — words in
-    [fz_end, fz_end + 1500) now group into uniform 'block' events like any other word."""
+def test_2_hero_events_between_1500_and_3000():
     timeline = {"duration_ms": 10000}
     captions_words = [
         {"id": "s1w0", "scene_n": 1, "text": "Uno", "start_ms": 1600, "end_ms": 1900},
@@ -58,15 +56,14 @@ def test_2_no_hero_events_uniform_block_after_frame_zero():
         style=SAMPLE_STYLE,
     )
 
-    assert all(ev["size"] == "block" for ev in ir["captions"])
+    hero_events = [ev for ev in ir["captions"] if ev["size"] == "hero"]
+    assert len(hero_events) == 2
+    assert hero_events[0]["lines"] == [[{"text": "Uno", "start_ms": 1600, "end_ms": 1900}]]
+    assert hero_events[1]["lines"] == [[{"text": "Dos", "start_ms": 2200, "end_ms": 2500}]]
 
-    block_events = ir["captions"]
+    block_events = [ev for ev in ir["captions"] if ev["size"] == "block"]
     assert len(block_events) == 1
-    assert block_events[0]["lines"] == [[
-        {"text": "Uno", "start_ms": 1600, "end_ms": 1900},
-        {"text": "Dos", "start_ms": 2200, "end_ms": 2500},
-        {"text": "Tres", "start_ms": 3100, "end_ms": 3400},
-    ]]
+    assert block_events[0]["lines"] == [[{"text": "Tres", "start_ms": 3100, "end_ms": 3400}]]
 
     RenderIR.model_validate(ir)
 
@@ -224,12 +221,11 @@ def test_8_no_frame_zero_starts_hook_at_0():
 
         assert ir["frame_zero"] is None
         events = ir["captions"]
-        assert len(events) == 1
-        assert events[0]["size"] == "block"
-        assert events[0]["lines"] == [
-            [{"text": "Primera", "start_ms": 200, "end_ms": 500}],
-            [{"text": "Segunda", "start_ms": 600, "end_ms": 900}],
-        ]
+        assert len(events) == 2
+        assert events[0]["size"] == "hero"
+        assert events[0]["lines"][0][0]["text"] == "Primera"
+        assert events[1]["size"] == "hero"
+        assert events[1]["lines"][0][0]["text"] == "Segunda"
 
         RenderIR.model_validate(ir)
 

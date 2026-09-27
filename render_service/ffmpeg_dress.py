@@ -285,7 +285,6 @@ def write_ass(ir: RenderIR, path: Path) -> None:
     c_text = hex_to_ass(ir.style.text)
     c_accent = hex_to_ass(ir.style.accent)
     c_outline = hex_to_ass(ir.style.outline)
-    caption_y = ir.layout.caption_y
 
     lines: list[str] = [
         "[Script Info]",
@@ -344,10 +343,7 @@ def write_ass(ir: RenderIR, path: Path) -> None:
                 rendered_lines.append(" ".join(line_parts))
 
             dialogue_text = "\\N".join(rendered_lines)
-            lines.append(
-                f"Dialogue: 0,{start_str},{end_str},{style_name},,0,0,0,,"
-                f"{{\\an2\\pos(540,{caption_y})\\fs{font_px}}}{dialogue_text}"
-            )
+            lines.append(f"Dialogue: 0,{start_str},{end_str},{style_name},,0,0,0,,{{\\fs{font_px}}}{dialogue_text}")
 
     content = "\n".join(lines) + "\n"
     path.write_text(content, encoding="utf-8-sig")

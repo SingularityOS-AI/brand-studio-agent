@@ -50,7 +50,6 @@ from app.editing.timeline import build_timeline, cut_hash
 from app.guard import guard
 from app.scripting.scripts import _check_script
 from app.tools.brand_brain.store import get_brand_brain
-from render_service.manifest import clamp_caption_y
 
 router = APIRouter(prefix="/api/editing")
 
@@ -226,7 +225,6 @@ def _state(
         and dressing_data.get("raw_hash") == cut_h
     )
 
-    edit_settings = edit.get("settings") or {}
     if timeline is not None:
         frame_zero = script.get("frame_zero") or {}
         fz_text = frame_zero.get("on_screen_text")
@@ -234,12 +232,12 @@ def _state(
             # script + jobs give overlays their text and the broll_card images (P90A)
             stage2_res = build_ir_stage2(
                 timeline, captions_words, fz_text, style, dressing_data,
-                script=script, jobs=jobs, settings=edit_settings,
+                script=script, jobs=jobs,
             )
             ir = stage2_res["ir"]
             sfx_inputs = stage2_res.get("sfx_inputs", {}) or {}
         else:
-            ir = build_ir_stage1(timeline, captions_words, fz_text, style, settings=edit_settings)
+            ir = build_ir_stage1(timeline, captions_words, fz_text, style)
     else:
         ir = None
 
@@ -510,7 +508,7 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
 
     op = body.op
-    allowed_ops = {"face", "trim", "music_mute", "sfx_enabled", "music_volume", "caption_y"}
+    allowed_ops = {"face", "trim", "music_mute", "sfx_enabled", "music_volume"}
     if op not in allowed_ops:
         return JSONResponse(status_code=422, content={"detail": f"Invalid op: {op}"})
 
@@ -577,13 +575,6 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
                 status_code=422, content={"detail": "music_volume must be between 0 and 1"}
             )
         settings_dict["music_volume"] = val_float
-
-    elif op == "caption_y":
-        if isinstance(body.value, bool) or not isinstance(body.value, (int, float)):
-            return JSONResponse(
-                status_code=422, content={"detail": "caption_y must be a number"}
-            )
-        settings_dict["caption_y"] = clamp_caption_y(body.value)
 
     try:
         updated_edit = save_edit(

@@ -3022,6 +3022,7 @@ ${htmlContent}
     if (blockCView) blockCView.style.display = 'none';
     if (audiovisualView) audiovisualView.style.display = 'none';
     currentOpenView = 'editing';
+    if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
     if (typeof renderPipelineRail === 'function') {
       renderPipelineRail();
     }
@@ -3034,6 +3035,7 @@ ${htmlContent}
       cleanupAudiovisualBlobUrls();
     }
     currentOpenView = 'brain';
+    if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
     if (blockAView) blockAView.style.display = 'block';
     if (blockBView) blockBView.style.display = 'none';
     if (blockCView) blockCView.style.display = 'none';
@@ -3064,6 +3066,7 @@ ${htmlContent}
       cleanupAudiovisualBlobUrls();
     }
     currentOpenView = 'catalog';
+    if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
     if (blockAView) blockAView.style.display = 'none';
     if (blockBView) blockBView.style.display = 'block';
     if (blockCView) blockCView.style.display = 'none';
@@ -3082,6 +3085,7 @@ ${htmlContent}
     // Track current idea ID
     currentScriptIdeaId = ideaId;
     currentOpenView = 'script';
+    if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
 
     // Find the idea data from current catalog
     const idea = currentCatalog?.ideas?.find(i => i.id === ideaId);
@@ -3377,6 +3381,7 @@ ${htmlContent}
       if (res.ok) {
         const data = await res.json();
         currentAudiovisualJobs = data.jobs || [];
+        if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
         return currentAudiovisualJobs;
       }
     } catch (err) {
@@ -4848,6 +4853,7 @@ ${htmlContent}
     showDocLoading('Loading audiovisual studio…');
     try {
       currentOpenView = 'audiovisual';
+      if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
       if (blockAView) blockAView.style.display = 'none';
       if (blockBView) blockBView.style.display = 'none';
       if (blockCView) blockCView.style.display = 'none';
