@@ -1,0 +1,1 @@
+node --check tests/agent_harness.js -> exit 0, no output

@@ -1,0 +1,44 @@
+................                                                         [100%]
+=============================== warnings summary ===============================
+../../../tmp/e2_03_venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /tmp/e2_03_venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+render_service/manifest.py:135
+  /home/user/brand-studio-agent/render_service/manifest.py:135: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+
+render_service/manifest.py:300
+  /home/user/brand-studio-agent/render_service/manifest.py:300: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+
+render_service/manifest.py:401
+  /home/user/brand-studio-agent/render_service/manifest.py:401: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+
+tests/test_editing_e2_03_empty_scene.py:113
+  /home/user/brand-studio-agent/tests/test_editing_e2_03_empty_scene.py:113: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests/test_editing_e2_03_empty_scene.py:123
+  /home/user/brand-studio-agent/tests/test_editing_e2_03_empty_scene.py:123: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests/test_editing_e2_03_empty_scene.py:218
+  /home/user/brand-studio-agent/tests/test_editing_e2_03_empty_scene.py:218: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests/test_editing_e2_03_empty_scene.py:249
+  /home/user/brand-studio-agent/tests/test_editing_e2_03_empty_scene.py:249: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests/test_editing_e2_03_empty_scene.py:288
+  /home/user/brand-studio-agent/tests/test_editing_e2_03_empty_scene.py:288: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests/test_editing_e2_03_empty_scene.py:333
+  /home/user/brand-studio-agent/tests/test_editing_e2_03_empty_scene.py:333: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+16 passed, 10 warnings in 20.40s

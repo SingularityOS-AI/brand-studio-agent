@@ -295,5 +295,6 @@ def render_v1(request: Request, body: Any = Body(default=None)) -> JSONResponse:
             render_s=render_s,
             scene_marks_ms=res.get("scene_marks_ms", []),
             converted=converted_list,
+            scene_fallbacks=res.get("scene_fallbacks", []),
         )
         return JSONResponse(status_code=200, content=ok_res.model_dump())

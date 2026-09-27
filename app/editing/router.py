@@ -260,15 +260,31 @@ def _state(
         raw_dict["fresh"] = bool(t_hash and raw_hash and raw_hash == t_hash)
         if edit_raw.get("status") == "done" and edit_raw.get("storage_path"):
             raw_dict["signed_url"] = _cached_signed_url(edit_raw["storage_path"], ttl=3600)
+        raw_dict.setdefault("scene_fallbacks", [])
     elif latest_raw_job:
         raw_dict = {
             "status": latest_raw_job.get("status"),
             "progress": (latest_raw_job.get("output") or {}).get("pct"),
             "error": latest_raw_job.get("error"),
             "fresh": False,
+            "scene_fallbacks": (latest_raw_job.get("output") or {}).get("scene_fallbacks", []),
         }
     else:
         raw_dict = {}
+
+    # E2-03: turn any empty-motion-graphic fallback on the raw render into the
+    # founder-facing English warning ("Scene N's motion graphic could not be
+    # drawn, so we used your face.") — one source of truth for the wording, so
+    # editing.js only has to display it.
+    scene_fallback_warnings = [
+        (
+            f"Scene {fb.get('scene_n')}'s motion graphic could not be drawn, "
+            f"so we used {'your face' if fb.get('used') == 'face' else 'the AI image'}."
+        )
+        for fb in (raw_dict.get("scene_fallbacks") or [])
+    ]
+    if scene_fallback_warnings:
+        warnings = list(warnings) + scene_fallback_warnings
 
     # Construct render dict
     render_jobs = [j for j in jobs if j.get("kind") == "render"]
