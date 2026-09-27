@@ -273,5 +273,99 @@
     run: (args) => window.BrandStudio.openRecordingStudio(args.sceneN),
   });
 
+  // ---------------------------------------------------------------------
+  // F-09: Brand Soul & Catalog actions
+  // ---------------------------------------------------------------------
+
+  register({
+    id: 'soul.generate',
+    step: 'brain',
+    title: 'Generate Brand Soul',
+    needsConfirm: true,
+    cost: () => 20,
+    run: () => window.BrandStudio.generateBrandSoul(),
+  });
+
+  register({
+    id: 'soul.regenerate',
+    step: 'brain',
+    title: 'Regenerate Brand Soul',
+    needsConfirm: true,
+    cost: () => 20,
+    run: () => window.BrandStudio.regenerateBrandSoul(),
+  });
+
+  register({
+    id: 'catalog.research_demand',
+    step: 'catalog',
+    title: 'Research demand for catalog ideas',
+    needsConfirm: true,
+    cost: () => 5,
+    run: () => window.BrandStudio.researchDemand(),
+  });
+
+  register({
+    id: 'catalog.generate_ideas',
+    step: 'catalog',
+    title: 'Generate catalog ideas',
+    needsConfirm: true,
+    cost: () => 5,
+    run: () => window.BrandStudio.generateCatalogIdeas(),
+  });
+
+  register({
+    id: 'catalog.regenerate_idea',
+    step: 'catalog',
+    title: 'Regenerate a catalog idea',
+    needsConfirm: true,
+    cost: () => 3,
+    run: (args) => window.BrandStudio.regenerateCatalogIdea(args ? args.idea : null),
+  });
+
+  register({
+    id: 'catalog.add_idea',
+    step: 'catalog',
+    title: 'Add a custom idea to catalog',
+    needsConfirm: false,
+    cost: () => 0,
+    run: (args) => window.BrandStudio.addCatalogIdea(args ? args.text : null),
+  });
+
+  register({
+    id: 'catalog.accept',
+    step: 'catalog',
+    title: 'Accept an idea for scripting',
+    needsConfirm: false,
+    cost: () => 0,
+    run: (args) => window.BrandStudio.acceptCatalogIdea(args ? args.idea : null),
+  });
+
+  register({
+    id: 'catalog.discard',
+    step: 'catalog',
+    title: 'Discard a catalog idea',
+    needsConfirm: true,
+    cost: () => 0,
+    run: (args) => window.BrandStudio.discardCatalogIdea(args ? args.idea : null),
+  });
+
+  register({
+    id: 'catalog.explain_demand',
+    step: 'catalog',
+    title: 'Explain demand metrics for an idea',
+    needsConfirm: false,
+    cost: () => 0,
+    run: (args) => window.BrandStudio.explainDemand(args ? args.idea : null),
+  });
+
+  register({
+    id: 'catalog.lock',
+    step: 'catalog',
+    title: 'Lock catalog selection',
+    needsConfirm: true,
+    cost: () => 0,
+    run: () => window.BrandStudio.lockCatalog(),
+  });
+
   window.BrandStudioActions = BrandStudioActions;
 })();

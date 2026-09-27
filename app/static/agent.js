@@ -232,7 +232,7 @@
 
   /**
    * Build the tools list for a given step.
-   * Includes: global tools + step-specific actions + confirmation stubs.
+   * Includes: global tools + step-specific actions + confirmation stubs + F-07/F-09 schemas.
    *
    * @param {string} step - Current step ID
    * @returns {Array} Array of tool definitions
@@ -246,6 +246,15 @@
 
     // Add confirmation engine stubs
     tools.push.apply(tools, CONFIRMATION_TOOLS);
+
+    // Add step specific schemas
+    if (step === 'script') {
+      tools.push.apply(tools, SCRIPT_TOOL_SCHEMAS);
+    } else if (step === 'catalog') {
+      tools.push.apply(tools, CATALOG_TOOL_SCHEMAS);
+    } else if (step === 'brain') {
+      tools.push.apply(tools, SOUL_TOOL_SCHEMAS);
+    }
 
     return tools;
   }
@@ -580,6 +589,168 @@
     return baseTools;
   }
 
+  // -------------------------------------------------------------------------
+  // F-09: Catalog + Brand Soul tool schemas and helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Helper to resolve an idea reference (position or keywords) in catalog data.
+   * Handles ambiguity: if multiple match or none match, returns status so Brandy asks.
+   *
+   * @param {string|number} query - Idea reference e.g. "idea 4", "4", "métricas"
+   * @param {object} catalogData - Current catalog object with ideas array
+   * @returns {{ok: true, idea: object, index: number} | {ok: false, status: string, say: string}}
+   */
+  function findIdeaInCatalog(query, catalogData) {
+    if (!catalogData || !Array.isArray(catalogData.ideas) || catalogData.ideas.length === 0) {
+      return { ok: false, status: 'empty', say: 'Catalog is empty.' };
+    }
+    const ideas = catalogData.ideas;
+
+    if (query === null || query === undefined) {
+      return { ok: false, status: 'missing_query', say: 'Please specify which idea.' };
+    }
+
+    // 1. Numeric / position query (e.g. "4", 4, "idea 4", "4th idea", "number 4")
+    if (typeof query === 'number' || (typeof query === 'string' && /^\d+$/.test(query.trim()))) {
+      const num = typeof query === 'number' ? query : parseInt(query.trim(), 10);
+      if (num >= 1 && num <= ideas.length) {
+        return { ok: true, idea: ideas[num - 1], index: num - 1 };
+      }
+    }
+    if (typeof query === 'string') {
+      const posMatch = query.match(/(?:idea|number|no\.?|#)\s*(\d+)/i) || query.match(/(\d+)(?:st|nd|rd|th)\s*idea/i);
+      if (posMatch) {
+        const num = parseInt(posMatch[1], 10);
+        if (num >= 1 && num <= ideas.length) {
+          return { ok: true, idea: ideas[num - 1], index: num - 1 };
+        }
+      }
+    }
+
+    // 2. Keyword search in title/description
+    if (typeof query === 'string' && query.trim()) {
+      const qLower = query.toLowerCase().trim();
+      const matches = ideas.filter(function (idea) {
+        const title = (idea.title || '').toLowerCase();
+        const desc = (idea.description || idea.text || '').toLowerCase();
+        return title.includes(qLower) || desc.includes(qLower);
+      });
+
+      if (matches.length === 1) {
+        const idx = ideas.indexOf(matches[0]);
+        return { ok: true, idea: matches[0], index: idx };
+      }
+
+      if (matches.length > 1) {
+        const choices = matches.slice(0, 3).map(function (m) { return '"' + m.title + '"'; });
+        return {
+          ok: false,
+          status: 'ambiguous',
+          say: `Found ${matches.length} matching ideas (${choices.join(', ')}). Which one did you mean?`
+        };
+      }
+    }
+
+    return { ok: false, status: 'not_found', say: `No idea found matching "${query}".` };
+  }
+
+  const CATALOG_TOOL_SCHEMAS = [
+    {
+      type: 'function',
+      name: 'catalog_research_demand',
+      description: 'Research market demand for catalog ideas. Requires confirmation.',
+      parameters: { type: 'object', properties: {} }
+    },
+    {
+      type: 'function',
+      name: 'catalog_generate_ideas',
+      description: 'Generate personalized brand ideas for the catalog. 5 credits. Requires confirmation.',
+      parameters: { type: 'object', properties: {} }
+    },
+    {
+      type: 'function',
+      name: 'catalog_regenerate_idea',
+      description: 'Regenerate one catalog idea. 3 credits. Requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          idea: { type: 'string', description: 'Idea position ("idea 4") or title words' }
+        },
+        required: ['idea']
+      }
+    },
+    {
+      type: 'function',
+      name: 'catalog_add_idea',
+      description: 'Add a custom idea to the catalog. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Title or topic of the custom idea' }
+        },
+        required: ['text']
+      }
+    },
+    {
+      type: 'function',
+      name: 'catalog_accept',
+      description: 'Accept an idea and select it for scripting. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          idea: { type: 'string', description: 'Idea position ("idea 4") or title words' }
+        },
+        required: ['idea']
+      }
+    },
+    {
+      type: 'function',
+      name: 'catalog_discard',
+      description: 'Discard an idea from the catalog. Requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          idea: { type: 'string', description: 'Idea position ("idea 4") or title words' }
+        },
+        required: ['idea']
+      }
+    },
+    {
+      type: 'function',
+      name: 'catalog_explain_demand',
+      description: 'Explain demand metrics and validation score for an idea. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          idea: { type: 'string', description: 'Idea position ("idea 4") or title words' }
+        },
+        required: ['idea']
+      }
+    },
+    {
+      type: 'function',
+      name: 'catalog_lock',
+      description: 'Lock the catalog selection and proceed to script. Requires confirmation.',
+      parameters: { type: 'object', properties: {} }
+    }
+  ];
+
+  const SOUL_TOOL_SCHEMAS = [
+    {
+      type: 'function',
+      name: 'soul_generate',
+      description: 'Generate the Brand Soul from confirmed brand brain sections. 20 credits. Requires confirmation.',
+      parameters: { type: 'object', properties: {} }
+    },
+    {
+      type: 'function',
+      name: 'soul_regenerate',
+      description: 'Regenerate the Brand Soul document with updated context. 20 credits. Requires confirmation.',
+      parameters: { type: 'object', properties: {} }
+    }
+  ];
+
   // Public API
   const BrandStudioAgent = {
     buildStepSummary: buildStepSummary,
@@ -595,6 +766,10 @@
     validateSceneN: validateSceneN,
     scriptPhaseReview: scriptPhaseReview,
     getScriptStepTools: getScriptStepTools,
+    // F-09 Catalog & Soul tools
+    findIdeaInCatalog: findIdeaInCatalog,
+    CATALOG_TOOL_SCHEMAS: CATALOG_TOOL_SCHEMAS,
+    SOUL_TOOL_SCHEMAS: SOUL_TOOL_SCHEMAS,
     // Constants
     STEP_ORDER: STEP_ORDER,
     GLOBAL_TOOL_NAMES: GLOBAL_TOOL_NAMES
