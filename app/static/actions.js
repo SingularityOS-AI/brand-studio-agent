@@ -127,10 +127,9 @@
     step: 'script',
     title: 'Generate the script',
     needsConfirm: true,
-    // Matches the "Generate Script (10 credits)" label on Script-GenerateBtn
-    // in app/static/index.html and CREDITS_COST_GENERATE in
-    // app/scripting/scripts.py.
-    cost: () => 10,
+    // F-07: 6 credits for script_generate voice tool
+    // ( docs/specs/F/pieces/F-07_script_tools.md )
+    cost: () => 6,
     run: () => window.BrandStudio.handleScriptGenerate(),
   });
 
@@ -175,6 +174,23 @@
     run: () => {
       const scriptData = window.BrandStudio.getCurrentScriptData();
       return (scriptData && scriptData.audit) || [];
+    },
+  });
+
+  // F-07: script_phase_review returns phase text + failing rules for that phase
+  // This is a free read tool used in the phase-by-phase review flow
+  register({
+    id: 'script.phase_review',
+    step: 'script',
+    title: 'Review a script phase',
+    needsConfirm: false,
+    cost: () => 0,
+    // Calls BrandStudioAgent.scriptPhaseReview which returns phase text + failing rules
+    run: (args) => {
+      if (!window.BrandStudioAgent || typeof window.BrandStudioAgent.scriptPhaseReview !== 'function') {
+        return { status: 'error', say: 'BrandStudioAgent not ready.' };
+      }
+      return window.BrandStudioAgent.scriptPhaseReview(args);
     },
   });
 
