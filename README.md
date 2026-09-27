@@ -61,8 +61,23 @@ You can iterate a single scene with an intent ("make it punchier") and the audit
 - **Soundtrack and SFX:** an AI audio director picks mood and energy; the track comes from a local **CC0 library** (14 tracks, 15 effects, Freesound — credits in `app/audiovisual/library/*.json`). Listen-only here; mixing happens in Editing.
 - **Generation runs as resumable background jobs** with a live progress bar. Charges happen only when an asset succeeds, written ahead so a retry can never charge twice.
 
-### 5. Editing — not built yet
-See [What's missing](#whats-missing).
+### 5. Editing — shipped ✅
+The pipeline assembles takes and B-roll into a finished MP4 via a local render service (`render_service/`):
+
+- **Scene assembly:** raw cut built scene-by-scene (`ffmpeg_raw.py`); motion-graphic HTML scenes rendered to MP4 via Chromium seek-capture at 30 fps (`seek_capture.py`, `motion.py`).
+- **Empty-scene guard (E2-03):** if a motion graphic renders blank (luma std-dev < threshold across 90%+ of sampled frames), the engine falls back to the founder's face take or a declared AI image, and surfaces a `scene_fallbacks` list all the way up to the `/v1/render` HTTP response so the UI can show an inline warning.
+- **One caption style (E2-06):** a single style (font, size, colour, position) is set once per script and written into the IR; `caption_y` controls vertical position in both the raw cutter and the final dresser.
+- **Card text fit (E2-04):** title cards shrink font to fit the safe-zone without overflow.
+- **Chromium seek-capture (E2-02):** GSAP timeline advanced frame-by-frame via `tl.seek(t, false)` for deterministic renders without real-time playback.
+
+### 6. Agentic mode — core shipped ✅
+Brandy can now act on your behalf, not just interview you. Every agentic action is tracked end-to-end:
+
+- **Action Registry (F-04):** every agentic call is stamped with `X-Agent-Action-Id` and logged to `agent_actions` (Supabase, RLS-on, service-role key only). The registry maps action IDs to human-readable titles.
+- **Confirmation engine (F-06):** before executing any irreversible action, Brandy asks for an explicit confirmation phrase (`"confirm"`, `"yes do it"`, `"do it"`, `"go ahead"`, `"proceed"`, or Spanish equivalents). `"yes"` alone is not accepted. The pending confirmation expires after **45 seconds** TTL. Implemented in `app/static/confirm_engine.js`, tested with a Node harness + pytest.
+- **Production panel (F-03):** a live audit trail of every agentic action renders in the UI as a card queue — status chip, step tag, credit cost, and an Open link to the asset. Built entirely with DOM APIs (zero `innerHTML` for user strings), wired to `app.js` at 6 call sites.
+- **Brand Soul in prose (F-01):** the 9-section brand brain generates a readable prose document from structured data, not a template fill.
+- **Agent actions audit table (F-02):** migration `014_agent_actions.sql` creates the table with RLS enabled; all access goes through FastAPI with the service-role key.
 
 ---
 
@@ -86,6 +101,15 @@ flowchart LR
     JOBS --> MUS[CC0 music + SFX]
     GUARD[[Monthly AI spend brake<br/>fail-closed]] -.-> JOBS
     JOBS --> ST[(Supabase Storage · private bucket)]
+    LOCK --> RS[render_service]
+    RS --> RAW[ffmpeg_raw · scene assembly]
+    RS --> CAP[seek_capture · Chromium 30 fps]
+    RS --> DRESS[ffmpeg_dress · subtitles + overlays]
+    RS --> MP4([Final MP4])
+    VA -->|agentic actions| ACT[Action Registry · X-Agent-Action-Id]
+    ACT --> DB[(agent_actions · Supabase RLS)]
+    ACT --> CONF[Confirmation engine · 45s TTL]
+    ACT --> PP[Production panel · live audit trail]
 ```
 
 **Where AssemblyAI sits:** the whole voice conversation (Voice Agent API) and the transcription of every recorded take (word-level timestamps). Gemini/Veo cover images, video and research — things AssemblyAI does not offer.
@@ -107,26 +131,44 @@ Real AI calls cost real money, so the app is built to fail closed:
 
 ## Status
 
-| Piece | State |
+### Production (shipped and on `main`)
+
+| Piece | What it does | PR |
+|---|---|---|
+| Brand Soul voice interview | AssemblyAI Voice Agent, barge-in, 9-section brain | pre-existing |
+| Demand catalog | YouTube Data API + Gemini grounding, 30 ideas | pre-existing |
+| Script blueprint + 14-rule audit | deterministic audit, lock | pre-existing |
+| Teleprompter + AssemblyAI transcription | word-level timestamps per take | pre-existing |
+| B-roll pipeline + AI asset generation | Stock / MG / Gemini image / Veo, spend brake | pre-existing |
+| Credits + Stripe checkout | test mode until launch | pre-existing |
+| **E2-01** Offline MP4 test | CI smoke test for the render pipeline | #5 |
+| **E2-05** Dynamic pricing | real-time credit cost preview per scene type | #7 |
+| **F-01** Brand Soul prose | 9-section brain → readable document | #8 |
+| **F-02** Agent actions audit table | migration 014, RLS, service-role key | #6 |
+| **E2-02** Chromium seek-capture | GSAP seek at 30 fps, deterministic render | #10 |
+| **E2-04** Card text fit | title cards shrink to safe-zone, no overflow | #9 |
+| **F-04** Action Registry | X-Agent-Action-Id header, action titles, DB log | #11 |
+| **E2-06** One caption style | single font/size/colour/position per script, caption_y | #14 |
+| **E2-03** Empty-scene guard | blank MG → face/image fallback + HTTP warning | #15 |
+| **F-03** Production panel | live agentic audit trail, card queue, zero innerHTML | #13 |
+| **F-06** Confirmation engine | 45s TTL, explicit phrase required, "yes" alone rejected | #12 |
+
+### In progress / planned
+
+| Piece | What it does |
 |---|---|
-| Voice interview with barge-in and tool calling (Brand Soul) | ✅ In production |
-| 9-section brand brain with quotes · Brand Soul document | ✅ In production |
-| Demand research + 30-idea catalog | ✅ In production |
-| Script blueprint + 14-rule audit + lock | ✅ In production |
-| Teleprompter recording + AssemblyAI transcription per take | ✅ In production |
-| Stock / motion graphic / AI image / AI video B-roll, founder-chosen | ✅ In production |
-| AI-chosen soundtrack + SFX from a CC0 library (listen-only) | ✅ In production |
-| Credits, Stripe checkout, spend brake | ✅ In production (Stripe in test mode until launch) |
-| **Editing** (assembly, silence cuts, dynamic subtitles, final MP4) | 📋 Next |
-| Voice control of the whole pipeline (Brandy beyond the interview) | 📋 Planned |
-| Raw footage upload | 📋 Coming soon (the API rejects it before charging) |
+| **E2-07** No-collision layout | subtitle/card anticolision in ffmpeg_dress |
+| **E2-08** 3-step editor (EN) | guided editor for the three editing decisions |
+| **F-05** Agentic mode toggle | Brandy scope selector + on/off toggle in the voice panel |
+| **F-07** Voice script tools | voice-controlled script tools (iterate, lock, regenerate) |
+
+---
 
 ## What's missing
 
 Being explicit, because a judge will open the code:
 
-- **No final video yet.** Audiovisual prepares takes, B-roll, music and SFX; Editing (assembling them into an MP4 with dynamic subtitles) is the next block.
-- **Voice drives the Brand Soul interview only.** Catalog, scripting and audiovisual are operated on screen today.
+- **Voice drives the Brand Soul interview only.** The agentic action core is live (registry, confirmation engine, audit panel), but F-05 (the UI toggle that expands Brandy's scope) and F-07 (voice-controlled script tools) are in progress.
 - **Raw footage upload** is not available; the selector says "coming soon" and the backend returns 400 before charging.
 - The music and SFX library was selected by metadata (tags, rating, duration); a human listening pass is in progress.
 
@@ -134,7 +176,7 @@ Being explicit, because a judge will open the code:
 
 ## Setup
 
-**Requirements:** Python 3.12+, Chrome or Edge (Safari ignores the `AudioContext` sample rate).
+**Requirements:** Python 3.12+, Node.js 18+, ffmpeg in PATH, Chrome or Edge (Safari ignores the `AudioContext` sample rate).
 
 ```bash
 git clone https://github.com/SingularityOS-AI/brand-studio-agent.git
@@ -173,6 +215,8 @@ python -m pytest -q -m "not e2e"
 - Audio is **PCM16 mono at 24 kHz, base64**. Force it with `new AudioContext({ sampleRate: 24000 })`.
 - Do not send `input.audio` before `session.ready`. On barge-in, flush playback on `input.speech.started`, not on `reply.done`.
 - The AssemblyAI key never reaches the browser: the server mints a short-lived token and the client passes it on the WebSocket URL.
+- `app/static/confirm_engine.js` is loaded as a CommonJS module by the Node test harness and as a plain script by the browser — the `typeof module` guard handles both without a bundler.
+- `render_service/` is an independent FastAPI service. Run it separately on port 8001; `app/` proxies render requests to it.
 
 ## Deployment
 
