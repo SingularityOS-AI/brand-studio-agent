@@ -28,7 +28,6 @@
   var CONFIRM_WORDS = [
     'confirm',
     'confirmed',
-    'yes',
     'yes do it',
     'go ahead',
     'do it',
@@ -84,7 +83,8 @@
   }
 
   function createConfirmationEngine(options) {
-    var maxAgeMs = options && typeof options.maxAgeMs === 'number' ? options.maxAgeMs : 60000;
+    // 45s TTL default per docs/specs/F/plan.md #2 ("token (random), 45 s TTL").
+    var maxAgeMs = options && typeof options.maxAgeMs === 'number' ? options.maxAgeMs : 45000;
     var proposal = null;
 
     // propose({actionId, args, cost, expiresAt}) -- stores the one pending
