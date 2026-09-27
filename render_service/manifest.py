@@ -13,6 +13,16 @@ CANVAS_W = 1080
 CANVAS_H = 1920
 CANVAS_FPS = 30
 
+# F1/F6 (E2-06): one caption band position for the whole video. caption_y is the
+# y of the band's bottom edge; 1250 is today's value (pre-E2 fixed band).
+CAPTION_Y_DEFAULT = 1250
+CAPTION_Y_MIN = 360
+CAPTION_Y_MAX = 1700
+
+
+def clamp_caption_y(value: int) -> int:
+    return max(CAPTION_Y_MIN, min(CAPTION_Y_MAX, int(value)))
+
 FONT_ALLOWLIST = ("Inter", "Montserrat", "Poppins", "Bebas Neue", "Anton", "Roboto")
 
 HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -297,6 +307,12 @@ class SfxCue(BaseModel):
     gain_db: float = Field(ge=-30.0, le=6.0)
 
 
+class Layout(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    caption_y: int = Field(default=CAPTION_Y_DEFAULT, ge=CAPTION_Y_MIN, le=CAPTION_Y_MAX)
+
+
 class RenderIR(BaseModel):
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
@@ -309,6 +325,7 @@ class RenderIR(BaseModel):
     overlays: list[OverlayCue] = Field(default_factory=list)
     sfx: list[SfxCue] = Field(default_factory=list)
     style: CaptionStyle
+    layout: Layout = Field(default_factory=Layout)
 
     @model_validator(mode="after")
     def validate_duration(self) -> RenderIR:
