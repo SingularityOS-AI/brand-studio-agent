@@ -1,0 +1,37 @@
+$ node tests/agent_actions.test.js
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+ok - registers exactly 5 Script actions
+ok - registers exactly 5 Audiovisual actions
+ok - get() returns null for an unregistered id
+ok - execute() on an unknown id fails without touching fetch
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+[Credits] 88 of 500 (17.6%)
+ok - execute() returns ok:true for script.iterate_scene
+ok - creates the agent_actions row first, for the voice source
+ok - calls the exact same endpoint + body the button calls (handleScriptRegenerate)
+ok - sends X-Agent-Action-Id matching the row just created
+ok - currentActionId is cleared after a successful run
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+ok - a thrown run() comes back as {ok:false, error}
+ok - currentActionId is cleared even when run() throws
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+ok - a button-sourced execute() never calls POST /api/agent/actions
+ok - the free edit_scene_text action still runs and succeeds
+
+All checks passed.

@@ -26,6 +26,12 @@
     }
     options.headers = options.headers || {};
     options.headers['Authorization'] = `Bearer ${jwtToken}`;
+    // F-04: tag the request with the in-flight agent action so the backend
+    // audit middleware (app/agent/middleware.py) can attribute it to the
+    // voice action that triggered it instead of logging a bare button row.
+    if (window.BrandStudioActions && window.BrandStudioActions.currentActionId) {
+      options.headers['X-Agent-Action-Id'] = window.BrandStudioActions.currentActionId;
+    }
     const response = await fetch(url, { ...options, credentials: 'same-origin' });
 
     // Centralized 402 handling - show paywall
@@ -2271,6 +2277,11 @@ ${htmlContent}
   // Script state tracking
   let currentScriptIdeaId = null;  // ID of the idea the script belongs to
 
+  // F-04: assigned when the Script-GenerateBtn click listener is wired below
+  // -- exposed via window.BrandStudio so BrandStudioActions calls the exact
+  // same function the button calls.
+  let handleScriptGenerate;
+
   // PIEZA 31 (bug B4): escapa texto de terceros antes de interpolarlo en
   // innerHTML. `demand_signal` viene de comentarios de YouTube / grounding
   // web (texto ajeno, no confiable) y `title`/`subcategory` pueden incluir
@@ -3204,6 +3215,31 @@ ${htmlContent}
     return null;
   }
 
+  // F-04: extracted from the asset-type selector's click listener (below) so
+  // BrandStudioActions can call the exact same PATCH the button calls. Throws
+  // on failure/non-2xx -- callers keep their own UI error handling.
+  async function changeSceneAssetType(ideaId, sceneN, newType) {
+    const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/scenes/${sceneN}/asset_type`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asset_type: newType })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to change asset type');
+    }
+    if (data.scene) {
+      const sceneIdx = (currentScriptData.scenes || []).findIndex(s => s.n === sceneN);
+      if (sceneIdx !== -1) currentScriptData.scenes[sceneIdx] = data.scene;
+    }
+    if (data.estimate) {
+      currentAudiovisualEstimate = data.estimate;
+    } else {
+      await fetchAudiovisualEstimate(ideaId);
+    }
+    return data;
+  }
+
   // Pieza 54 / 54B: HyperFrames Motion Graphics preview caching and blob lifecycle
   let activeMotionBlobUrls = [];
   const motionHtmlCache = new Map();
@@ -3689,31 +3725,8 @@ ${htmlContent}
 
         const ideaId = currentScriptData.idea_id;
         try {
-          const res = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/scenes/${scene.n}/asset_type`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ asset_type: newType })
-          });
-          if (res.ok) {
-            const data = await res.json();
-            // TRAMPA REPO: Actualizar PRIMERO currentScriptData.scenes[sceneIdx] con data.scene
-            if (data.scene) {
-              currentScriptData.scenes[sceneIdx] = data.scene;
-            }
-            if (data.estimate) {
-              currentAudiovisualEstimate = data.estimate;
-            } else {
-              await fetchAudiovisualEstimate(ideaId);
-            }
-            renderAudiovisualView();
-          } else {
-            const errData = await res.json().catch(() => ({}));
-            if (errEl) {
-              errEl.textContent = errData.error || 'Failed to change asset type';
-              errEl.style.display = 'block';
-            }
-            selectorBtns.forEach(b => b.disabled = false);
-          }
+          await changeSceneAssetType(ideaId, scene.n, newType);
+          renderAudiovisualView();
         } catch (err) {
           if (err.message !== 'PAYWALL_402') {
             if (errEl) {
@@ -4639,6 +4652,31 @@ ${htmlContent}
     }
   }
 
+  // F-04: extracted from the "Confirm & Generate" button's click listener
+  // (in renderAudiovisualEstimatePanel below) so BrandStudioActions can call
+  // the exact same POST the button calls. Throws (with `.status`/`.data` set
+  // from the failed response, when available) on failure -- callers keep
+  // their own UI error handling, including the ai_paused 503 case.
+  async function generateAllAudiovisualAssets(ideaId) {
+    const genRes = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/generate`, {
+      method: 'POST',
+    });
+    const genData = await genRes.json().catch(() => ({}));
+    if (!genRes.ok) {
+      const error = new Error(genData.error || 'Failed to generate assets');
+      error.status = genRes.status;
+      error.data = genData;
+      throw error;
+    }
+    if (genData.credits_remaining !== undefined) {
+      credits = genData.credits_remaining;
+      updateCreditsUI(genData.credits_remaining, initialSessionCredits);
+    }
+    currentAudiovisualJobs = genData.jobs || [];
+    pollAudiovisualJobs(ideaId);
+    return genData;
+  }
+
   function renderAudiovisualEstimatePanel(container, estData, ideaId) {
     if (estData) {
       currentAudiovisualEstimate = estData;
@@ -4768,35 +4806,20 @@ ${htmlContent}
         confirmBtn.disabled = true;
         confirmBtn.innerHTML = '<span class="spinner" style="width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></span> Launching…';
         try {
-          const genRes = await authenticatedFetch(`/api/audiovisual/${encodeURIComponent(ideaId)}/generate`, {
-            method: 'POST',
-          });
-          if (genRes.ok) {
-            const genData = await genRes.json();
-            if (genData.credits_remaining !== undefined) {
-              credits = genData.credits_remaining;
-              updateCreditsUI(genData.credits_remaining, initialSessionCredits);
-            }
-            currentAudiovisualJobs = genData.jobs || [];
-            pollAudiovisualJobs(ideaId);
-            renderAudiovisualView();
-          } else {
-            const errData = await genRes.json().catch(() => ({}));
-            if (genRes.status === 503 && (errData.code === 'ai_paused' || errData.ai_paused)) {
-              estData.ai_paused = true;
-              if (currentAudiovisualEstimate) currentAudiovisualEstimate.ai_paused = true;
-              renderAudiovisualEstimatePanel(container, estData, ideaId);
-            } else {
-              alert(errData.error || 'Failed to generate assets');
-              renderAudiovisualView();
-            }
-          }
+          await generateAllAudiovisualAssets(ideaId);
+          renderAudiovisualView();
         } catch (err) {
-          if (err.message !== 'PAYWALL_402') {
+          if (err.status === 503 && (err.data?.code === 'ai_paused' || err.data?.ai_paused)) {
+            estData.ai_paused = true;
+            if (currentAudiovisualEstimate) currentAudiovisualEstimate.ai_paused = true;
+            renderAudiovisualEstimatePanel(container, estData, ideaId);
+          } else if (err.message !== 'PAYWALL_402') {
             console.error('[Audiovisual] Generate assets error:', err);
             alert('Failed to generate assets: ' + err.message);
+            renderAudiovisualView();
+          } else {
+            renderAudiovisualView();
           }
-          renderAudiovisualView();
         }
       });
     }
@@ -6913,9 +6936,12 @@ ${htmlContent}
   }
 
   // Wire up Block C generate button
+  // F-04: `handleScriptGenerate` (declared with the other script-view state
+  // above) is captured here so BrandStudioActions can call the exact same
+  // function the button calls -- see window.BrandStudio below.
   if (scriptGenerateBtn) {
-    scriptGenerateBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
+    scriptGenerateBtn.addEventListener('click', handleScriptGenerate = async (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
 
       // PIEZA 36 (bug 1): Use currentScriptIdeaId (set by showBlockCView) instead of currentScriptData.idea_id
       if (!currentScriptIdeaId) {
@@ -7392,6 +7418,9 @@ ${htmlContent}
   });
 
   // Expose minimal API for editing and submodules (Pieza 82)
+  // F-04: also exposes the Script/Audiovisual button functions so
+  // BrandStudioActions (app/static/actions.js) can call the exact same
+  // functions the buttons call -- no parallel voice backend.
   window.BrandStudio = {
     authenticatedFetch,
     showPaywall,
@@ -7404,6 +7433,16 @@ ${htmlContent}
     hideMainViews,
     renderPipelineRail,
     getCurrentScriptIdeaId: () => currentScriptIdeaId,
+    getCurrentScriptData: () => currentScriptData,
+    getCurrentAudiovisualEstimate: () => currentAudiovisualEstimate,
+    handleScriptGenerate,
+    handleScriptRegenerate,
+    handleScriptSceneEdit,
+    handleScriptLock,
+    changeSceneAssetType,
+    fetchAudiovisualEstimate,
+    generateAllAudiovisualAssets,
+    triggerRegenerateScene,
   };
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');

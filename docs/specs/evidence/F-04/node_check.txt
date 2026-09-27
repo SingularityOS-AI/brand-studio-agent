@@ -1,0 +1,4 @@
+$ node --check app/static/actions.js
+(no output = clean)
+$ node --check app/static/app.js
+(no output = clean)
