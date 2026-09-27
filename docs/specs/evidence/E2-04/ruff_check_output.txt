@@ -1,0 +1,41 @@
+ruff 0.16.9
+
+$ ruff check render_service/text_fit.py render_service/cards.py tests/test_editing_e2_04_card_fit.py tests/test_render_service_p90b_overlays.py
+SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  --> tests/test_render_service_p90b_overlays.py:66:5
+   |
+64 |       out_png = tmp_path / "card.png"
+65 |
+66 | /     with patch("render_service.cards.chromium_path", return_value=None):
+67 | |         with pytest.raises(RuntimeError, match="Chromium executable not found"):
+   | |________________________________________________________________________________^
+68 |               render_card_png(ov, style, out_png, tmp_path)
+   |
+help: Combine `with` statements
+
+RUF059 Unpacked variable `g_mid` is never used
+   --> tests/test_render_service_p90b_overlays.py:299:12
+    |
+297 |         return r, g, b
+298 |
+299 |     r_mid, g_mid, b_mid = get_center_pixel_rgb(2.0)
+    |            ^^^^^
+300 |     assert r_mid > 150
+301 |     assert b_mid < 100
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `g_out` is never used
+   --> tests/test_render_service_p90b_overlays.py:303:12
+    |
+301 |     assert b_mid < 100
+302 |
+303 |     r_out, g_out, b_out = get_center_pixel_rgb(0.5)
+    |            ^^^^^
+304 |     assert r_out < 50
+305 |     assert b_out > 150
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+Found 3 errors.
+No fixes available (2 hidden fixes can be enabled with the `--unsafe-fixes` option).

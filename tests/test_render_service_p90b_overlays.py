@@ -10,6 +10,7 @@ import pytest
 from render_service.cards import card_html, render_card_png
 from render_service.ffmpeg_dress import build_final, build_final_args
 from render_service.manifest import CaptionStyle, OverlayCue, RenderIR, RenderRequest
+from render_service.text_fit import fit_card_text
 
 
 def test_1_card_html_escapes_text_and_includes_font_size():
@@ -36,7 +37,8 @@ def test_1_card_html_escapes_text_and_includes_font_size():
 
     assert "<script>" not in html_out
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_out
-    assert "110px" in html_out
+    _, fitted_font_px = fit_card_text(ov.text, "card_stat", ov.w, ov.h)
+    assert f"{fitted_font_px}px" in html_out
     assert "Inter" in html_out
 
 
