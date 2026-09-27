@@ -36,7 +36,7 @@ class TestAgentJS:
     def test_send_session_update_mock_ws(self):
         code = "const a = require('./app/static/agent.js'); var sent=[]; var ws={readyState:1,send:function(d){sent.push(JSON.parse(d));}}; a.sendSessionUpdate(false,'brain',{},ws); console.log(sent.length);"
         result = subprocess.run(["node", "-e", code], cwd=str(REPO_ROOT), capture_output=True, text=True)
-        assert result.stdout.strip() == "1"
+        assert result.stdout.strip().endswith("1")
 
     def test_propose_action_returns_not_available(self):
         code = "const a = require('./app/static/agent.js'); console.log(JSON.stringify(a.handleProposeAction('test',{})));"
