@@ -223,6 +223,25 @@
     }, POLL_MS);
   }
 
+  function checkJobCompletions(previousActions, currentActions) {
+    if (!previousActions || !previousActions.length || !currentActions || !currentActions.length) return;
+    var prevMap = {};
+    previousActions.forEach(function (act) {
+      if (act && act.id) prevMap[act.id] = act.status;
+    });
+
+    currentActions.forEach(function (act) {
+      if (!act || !act.id) return;
+      var prevStatus = prevMap[act.id];
+      if ((prevStatus === 'queued' || prevStatus === 'running') && act.status === 'done') {
+        var agent = typeof window !== 'undefined' ? window.BrandStudioAgent : null;
+        if (agent && typeof agent.onJobFinished === 'function') {
+          agent.onJobFinished(act);
+        }
+      }
+    });
+  }
+
   function refresh(ideaIdArg) {
     var bs = brandStudio();
     if (!bs || typeof bs.authenticatedFetch !== 'function') return Promise.resolve();
@@ -241,7 +260,9 @@
         return res.json();
       })
       .then(function (data) {
-        lastActions = (data && data.actions) || [];
+        var newActions = (data && data.actions) || [];
+        checkJobCompletions(lastActions, newActions);
+        lastActions = newActions;
         render(lastActions);
         if (hasActiveJobs(lastActions)) schedulePoll();
       })

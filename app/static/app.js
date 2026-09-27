@@ -4983,6 +4983,61 @@ ${htmlContent}
   let studioIsPlaying = false;
   let studioIsRecording = false;
 
+  function initStudioRecordingGuide() {
+    let guideOverlay = document.getElementById('Studio-GuideOverlay');
+    let toggleBtn = document.getElementById('Studio-GuideToggleBtn');
+    const viewport = document.querySelector('.studio-cam-viewport');
+
+    if (viewport && (!guideOverlay || !toggleBtn)) {
+      const oldGuide = viewport.querySelector('.studio-cam-guide:not(#Studio-GuideOverlay)');
+      if (oldGuide) oldGuide.remove();
+
+      if (!guideOverlay) {
+        guideOverlay = document.createElement('div');
+        guideOverlay.id = 'Studio-GuideOverlay';
+        guideOverlay.className = 'studio-cam-guide';
+        guideOverlay.innerHTML = `
+          <svg id="Studio-GuideSilhouette" class="studio-guide-silhouette" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <ellipse cx="50" cy="32" rx="12" ry="14" fill="none" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.2" stroke-dasharray="3 2" />
+            <path d="M 42 45 C 42 55, 35 62, 0 82 L 0 100 M 58 45 C 58 55, 65 62, 100 82 L 100 100" fill="none" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.2" stroke-dasharray="3 2" />
+          </svg>
+          <div id="Studio-GuideText" class="studio-guide-text">
+            Frame head and shoulders. Light at 45°, not straight at your glasses.
+          </div>
+        `;
+        viewport.appendChild(guideOverlay);
+      }
+
+      if (!toggleBtn) {
+        toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.id = 'Studio-GuideToggleBtn';
+        toggleBtn.className = 'btn btn--secondary studio-guide-toggle-btn';
+        toggleBtn.textContent = 'Hide guide';
+        viewport.appendChild(toggleBtn);
+      }
+    }
+
+    if (toggleBtn && !toggleBtn._guideBound) {
+      toggleBtn._guideBound = true;
+      toggleBtn.onclick = toggleStudioRecordingGuide;
+    }
+  }
+
+  function toggleStudioRecordingGuide() {
+    const guideOverlay = document.getElementById('Studio-GuideOverlay');
+    const toggleBtn = document.getElementById('Studio-GuideToggleBtn');
+    if (!guideOverlay) return;
+    const isHidden = guideOverlay.style.display === 'none';
+    if (isHidden) {
+      guideOverlay.style.display = 'block';
+      if (toggleBtn) toggleBtn.textContent = 'Hide guide';
+    } else {
+      guideOverlay.style.display = 'none';
+      if (toggleBtn) toggleBtn.textContent = 'Show guide';
+    }
+  }
+
   async function openRecordingStudio(sceneN) {
     if (!currentScriptData || !currentScriptData.scenes) return;
     const allScenes = currentScriptData.scenes;
@@ -4996,6 +5051,8 @@ ${htmlContent}
 
     overlay.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+
+    initStudioRecordingGuide();
 
     updateStudioSceneUI(targetScene, allScenes);
     resetStudioTeleprompter();

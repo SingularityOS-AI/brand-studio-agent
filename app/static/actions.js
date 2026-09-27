@@ -33,7 +33,25 @@
   }
 
   function get(id) {
-    return registry.get(id) || null;
+    if (registry.has(id)) return registry.get(id);
+    const aliasMap = {
+      'av_read_scene': 'audiovisual.read_scene',
+      'av_set_scene_type': 'audiovisual.change_scene_type',
+      'av_estimate': 'audiovisual.estimate',
+      'av_generate_all': 'audiovisual.generate_all',
+      'av_regenerate_asset': 'audiovisual.regenerate_one',
+      'av_open_recording': 'audiovisual.open_recording_studio',
+      'audiovisual.read_scene': 'av_read_scene',
+      'audiovisual.change_scene_type': 'av_set_scene_type',
+      'audiovisual.estimate': 'av_estimate',
+      'audiovisual.generate_all': 'av_generate_all',
+      'audiovisual.regenerate_one': 'av_regenerate_asset',
+      'audiovisual.open_recording_studio': 'av_open_recording',
+    };
+    if (aliasMap[id] && registry.has(aliasMap[id])) {
+      return registry.get(aliasMap[id]);
+    }
+    return null;
   }
 
   async function resolveCost(action, args) {
@@ -200,14 +218,31 @@
   // ---------------------------------------------------------------------
 
   register({
+    id: 'av_read_scene',
+    step: 'audiovisual',
+    title: 'Read scene audiovisual details',
+    needsConfirm: false,
+    cost: () => 0,
+    run: (args) => {
+      const root = typeof window !== 'undefined' ? window : {};
+      if (root.BrandStudioAgent && typeof root.BrandStudioAgent.avReadScene === 'function') {
+        return root.BrandStudioAgent.avReadScene(args);
+      }
+      return { status: 'error', say: 'BrandStudioAgent not ready.' };
+    },
+  });
+
+  register({
     id: 'audiovisual.change_scene_type',
     step: 'audiovisual',
     title: 'Change a scene’s asset type',
     needsConfirm: false,
     cost: () => 0,
     run: (args) => {
-      const ideaId = args.ideaId || window.BrandStudio.getCurrentScriptIdeaId();
-      return window.BrandStudio.changeSceneAssetType(ideaId, args.sceneN, args.assetType);
+      const ideaId = (args && args.ideaId) || window.BrandStudio.getCurrentScriptIdeaId();
+      const sceneN = args ? (args.scene_n || args.sceneN) : 1;
+      const assetType = args ? (args.type || args.assetType) : 'stock';
+      return window.BrandStudio.changeSceneAssetType(ideaId, sceneN, assetType);
     },
   });
 
@@ -218,7 +253,7 @@
     needsConfirm: false,
     cost: () => 0,
     run: (args) => {
-      const ideaId = args.ideaId || window.BrandStudio.getCurrentScriptIdeaId();
+      const ideaId = (args && args.ideaId) || window.BrandStudio.getCurrentScriptIdeaId();
       return window.BrandStudio.fetchAudiovisualEstimate(ideaId);
     },
   });
@@ -232,13 +267,13 @@
     // shows (docs/specs/F/plan.md A-D7: "each pipeline action at its normal
     // button price").
     cost: async (args) => {
-      const ideaId = args.ideaId || window.BrandStudio.getCurrentScriptIdeaId();
+      const ideaId = (args && args.ideaId) || window.BrandStudio.getCurrentScriptIdeaId();
       const estimate = await window.BrandStudio.fetchAudiovisualEstimate(ideaId);
       if (!estimate) return null;
       return estimate.credits_pending != null ? estimate.credits_pending : (estimate.credits_total || 0);
     },
     run: (args) => {
-      const ideaId = args.ideaId || window.BrandStudio.getCurrentScriptIdeaId();
+      const ideaId = (args && args.ideaId) || window.BrandStudio.getCurrentScriptIdeaId();
       return window.BrandStudio.generateAllAudiovisualAssets(ideaId);
     },
   });
@@ -253,15 +288,20 @@
     cost: (args) => {
       const scriptData = window.BrandStudio.getCurrentScriptData();
       const estimate = window.BrandStudio.getCurrentAudiovisualEstimate();
+      const sceneN = args ? (args.scene_n || args.sceneN) : null;
       const scene = scriptData && scriptData.scenes
-        ? scriptData.scenes.find((s) => s.n === args.sceneN)
+        ? scriptData.scenes.find((s) => s.n === sceneN)
         : null;
       const assetType = scene && scene.asset_type;
       const creditsByType = estimate && estimate.credits_by_type;
       if (!assetType || !creditsByType || creditsByType[assetType] == null) return null;
       return creditsByType[assetType];
     },
-    run: (args) => window.BrandStudio.triggerRegenerateScene(args.sceneN),
+    run: (args) => {
+      const sceneN = args ? (args.scene_n || args.sceneN) : null;
+      const instruction = args ? args.instruction : null;
+      return window.BrandStudio.triggerRegenerateScene(sceneN, instruction);
+    },
   });
 
   register({
@@ -270,7 +310,10 @@
     title: 'Open the recording studio for a scene',
     needsConfirm: false,
     cost: () => 0,
-    run: (args) => window.BrandStudio.openRecordingStudio(args.sceneN),
+    run: (args) => {
+      const sceneN = args ? (args.scene_n || args.sceneN) : 1;
+      return window.BrandStudio.openRecordingStudio(sceneN);
+    },
   });
 
   // ---------------------------------------------------------------------
