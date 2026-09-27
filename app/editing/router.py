@@ -50,6 +50,7 @@ from app.editing.timeline import build_timeline, cut_hash
 from app.guard import guard
 from app.scripting.scripts import _check_script
 from app.tools.brand_brain.store import get_brand_brain
+from render_service.manifest import clamp_caption_y
 
 router = APIRouter(prefix="/api/editing")
 
@@ -225,6 +226,7 @@ def _state(
         and dressing_data.get("raw_hash") == cut_h
     )
 
+    edit_settings = edit.get("settings") or {}
     if timeline is not None:
         frame_zero = script.get("frame_zero") or {}
         fz_text = frame_zero.get("on_screen_text")
@@ -232,12 +234,12 @@ def _state(
             # script + jobs give overlays their text and the broll_card images (P90A)
             stage2_res = build_ir_stage2(
                 timeline, captions_words, fz_text, style, dressing_data,
-                script=script, jobs=jobs,
+                script=script, jobs=jobs, settings=edit_settings,
             )
             ir = stage2_res["ir"]
             sfx_inputs = stage2_res.get("sfx_inputs", {}) or {}
         else:
-            ir = build_ir_stage1(timeline, captions_words, fz_text, style)
+            ir = build_ir_stage1(timeline, captions_words, fz_text, style, settings=edit_settings)
     else:
         ir = None
 
@@ -260,31 +262,15 @@ def _state(
         raw_dict["fresh"] = bool(t_hash and raw_hash and raw_hash == t_hash)
         if edit_raw.get("status") == "done" and edit_raw.get("storage_path"):
             raw_dict["signed_url"] = _cached_signed_url(edit_raw["storage_path"], ttl=3600)
-        raw_dict.setdefault("scene_fallbacks", [])
     elif latest_raw_job:
         raw_dict = {
             "status": latest_raw_job.get("status"),
             "progress": (latest_raw_job.get("output") or {}).get("pct"),
             "error": latest_raw_job.get("error"),
             "fresh": False,
-            "scene_fallbacks": (latest_raw_job.get("output") or {}).get("scene_fallbacks", []),
         }
     else:
         raw_dict = {}
-
-    # E2-03: turn any empty-motion-graphic fallback on the raw render into the
-    # founder-facing English warning ("Scene N's motion graphic could not be
-    # drawn, so we used your face.") — one source of truth for the wording, so
-    # editing.js only has to display it.
-    scene_fallback_warnings = [
-        (
-            f"Scene {fb.get('scene_n')}'s motion graphic could not be drawn, "
-            f"so we used {'your face' if fb.get('used') == 'face' else 'the AI image'}."
-        )
-        for fb in (raw_dict.get("scene_fallbacks") or [])
-    ]
-    if scene_fallback_warnings:
-        warnings = list(warnings) + scene_fallback_warnings
 
     # Construct render dict
     render_jobs = [j for j in jobs if j.get("kind") == "render"]
@@ -524,7 +510,7 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
 
     op = body.op
-    allowed_ops = {"face", "trim", "music_mute", "sfx_enabled", "music_volume"}
+    allowed_ops = {"face", "trim", "music_mute", "sfx_enabled", "music_volume", "caption_y"}
     if op not in allowed_ops:
         return JSONResponse(status_code=422, content={"detail": f"Invalid op: {op}"})
 
@@ -591,6 +577,13 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
                 status_code=422, content={"detail": "music_volume must be between 0 and 1"}
             )
         settings_dict["music_volume"] = val_float
+
+    elif op == "caption_y":
+        if isinstance(body.value, bool) or not isinstance(body.value, (int, float)):
+            return JSONResponse(
+                status_code=422, content={"detail": "caption_y must be a number"}
+            )
+        settings_dict["caption_y"] = clamp_caption_y(body.value)
 
     try:
         updated_edit = save_edit(
