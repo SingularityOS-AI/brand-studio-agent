@@ -339,7 +339,6 @@ def _state(
     }
 
 
-
 @router.get("/{idea_id}")
 async def get_editing_state(request: Request, idea_id: str) -> JSONResponse:
     """GET editing state endpoint."""
@@ -488,18 +487,11 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
     return JSONResponse(status_code=202, content={"job": job, "created": created})
 
 
-class DressRequestBody(BaseModel):
-    """Request body for POST /dress endpoint (E2-11)."""
-    model_config = {"extra": "forbid"}
-
-    style: str = "standard"
-    expected_version: int | None = None
-
-
 class SettingsPatchBody(BaseModel):
     op: str
     scene_n: int | None = None
     value: Any = None
+    overlay_id: str | None = None
     expected_version: int
 
 
@@ -518,7 +510,17 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
 
     op = body.op
-    allowed_ops = {"face", "trim", "music_mute", "sfx_enabled", "music_volume", "caption_y"}
+    allowed_ops = {
+        "face",
+        "trim",
+        "music_mute",
+        "sfx_enabled",
+        "music_volume",
+        "caption_y",
+        "overlay_delete",
+        "overlay_text",
+        "overlays_enabled",
+    }
     if op not in allowed_ops:
         return JSONResponse(status_code=422, content={"detail": f"Invalid op: {op}"})
 
@@ -592,6 +594,40 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
                 status_code=422, content={"detail": "caption_y must be a number"}
             )
         settings_dict["caption_y"] = clamp_caption_y(body.value)
+
+    elif op == "overlay_delete":
+        if not body.overlay_id:
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_id required for overlay_delete"}
+            )
+        overlay_id = str(body.overlay_id)
+        overlays_dict = settings_dict.setdefault("overlays", {})
+        overlays_dict[overlay_id] = {"deleted": True}
+
+    elif op == "overlay_text":
+        if not body.overlay_id:
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_id required for overlay_text"}
+            )
+        if not isinstance(body.value, str):
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_text value must be a string"}
+            )
+        text = str(body.value).strip()
+        if len(text) > 80:
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_text value must be at most 80 characters"}
+            )
+        overlay_id = str(body.overlay_id)
+        overlays_dict = settings_dict.setdefault("overlays", {})
+        overlays_dict[overlay_id] = {"text": text}
+
+    elif op == "overlays_enabled":
+        if not isinstance(body.value, bool):
+            return JSONResponse(
+                status_code=422, content={"detail": "overlays_enabled value must be bool"}
+            )
+        settings_dict["overlays_enabled"] = body.value
 
     try:
         updated_edit = save_edit(
@@ -676,20 +712,39 @@ async def patch_captions(request: Request, idea_id: str, word_id: str) -> JSONRe
     return JSONResponse(status_code=200, content=state)
 
 
+class DressRequestBody(BaseModel):
+    """Request body for POST /{idea_id}/dress endpoint (E2-11)."""
+
+    model_config = {"extra": "forbid"}
+
+    style: str = "standard"
+    expected_version: int | None = None
+
+
 @router.post("/{idea_id}/dress")
-async def post_dress(request: Request, idea_id: str, body: DressRequestBody = DressRequestBody()) -> JSONResponse:
+async def post_dress(
+    request: Request, idea_id: str, body: DressRequestBody = DressRequestBody()
+) -> JSONResponse:
     """POST dress endpoint — dresses all scenes using closed catalog.
 
     E2-11: Accepts optional 'style' parameter (clean/standard/bold) and tracks
     free restyles per raw cut. 3 free restyles allowed; 4th returns 409 'restyle_limit'
     without charging credits. Limit resets when raw cut changes.
     """
-    # Validate style parameter (E2-11)
+    try:
+        raw_body = await request.json()
+        if isinstance(raw_body, dict) and raw_body:
+            body = DressRequestBody.model_validate(raw_body)
+    except Exception:
+        pass
+
     style = body.style
     if style not in ("clean", "standard", "bold"):
         return JSONResponse(
             status_code=422,
-            content={"detail": f"Invalid style: {style}. Must be 'clean', 'standard', or 'bold'."},
+            content={
+                "detail": f"Invalid style: {style}. Must be 'clean', 'standard', or 'bold'."
+            },
         )
 
     try:
@@ -720,13 +775,16 @@ async def post_dress(request: Request, idea_id: str, body: DressRequestBody = Dr
         current_free_restyles = 0
 
     # Check if this is a restyle (different style on same cut) (E2-11)
-    is_restyle = (prev_raw_hash == raw_hash and prev_style != style)
+    is_restyle = prev_raw_hash == raw_hash and prev_style != style
 
     # Enforce 3 free restyles limit (E2-11)
     if is_restyle and current_free_restyles >= 3:
         return JSONResponse(
             status_code=409,
-            content={"code": "restyle_limit", "free_restyles_used": current_free_restyles + 1},
+            content={
+                "code": "restyle_limit",
+                "free_restyles_used": current_free_restyles + 1,
+            },
         )
 
     # Check version conflict early (E2-11) - even if dressing is fresh
@@ -749,7 +807,9 @@ async def post_dress(request: Request, idea_id: str, body: DressRequestBody = Dr
         return JSONResponse(status_code=e.status_code, content=e.content)
 
     contexts = scene_contexts(timeline, captions_words, script)
-    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1), style=style)
+    dressing_plan = await dress_all(
+        contexts, raw_hash, seed_base=edit.get("version", 1), style=style
+    )
 
     # E2-11: Increment free_restyles_used if this was a restyle
     if is_restyle:
@@ -1184,4 +1244,3 @@ async def post_redress_scene(
     new_state.pop("_sfx_inputs", None)
     new_state["credits_remaining"] = remaining
     return JSONResponse(status_code=200, content=new_state)
-

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.audiovisual.sfx import load_sfx_library
+from app.editing.metadata import sanitize_text
 from render_service.manifest import (
     CAPTION_Y_DEFAULT,
     CaptionEvent,
@@ -723,13 +724,52 @@ def build_ir_stage2(
 
     raw_overlay_candidates.sort(key=lambda c: (c["cue"]["start_ms"], c["scene_n"]))
 
+    raw_overlay_candidates.sort(key=lambda c: (c["cue"]["start_ms"], c["scene_n"]))
+
     overlay_cues: list[dict[str, Any]] = []
     sfx_inputs: dict[str, dict[str, str]] = {}
     last_accepted_end = -1
     overlay_sfx_candidates: list[dict[str, Any]] = []
 
+    # Parse overlay settings (E2-10)
+    overlay_settings: dict[str, dict[str, Any]] = {}
+    overlays_enabled = True
+    if isinstance(settings, dict):
+        overlays_enabled = bool(settings.get("overlays_enabled", True))
+        raw_overlays_settings = settings.get("overlays", {})
+        if isinstance(raw_overlays_settings, dict):
+            overlay_settings = raw_overlays_settings
+
     for item in raw_overlay_candidates:
         cue = item["cue"]
+        ov_id = cue["id"]
+
+        # Apply overlay settings (E2-10)
+        if ov_id in overlay_settings:
+            ov_override = overlay_settings[ov_id]
+            if isinstance(ov_override, dict):
+                # Check if overlay is deleted
+                if ov_override.get("deleted"):
+                    continue
+                # Apply text override if provided
+                if "text" in ov_override:
+                    new_text = ov_override["text"]
+                    if isinstance(new_text, str):
+                        # Apply caption sanitizer and E2-04 fit
+                        sanitized = sanitize_text(new_text, 80)
+                        if sanitized and cue["text"] is not None:
+                            # Import text_fit locally to avoid circular import
+                            from render_service.text_fit import fit_card_text
+
+                            lines, font_px = fit_card_text(
+                                sanitized,
+                                cue["kind"],
+                                cue["w"],
+                                cue["h"],
+                            )
+                            # Reconstruct multi-line text with explicit <br>
+                            cue["text"] = "<br>".join(lines)
+
         if cue["start_ms"] < last_accepted_end:
             continue
 
@@ -745,7 +785,8 @@ def build_ir_stage2(
             }
 
         sfx_ov_tag = item["sfx_ov_tag"]
-        if sfx_ov_tag != "none":
+        # Only add overlay SFX if overlays are enabled (E2-10)
+        if sfx_ov_tag != "none" and overlays_enabled:
             overlay_sfx_candidates.append({
                 "raw_at": cue["start_ms"],
                 "tag": sfx_ov_tag,
