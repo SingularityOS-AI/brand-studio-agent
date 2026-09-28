@@ -150,6 +150,19 @@
     }
   }
 
+  // E2-09: Helper to set caption Y position via same function as buttons/voice
+  async function handleSetCaptionY(captionY) {
+    if (!currentIdeaId) {
+      console.error("[Editing] Cannot set caption Y: no current idea");
+      return null;
+    }
+    // Clamp to valid range
+    const CAPTION_Y_MIN = 360;
+    const CAPTION_Y_MAX = 1700;
+    const clamped = Math.max(CAPTION_Y_MIN, Math.min(CAPTION_Y_MAX, captionY));
+    return await runEditAction("caption_y", { captionY: clamped });
+  }
+
   // --- API Callers ---
   async function apiCall(endpoint, method, body) {
     clearError();
@@ -203,8 +216,15 @@
     return res.ok ? res.data : null;
   }
 
-  async function postDress(ideaId) {
-    const res = await apiCall(`/api/editing/${ideaId}/dress`, "POST");
+  async function postDress(ideaId, style = "standard", expectedVersion = null) {
+    const payload = { style: style };
+    if (expectedVersion !== null) {
+      payload.expected_version = expectedVersion;
+    }
+    const res = await apiCall(`/api/editing/${ideaId}/dress`, "POST", payload);
+    if (res.ok && res.data && res.data.code === "restyle_limit") {
+      showError("Restyle limit reached. You can restyle a cut up to 3 times for free.");
+    }
     return res.ok ? res.data : null;
   }
 
@@ -335,7 +355,7 @@
       label: "Auto-edit · free",
       credits: 0,
       run: async (args) => {
-        return await postDress(args.ideaId);
+        return await postDress(args.ideaId, args.editVersion);
       }
     },
     redress_scene: {
@@ -394,6 +414,18 @@
           return linkData;
         }
         return null;
+      }
+    },
+    // E2-09: Caption Y position
+    caption_y: {
+      label: "Caption Y position",
+      credits: 0,
+      run: async (args) => {
+        return await patchSettings(args.ideaId, {
+          op: "caption_y",
+          value: args.captionY,
+          expected_version: (currentEditingState && currentEditingState.edit_version) || undefined
+        });
       }
     }
   };
@@ -694,6 +726,9 @@
     const container = document.getElementById("Editing-Content");
     if (!container) return;
 
+    // E2-09: Caption drag cleanup variable
+    let captionDragCleanup = null;
+
     if (state.render && state.render.status === "done" && state.render.signed_url) {
       if (lastRenderedEditVersion === null) {
         lastRenderedEditVersion = state.render.edit_version || state.edit_version;
@@ -977,6 +1012,17 @@
             <!-- Video element handled programmatically to preserve video element on re-render -->
           </div>
 
+          <!-- E2-09: Caption Position Presets -->
+          <div style="margin-top:12px;text-align:center">
+            <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px">Caption position</div>
+            <div style="display:flex;gap:8px;justify-content:center">
+              <button type="button" class="btn btn--secondary caption-preset-btn" data-caption-y="520" style="flex:1;font-size:12px;padding:6px 10px">Top</button>
+              <button type="button" class="btn btn--secondary caption-preset-btn" data-caption-y="1080" style="flex:1;font-size:12px;padding:6px 10px">Middle</button>
+              <button type="button" class="btn btn--secondary caption-preset-btn" data-caption-y="1600" style="flex:1;font-size:12px;padding:6px 10px">Bottom</button>
+            </div>
+            <div style="font-size:11px;color:var(--ink-soft);margin-top:6px">Tip: Use ↑↓ keys when focused (20px)</div>
+          </div>
+
           <!-- Sharing & Download Actions (E8 / E9) -->
           <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
             ${hasFinalVideo ? `
@@ -1037,7 +1083,7 @@
           </div>
 
           <!-- Social Copy & Publication Metadata (E8) -->
-          <div style="background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px">
+          <div style="background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px;margin-bottom:20px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
               <h3 style="font-size:14px;font-weight:700;margin:0;color:var(--ink)">Social Copy & Metadata</h3>
               <button type="button" class="btn btn--secondary" data-edit-action="gen_metadata" style="font-size:12px">Generate post copy · free</button>
@@ -1061,7 +1107,6 @@
         { label: "Captions", items: ir ? (ir.captions || []) : [], getTimes: (ev) => ({ start: ev.start_ms, end: ev.end_ms }), type: "bar", color: "#3B82F6" },
         { label: "Zoom", items: ir ? (ir.zoom_keys || []).filter((k) => k.scale > 1) : [], getTimes: (k) => ({ start: k.t_ms, end: k.t_ms }), type: "point", color: "#F59E0B" },
         { label: "Transitions", items: ir ? (ir.transitions || []) : [], getTimes: (tr) => ({ start: tr.at_ms, end: tr.at_ms + (tr.dur_ms || 0) }), type: "bar", color: "#8B5CF6" },
-        { label: "Overlays", items: ir ? (ir.overlays || []) : [], getTimes: (ov) => ({ start: ov.start_ms, end: ov.end_ms }), type: "bar", color: "#10B981" },
         { label: "SFX", items: ir ? (ir.sfx || []) : [], getTimes: (cue) => ({ start: cue.at_ms, end: cue.at_ms }), type: "point", color: "#EC4899" }
       ];
 
@@ -1186,6 +1231,21 @@
         if (window.BrandStudioPreview && activeTab === "preview") {
           if (!previewMountInstance) {
             previewMountInstance = window.BrandStudioPreview.mount(playerContainer, videoEl, irToUse);
+            // E2-09: Set up caption drag
+            if (window.BrandStudioPreview.setupCaptionDrag) {
+              const canvas = playerContainer.querySelector("canvas");
+              if (canvas) {
+                // Get preview scale from canvas dimensions
+                const previewScale = canvas.getAttribute("data-preview-scale") || 1;
+                captionDragCleanup = window.BrandStudioPreview.setupCaptionDrag(
+                  canvas,
+                  parseFloat(previewScale),
+                  function onDragEnd(captionY) {
+                    handleSetCaptionY(captionY);
+                  }
+                );
+              }
+            }
           } else {
             previewMountInstance.update(irToUse);
           }
@@ -1195,6 +1255,11 @@
         } else if (previewMountInstance && activeTab === "final") {
           previewMountInstance.destroy();
           previewMountInstance = null;
+          // E2-09: Clean up caption drag handlers
+          if (captionDragCleanup) {
+            captionDragCleanup();
+            captionDragCleanup = null;
+          }
         }
       }
     }
@@ -1362,6 +1427,46 @@
         await runEditAction(actionName, { ideaId: currentIdeaId, value: !input.checked });
       } else if (actionName === "toggle_sfx") {
         await runEditAction(actionName, { ideaId: currentIdeaId, value: input.checked });
+      }
+    });
+
+    // E2-09: Caption preset buttons listener
+    document.addEventListener("click", async (e) => {
+      const captionPresetBtn = e.target.closest("#Editing-View .caption-preset-btn");
+      if (!captionPresetBtn) return;
+
+      e.preventDefault();
+      const captionY = parseInt(captionPresetBtn.dataset.captionY, 10);
+      if (captionY) {
+        const btn = captionPresetBtn;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite;margin-right:6px"></span> Setting…`;
+        try {
+          await handleSetCaptionY(captionY);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      }
+    });
+
+    // E2-09: Arrow key listener for caption position (20px increments)
+    document.addEventListener("keydown", async (e) => {
+      // Only handle when in preview tab
+      if (activeTab !== "preview" || !currentIdeaId || !currentEditingState) {
+        return;
+      }
+
+      // Get current caption Y from state
+      const currentCaptionY = currentEditingState.ir?.layout?.caption_y || currentEditingState.ir?.caption?.top || 1080;
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        await handleSetCaptionY(currentCaptionY + 20);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        await handleSetCaptionY(currentCaptionY - 20);
       }
     });
   }

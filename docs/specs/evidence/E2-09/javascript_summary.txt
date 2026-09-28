@@ -1,0 +1,11 @@
+editing_preview.js:
+  - Functions defined: 31
+  - setupCaptionDrag exists: True
+  - CAPTION_Y_MIN defined: True
+  - CAPTION_Y_MAX defined: True
+  
+editing.js:
+  - Functions defined: 37
+  - handleSetCaptionY exists: True
+  - preset buttons HTML exists: True
+  - arrow key handler exists: True
