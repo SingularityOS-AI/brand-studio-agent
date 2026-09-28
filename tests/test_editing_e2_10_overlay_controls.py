@@ -8,8 +8,6 @@ Requirements:
 """
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -20,51 +18,13 @@ from app.editing import dispatch as dispatch_mod
 from app.editing import router as router_mod
 from app.editing.router import router
 from app.editing.store import _reset_local_edits, get_or_create_edit
+from app.scripting.scripts import Script
 
 app = FastAPI()
 app.include_router(router)
 client = TestClient(app)
 
 HEADERS = {"authorization": "Bearer tok_test"}
-
-
-class MockScript:
-    """Mock script model for testing (1 scene, locked)."""
-
-    def __init__(self) -> None:
-        self.state = "locked"
-        self.title = "Test Script"
-        self.funnel_stage = "tofu"
-        self.target_seconds = 10
-        self.frame_zero = {
-            "visual": "Initial hook visual",
-            "on_screen_text": "Hook",
-            "why_it_stops_the_scroll": "Catches attention",
-        }
-        self.scenes = [
-            {
-                "n": 1,
-                "start_s": 0.0,
-                "end_s": 5.0,
-                "phase": "hook",
-                "spoken_text": "Spoken text for scene 1",
-                "shot": "medium shot",
-                "on_screen_text": "Text scene 1",
-                "acting_note": "speak clearly",
-                "sound": "upbeat",
-                "asset_type": "a_roll",
-            }
-        ]
-
-    def model_dump(self, mode: str = "json") -> dict[str, Any]:
-        return {
-            "state": self.state,
-            "title": self.title,
-            "funnel_stage": self.funnel_stage,
-            "target_seconds": self.target_seconds,
-            "frame_zero": self.frame_zero,
-            "scenes": self.scenes,
-        }
 
 
 
@@ -87,8 +47,88 @@ def reset_local_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("app.guard.guard.get_remaining_credits", lambda t: 100)
     monkeypatch.setattr("app.guard.guard.refund_credits", lambda t, a, s: 100)
 
-    mock_script = MockScript()
-    monkeypatch.setattr("app.editing.router._check_script", lambda tok, idea: mock_script)
+    # Mock _check_script to return a real Script instance (domain model, no MockScript)
+    test_script = Script(
+        id="test-script-id",
+        session_id="tok_test",
+        idea_id="idea_test",
+        title="Test Script",
+        angle="Test angle",
+        funnel_stage="tofu",
+        target_seconds=60,
+        frame_zero={
+            "visual": "Initial hook visual",
+            "on_screen_text": "Hook",
+            "why_it_stops_the_scroll": "Catches attention",
+        },
+        scenes=[
+            {
+                "n": 1,
+                "start_s": 0.0,
+                "end_s": 5.0,
+                "phase": "hook",
+                "spoken_text": "Spoken text for scene 1",
+                "shot": "medium shot",
+                "on_screen_text": "Text 1",
+                "acting_note": "speak clearly",
+                "sound": "upbeat",
+                "asset_type": "a_roll",
+            },
+            {
+                "n": 2,
+                "start_s": 5.0,
+                "end_s": 10.0,
+                "phase": "lock_in",
+                "spoken_text": "Spoken text for scene 2",
+                "shot": "medium shot",
+                "on_screen_text": "Text 2",
+                "acting_note": "speak clearly",
+                "sound": "upbeat",
+                "asset_type": "a_roll",
+            },
+            {
+                "n": 3,
+                "start_s": 10.0,
+                "end_s": 15.0,
+                "phase": "body_1",
+                "spoken_text": "Spoken text for scene 3",
+                "shot": "medium shot",
+                "on_screen_text": "Text 3",
+                "acting_note": "speak clearly",
+                "sound": "upbeat",
+                "asset_type": "a_roll",
+            },
+            {
+                "n": 4,
+                "start_s": 15.0,
+                "end_s": 20.0,
+                "phase": "body_2",
+                "spoken_text": "Spoken text for scene 4",
+                "shot": "medium shot",
+                "on_screen_text": "Text 4",
+                "acting_note": "speak clearly",
+                "sound": "upbeat",
+                "asset_type": "a_roll",
+            },
+            {
+                "n": 5,
+                "start_s": 20.0,
+                "end_s": 25.0,
+                "phase": "close_cta",
+                "spoken_text": "Spoken text for scene 5",
+                "shot": "medium shot",
+                "on_screen_text": "Text 5",
+                "acting_note": "speak clearly",
+                "sound": "upbeat",
+                "asset_type": "a_roll",
+            },
+        ],
+        state="locked",
+    )
+    # Patch where _check_script is imported and used (router's namespace)
+    monkeypatch.setattr(
+        "app.editing.router._check_script", lambda session_token, script_id: test_script
+    )
     yield
 
 
