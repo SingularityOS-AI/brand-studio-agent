@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Progress Bar</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: transparent;
+            overflow: hidden;
+            aspect-ratio: 9 / 16;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-track {
+            width: 80%;
+            height: 24px;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-track::before {
+            content: '';
+            position: absolute;
+            inset: 2px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            z-index: 1;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: #FF6B6B;
+            position: relative;
+            z-index: 0;
+            transform-origin: left;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: 700;
+            z-index: 2;
+            text-align: center;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="progress-track" id="progressTrack">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text" id="progressText"></div>
+    </div>
+
+    <script src="gsap.min.js"></script>
+    <script>
+        // Retrieve params from window.__params
+        const params = window.__params || {};
+        const text = params.text || "0%";
+        const brandSoul = params.brandSoul || {
+            color: "#FFFFFF",
+            accent: "#FF6B6B",
+            font: "Inter"
+        };
+
+        const progressFillEl = document.getElementById('progressFill');
+        const progressTextEl = document.getElementById('progressText');
+        const progressTrackEl = document.getElementById('progressTrack');
+
+        // Parse percentage from text (handles "75%", "3/4", etc.)
+        let targetPercent = 0;
+        if (text.includes('%')) {
+            targetPercent = Math.min(100, Math.max(0, parseFloat(text.replace('%', ''))));
+        } else if (text.includes('/')) {
+            const parts = text.split('/');
+            if (parts.length === 2) {
+                const numerator = parseFloat(parts[0].trim());
+                const denominator = parseFloat(parts[1].trim());
+                if (!isNaN(numerator) && !isNaN(denominator) && denominator > 0) {
+                    targetPercent = Math.min(100, Math.max(0, (numerator / denominator) * 100));
+                }
+            }
+        } else {
+            const num = parseFloat(text);
+            if (!isNaN(num)) {
+                targetPercent = Math.min(100, Math.max(0, num));
+            }
+        }
+
+        // Set initial width to 0
+        progressFillEl.style.width = '0%';
+        progressTextEl.textContent = text;
+
+        // Apply brand Soul styling
+        progressFillEl.style.backgroundColor = brandSoul.accent;
+        progressTextEl.style.color = brandSoul.color;
+        progressTextEl.style.fontFamily = brandSoul.font;
+
+        // E2-04 text fit rule: K=0.58, shrink 2px, min 28px, max 1 line
+        const availableWidth = params.w || 900;
+        const trackWidth = Math.min(availableWidth * 0.8, 720); // 80% of available, max 720px
+
+        // Calculate font size based on text length
+        const textLen = text.length;
+        const K = 0.58;
+        let fontSize = Math.min(48, Math.floor(trackWidth / (K * Math.max(1, textLen))));
+        fontSize = Math.max(28, fontSize); // Min 28px
+
+        progressTextEl.style.fontSize = fontSize + 'px';
+
+        // Adjust track size
+        const trackHeight = Math.max(16, Math.floor(fontSize * 0.5));
+        progressTrackEl.style.width = trackWidth + 'px';
+        progressTrackEl.style.height = trackHeight + 'px';
+
+        // Create paused GSAP timeline
+        const tl = gsap.timeline({ paused: true });
+
+        // Entrance animation (<= 0.8s)
+        // Bar grows from 0% to target
+        tl.to(progressFillEl, {
+            width: targetPercent + '%',
+            duration: 0.7,
+            ease: "power2.out"
+        })
+        // Text fades in with slight delay
+        .fromTo(progressTextEl,
+            { opacity: 0, y: 10 },
+            { opacity: 1, y: 0, duration: 0.5, ease: "back.out(1.2)" },
+            "-=0.3"
+        );
+
+        // Exit animation (<= 0.4s)
+        tl.to([progressFillEl, progressTrackEl, progressTextEl], {
+            scaleX: 0.8,
+            opacity: 0,
+            duration: 0.35,
+            ease: "power2.in"
+        });
+
+        // Export timeline as window.__timelines.main (paused)
+        window.__timelines.main = tl;
+    </script>
+</body>
+</html>

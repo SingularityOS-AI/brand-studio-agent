@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stat Counter Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 1080px;
+            height: 1920px;
+            background-color: rgba(0, 0, 0, 0);
+            overflow: hidden;
+        }
+
+        #overlay-container {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transform: scale(0);
+        }
+
+        #stat-text {
+            text-align: center;
+            line-height: 1.2;
+            font-weight: bold;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        #stat-label {
+            text-align: center;
+            line-height: 1.3;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div id="overlay-container">
+        <div id="stat-text"></div>
+        <div id="stat-label"></div>
+    </div>
+
+    <script src="gsap.min.js"></script>
+    <script>
+        (function() {
+            // Wait for window.__params to be available
+            const checkParams = setInterval(() => {
+                if (window.__params) {
+                    clearInterval(checkParams);
+                    initOverlay();
+                }
+            }, 10);
+
+            function initOverlay() {
+                const params = window.__params;
+                const container = document.getElementById('overlay-container');
+                const statText = document.getElementById('stat-text');
+                const statLabel = document.getElementById('stat-label');
+
+                // Apply brand styling
+                const brandColor = params.brandSoul.color;
+                const accentColor = params.brandSoul.accent;
+                const fontFamily = params.brandSoul.font;
+
+                statText.style.color = accentColor;
+                statText.style.fontFamily = fontFamily;
+                statLabel.style.color = brandColor;
+                statLabel.style.fontFamily = fontFamily;
+
+                // Position container
+                container.style.left = params.x + 'px';
+                container.style.top = params.y + 'px';
+                container.style.width = params.w + 'px';
+                container.style.height = params.h + 'px';
+
+                const text = params.text;
+                const label = params.label;
+
+                // Text fit rule implementation (E2-04)
+                const K = 0.58;
+                const minFontSize = 28;
+                const maxLines = 3;
+
+                function fitText(element, textContent, availableWidth, availableHeight) {
+                    const lines = textContent.split('\n');
+                    const longestLineLength = Math.max(...lines.map(line => line.length));
+                    
+                    let fontSize = Math.floor(availableWidth / (K * longestLineLength));
+                    
+                    // Clamp to minimum size
+                    if (fontSize < minFontSize) {
+                        fontSize = minFontSize;
+                    }
+
+                    // Set font size and measure
+                    element.style.fontSize = fontSize + 'px';
+                    element.textContent = textContent;
+
+                    let textHeight = element.offsetHeight;
+                    let attempts = 0;
+                    const maxAttempts = 100;
+
+                    // Shrink until text fits height constraint
+                    while (textHeight > availableHeight && fontSize > minFontSize && attempts < maxAttempts) {
+                        fontSize = Math.max(fontSize - 2, minFontSize);
+                        element.style.fontSize = fontSize + 'px';
+                        textHeight = element.offsetHeight;
+                        attempts++;
+                    }
+
+                    // Limit to max lines if still too tall
+                    if (textHeight > availableHeight) {
+                        const lineHeight = fontSize * 1.2;
+                        const maxHeight = lineHeight * maxLines;
+                        if (textHeight > maxHeight) {
+                            element.style.fontSize = Math.floor(maxHeight / (textContent.split('\n').length * 1.2)) + 'px';
+                        }
+                    }
+
+                    return fontSize;
+                }
+
+                // Calculate space allocation (text gets 70%, label gets 30%)
+                const textHeight = params.h * 0.7;
+                const labelHeight = params.h * 0.3;
+
+                fitText(statText, text, params.w, textHeight);
+                fitText(statLabel, label, params.w, labelHeight);
+
+                // Create GSAP timeline
+                const tl = gsap.timeline({ paused: true });
+
+                // Entrance animation: scale 0 → 1, opacity 0 → 1
+                tl.to(container, {
+                    duration: 0.6,
+                    scale: 1,
+                    opacity: 1,
+                    ease: 'back.out(1.7)'
+                });
+
+                // Check if text is a percentage for counting animation
+                const percentMatch = text.match(/^(\d+(\.\d+)?)%*$/);
+                if (percentMatch) {
+                    const targetValue = parseFloat(percentMatch[1]);
+                    const isWholeNumber = text.includes('%') && !text.includes('.');
+                    
+                    tl.to({}, {
+                        duration: 0.8,
+                        onUpdate: function() {
+                            const progress = this.progress();
+                            const currentValue = Math.floor(targetValue * progress);
+                            statText.textContent = currentValue + '%';
+                        },
+                        ease: 'power1.out'
+                    }, '<0.1');
+                }
+
+                // Exit animation: scale 1 → 0.8, opacity 1 → 0
+                tl.to(container, {
+                    duration: 0.4,
+                    scale: 0.8,
+                    opacity: 0,
+                    ease: 'power2.in'
+                }, '+=0.1');
+
+                // Export timeline as required
+                window.__timelines = window.__timelines || {};
+                window.__timelines.main = tl;
+            }
+        })();
+    </script>
+</body>
+</html>

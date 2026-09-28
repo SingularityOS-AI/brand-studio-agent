@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lower Third Overlay</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    #lower-third {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .container {
+      position: absolute;
+      left: 0;
+      top: 0;
+      display: flex;
+      align-items: center;
+      opacity: 0;
+    }
+
+    .accent-bar {
+      width: 12px;
+      height: 100%;
+      opacity: 0;
+    }
+
+    .content-box {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      opacity: 0;
+    }
+
+    .title {
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      visibility: hidden;
+    }
+
+    .title.multiline {
+      white-space: normal;
+      max-width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="lower-third">
+    <div class="container">
+      <div class="accent-bar"></div>
+      <div class="content-box">
+        <div class="title"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      const params = window.__params || {};
+      const text = params.text || 'Title';
+      const x = params.x || 50;
+      const y = params.y || 1500;
+      const w = params.w || 800;
+      const h = params.h || 120;
+
+      const brandSoul = params.brandSoul || {};
+      const color = brandSoul.color || '#000000';
+      const accent = brandSoul.accent || '#FF6B35';
+      const fontFamily = brandSoul.font || 'Arial, sans-serif';
+
+      const container = document.querySelector('.container');
+      const accentBar = document.querySelector('.accent-bar');
+      const contentBox = document.querySelector('.content-box');
+      const titleEl = document.querySelector('.title');
+
+      // Position and size
+      gsap.set(container, { left: x, top: y, width: w, height: h });
+
+      // Brand soul styles
+      gsap.set(contentBox, {
+        backgroundColor: color,
+        fontFamily: fontFamily
+      });
+      gsap.set(accentBar, { backgroundColor: accent });
+      gsap.set(titleEl, {
+        color: '#ffffff',
+        fontFamily: fontFamily
+      });
+
+      // Text fitting (E2-04: K=0.58, shrink 2px, min 28px, max 2 lines)
+      titleEl.textContent = text;
+      titleEl.style.visibility = 'visible';
+
+      function fitText(element, maxWidth, maxHeight) {
+        let fontSize = Math.min(maxWidth * 0.58, 140); // K=0.58, max reasonable start
+        const minFontSize = 28;
+        const shrinkStep = 2;
+
+        element.style.fontSize = fontSize + 'px';
+        element.classList.add('multiline');
+
+        let lines = getLineCount(element);
+
+        while ((element.offsetHeight > maxHeight || lines > 2) && fontSize > minFontSize) {
+          fontSize -= shrinkStep;
+          element.style.fontSize = fontSize + 'px';
+          lines = getLineCount(element);
+        }
+
+        if (fontSize <= minFontSize && (element.offsetHeight > maxHeight || lines > 2)) {
+          element.textContent = text.substring(0, Math.floor(text.length * 0.8)) + '...';
+          element.style.fontSize = minFontSize + 'px';
+          lines = 1;
+        }
+
+        // If single line fits well, remove multiline class
+        if (lines === 1 && element.offsetWidth < maxWidth) {
+          element.classList.remove('multiline');
+        }
+      }
+
+      function getLineCount(element) {
+        const height = element.offsetHeight;
+        const lineHeight = parseInt(window.getComputedStyle(element).lineHeight);
+        return Math.round(height / lineHeight);
+      }
+
+      // Calculate available space for text (subtract margins)
+      const availableWidth = w - 96; // 24px padding each side + 12px accent bar
+      const availableHeight = h - 48; // vertical padding
+
+      fitText(titleEl, availableWidth, availableHeight);
+
+      // Build timeline
+      const tl = gsap.timeline({ paused: true });
+
+      // Entrance: slide in from left with accent bar, <= 0.8s
+      tl.to(container, {
+        opacity: 1,
+        duration: 0.05
+      }, 'entrance');
+
+      tl.to(accentBar, {
+        opacity: 1,
+        x: 0,
+        duration: 0.5,
+        ease: 'power2.out'
+      }, 'entrance+=0.05');
+
+      tl.to(contentBox, {
+        opacity: 1,
+        x: 0,
+        duration: 0.5,
+        ease: 'power2.out'
+      }, 'entrance+=0.15');
+
+      // Exit: slide out left, <= 0.4s
+      tl.to([accentBar, contentBox], {
+        opacity: 0,
+        x: -100,
+        duration: 0.3,
+        ease: 'power2.in'
+      }, 'exit');
+
+      tl.to(container, {
+        opacity: 0,
+        duration: 0.05
+      }, 'exit+=0.3');
+
+      // Export timeline
+      window.__timelines = window.__timelines || {};
+      window.__timelines.main = tl;
+
+    })();
+  </script>
+</body>
+</html>
