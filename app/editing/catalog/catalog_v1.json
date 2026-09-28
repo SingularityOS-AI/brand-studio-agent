@@ -21,5 +21,35 @@
     "zooms_per_scene": 3,
     "overlays_per_scene": 2,
     "emphasis_per_scene": 3
+  },
+  "styles": {
+    "clean": {
+      "label": "Clean",
+      "limits": {
+        "zooms_per_scene": 1,
+        "overlays_per_scene": null,
+        "overlays_per_two_scenes": 1,
+        "emphasis_per_scene": 3,
+        "transitions_allowed": ["cut", "flash"]
+      }
+    },
+    "standard": {
+      "label": "Standard",
+      "limits": {
+        "zooms_per_scene": 3,
+        "overlays_per_scene": 2,
+        "emphasis_per_scene": 3,
+        "transitions_allowed": null
+      }
+    },
+    "bold": {
+      "label": "Bold",
+      "limits": {
+        "zooms_per_scene": 3,
+        "overlays_per_scene": 2,
+        "emphasis_per_scene": 3,
+        "transitions_allowed": null
+      }
+    }
   }
 }
