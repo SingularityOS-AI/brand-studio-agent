@@ -262,6 +262,8 @@
       tools.push.apply(tools, SOUL_TOOL_SCHEMAS);
     } else if (step === 'audiovisual') {
       tools.push.apply(tools, AUDIOVISUAL_TOOL_SCHEMAS);
+    } else if (step === 'editing') {
+      tools.push.apply(tools, EDIT_ACTION_SCHEMAS);
     }
 
     return tools;
@@ -889,6 +891,209 @@
   ];
 
   // -------------------------------------------------------------------------
+  // F-11: Editing Voice Tools
+  // -------------------------------------------------------------------------
+
+  const EDIT_ACTION_SCHEMAS = [
+    {
+      type: 'function',
+      name: 'edit_build_raw',
+      description: 'Build the raw editing timeline by loading the script and creating the initial IR. Free.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'edit_auto_edit',
+      description: 'Apply auto-edit style to the entire video (clean, standard, or bold). Free up to 3 restyles (E2-11).',
+      parameters: {
+        type: 'object',
+        properties: {
+          style: {
+            type: 'string',
+            description: 'Video style: clean (minimal), standard (balanced), or bold (energetic)',
+            enum: ['clean', 'standard', 'bold'],
+          },
+        },
+        required: ['style'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_scene_visual',
+      description: 'Toggle face appearance or B-roll for a scene, or reset to default. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+          visual: {
+            type: 'string',
+            description: 'Visual setting',
+            enum: ['face', 'broll', 'reset'],
+          },
+        },
+        required: ['scene_n', 'visual'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_trim',
+      description: 'Adjust scene start and end trim points by millisecond offset. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+          start_ms: {
+            type: 'integer',
+            description: 'Adjustment in milliseconds (positive = include more of the original)',
+          },
+          end_ms: {
+            type: 'integer',
+            description: 'Adjustment in milliseconds (positive = include more of the original)',
+          },
+        },
+        required: ['scene_n'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_music',
+      description: 'Toggle background music for the video. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          on: {
+            type: 'boolean',
+            description: 'Music enabled or disabled',
+          },
+        },
+        required: ['on'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_sfx',
+      description: 'Toggle sound effects for the video. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          on: {
+            type: 'boolean',
+            description: 'SFX enabled or disabled',
+          },
+        },
+        required: ['on'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_fix_caption',
+      description: 'Fix a caption word by specifying the word and its replacement. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          word: {
+            type: 'string',
+            description: 'The caption word to fix (matches word in captions_words state)',
+          },
+          text: {
+            type: 'string',
+            description: 'New text for this word',
+          },
+        },
+        required: ['word', 'text'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_caption_position',
+      description: 'Set vertical position for all captions. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          position: {
+            type: 'string',
+            description: 'Caption position',
+            enum: ['top', 'middle', 'bottom'],
+          },
+        },
+        required: ['position'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_overlay_delete',
+      description: 'Delete an overlay by its 1-based index or overlay_id string. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          n: {
+            type: 'string',
+            description: 'Overlay identifier (1-based index number or overlay_id string)',
+          },
+        },
+        required: ['n'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_overlays',
+      description: 'Toggle all overlays visibility on or off. Free.',
+      parameters: {
+        type: 'object',
+        properties: {
+          on: {
+            type: 'boolean',
+            description: 'Overlays enabled or disabled',
+          },
+        },
+        required: ['on'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_post_copy',
+      description: 'Generate social media post copy text from the video content. Free.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'edit_share_link',
+      description: 'Copy or retrieve the share link for the rendered video. Free.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'edit_try_another_take',
+      description: 'Generate another visual variation for a scene with different styling. Costs 2 credits. Requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scene_n: {
+            type: 'integer',
+            description: 'Scene number (1-based)',
+            minimum: 1,
+          },
+        },
+        required: ['scene_n'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'edit_render',
+      description: 'Render the final video. Cost varies: first render 20 credits, re-render 5 credits, engine update 0 credits. Requires confirmation.',
+      parameters: { type: 'object', properties: {} },
+    },
+  ];
+
+  // -------------------------------------------------------------------------
   // F-10: Proactive Job Announcements (Spike & Fallback)
   // -------------------------------------------------------------------------
 
@@ -947,6 +1152,8 @@
     findIdeaInCatalog: findIdeaInCatalog,
     CATALOG_TOOL_SCHEMAS: CATALOG_TOOL_SCHEMAS,
     SOUL_TOOL_SCHEMAS: SOUL_TOOL_SCHEMAS,
+    // F-11 Editing tools
+    EDIT_ACTION_SCHEMAS: EDIT_ACTION_SCHEMAS,
     // F-10 Proactive announcements
     addAnnouncement: addAnnouncement,
     getPendingAnnouncements: getPendingAnnouncements,

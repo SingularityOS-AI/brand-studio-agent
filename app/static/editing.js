@@ -216,16 +216,45 @@
     return res.ok ? res.data : null;
   }
 
-  async function postDress(ideaId, style = "standard", expectedVersion = null) {
+  async function postDress(ideaId, style = "standard", editVersion = null) {
     const payload = { style: style };
-    if (expectedVersion !== null) {
-      payload.expected_version = expectedVersion;
+    if (editVersion !== null) {
+      payload.expected_version = editVersion;
     }
     const res = await apiCall(`/api/editing/${ideaId}/dress`, "POST", payload);
     if (res.ok && res.data && res.data.code === "restyle_limit") {
       showError("Restyle limit reached. You can restyle a cut up to 3 times for free.");
     }
     return res.ok ? res.data : null;
+  }
+
+  async function patchOverlays(ideaId, payload) {
+    // If payload contains op, forward directly. Otherwise map overlays_enabled / delete_overlay:
+    let body = payload;
+    if (payload.op === "delete") {
+      body = {
+        op: "overlay_delete",
+        overlay_id: String(payload.overlayKey || payload.overlay_id),
+        expected_version: (currentEditingState && currentEditingState.edit_version) || 1
+      };
+    } else if (payload.op === "enabled") {
+      body = {
+        op: "overlays_enabled",
+        value: Boolean(payload.enabled !== undefined ? payload.enabled : payload.value),
+        expected_version: (currentEditingState && currentEditingState.edit_version) || 1
+      };
+    }
+
+    const res = await fetch(`/api/editing/${encodeURIComponent(ideaId)}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to patch overlays");
+    }
+    return res.json();
   }
 
   async function postRedressScene(ideaId, sceneN) {
@@ -348,14 +377,20 @@
       label: "Fix Caption",
       credits: 0,
       run: async (args) => {
-        return await patchCaption(args.ideaId, args.wordId, args.text);
+        // Resolve word to word_id from captions_words state
+        let wordId = args.wordId;
+        if (args.word && !wordId && currentEditingState && currentEditingState.ir && currentEditingState.ir.captions_words) {
+          const match = currentEditingState.ir.captions_words.find(w => w.text === args.word);
+          wordId = match ? match.id : args.word;
+        }
+        return await patchCaption(args.ideaId, wordId, args.text);
       }
     },
     dress_all: {
       label: "Auto-edit · free",
       credits: 0,
       run: async (args) => {
-        return await postDress(args.ideaId, args.editVersion);
+        return await postDress(args.ideaId, args.style, args.editVersion);
       }
     },
     redress_scene: {
@@ -425,6 +460,27 @@
           op: "caption_y",
           value: args.captionY,
           expected_version: (currentEditingState && currentEditingState.edit_version) || undefined
+        });
+      }
+    },
+    // F-11: Overlay actions
+    delete_overlay: {
+      label: "Delete overlay",
+      credits: 0,
+      run: async (args) => {
+        return await patchOverlays(args.ideaId, {
+          op: "delete",
+          overlayKey: args.n
+        });
+      }
+    },
+    overlays_enabled: {
+      label: "Toggle overlays",
+      credits: 0,
+      run: async (args) => {
+        return await patchOverlays(args.ideaId, {
+          op: "enabled",
+          enabled: args.value
         });
       }
     }
@@ -1477,7 +1533,8 @@
     onHide: onHideEditingView,
     run: runEditAction,
     EDIT_ACTIONS: EDIT_ACTIONS,
-    hasFinalRender: hasFinalRender
+    hasFinalRender: hasFinalRender,
+    loadEditingState: loadEditingState
   };
 
   if (typeof window !== "undefined") {

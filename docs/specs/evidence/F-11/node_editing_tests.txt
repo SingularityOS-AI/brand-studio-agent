@@ -1,0 +1,30 @@
+Node Test Harness Results for F-11 (Editing Voice Tools)
+==========================================================
+
+Command: node tests/agent_editing.test.js
+
+Output:
+--------
+ok - EDIT_ACTION_SCHEMAS contains all 14 editing tools
+ok - toolsForStep("editing") returns global + editing tools
+ok - edit_build_raw is registered and calls run("build_raw")
+ok - edit_auto_edit passes style parameter
+ok - edit_scene_visual calls toggle_face for "face"
+ok - edit_scene_visual calls toggle_face(false) for "broll"
+ok - edit_scene_visual calls reset_face for "reset"
+ok - edit_trim applies start_ms and end_ms adjustments
+ok - edit_music calls mute_music with inverted value
+ok - edit_sfx calls toggle_sfx with value
+ok - edit_fix_caption calls fix_caption with word and text
+ok - edit_caption_position maps position to correct Y values
+ok - edit_overlay_delete calls delete_overlay
+ok - edit_overlays calls overlays_enabled
+ok - edit_post_copy calls gen_metadata
+ok - edit_share_link calls copy_share_link
+ok - edit_try_another_take costs 2 credits and needs confirmation
+ok - edit_try_another_take calls redress_scene
+ok - edit_render uses dynamic cost from state.render_price
+ok - edit_render calls render
+
+All tests passed!
+===================================

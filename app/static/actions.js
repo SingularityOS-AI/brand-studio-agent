@@ -410,5 +410,152 @@
     run: () => window.BrandStudio.lockCatalog(),
   });
 
+  // ==========================================================================
+  // F-11: Editing Actions
+  // ==========================================================================
+
+  // Free editing tools
+  register({
+    id: 'edit_build_raw',
+    step: 'editing',
+    title: 'Build the raw editing timeline',
+    needsConfirm: false,
+    cost: () => 0,
+    run: () => window.BrandStudioEditing.run('build_raw'),
+  });
+
+  register({
+    id: 'edit_auto_edit',
+    step: 'editing',
+    title: 'Auto-edit video',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ style }, _ideaId) => window.BrandStudioEditing.run('dress_all', { style }),
+  });
+
+  register({
+    id: 'edit_scene_visual',
+    step: 'editing',
+    title: 'Change scene visual',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ scene_n, visual }, _ideaId) => {
+      if (visual === 'face') {
+        window.BrandStudioEditing.run('toggle_face', { sceneN: scene_n, value: true });
+      } else if (visual === 'broll') {
+        window.BrandStudioEditing.run('toggle_face', { sceneN: scene_n, value: false });
+      } else if (visual === 'reset') {
+        window.BrandStudioEditing.run('reset_face', { sceneN: scene_n });
+      }
+    },
+  });
+
+  register({
+    id: 'edit_trim',
+    step: 'editing',
+    title: 'Trim scene',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ scene_n, start_ms, end_ms }, _ideaId) =>
+      window.BrandStudioEditing.run('trim', { sceneN: scene_n, deltaStartMs: start_ms, deltaEndMs: end_ms }),
+  });
+
+  register({
+    id: 'edit_music',
+    step: 'editing',
+    title: 'Toggle music',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ on }, _ideaId) => window.BrandStudioEditing.run('mute_music', { value: !on }),
+  });
+
+  register({
+    id: 'edit_sfx',
+    step: 'editing',
+    title: 'Toggle SFX',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ on }, _ideaId) => window.BrandStudioEditing.run('toggle_sfx', { value: on }),
+  });
+
+  register({
+    id: 'edit_fix_caption',
+    step: 'editing',
+    title: 'Fix caption',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ word, text }, _ideaId) => window.BrandStudioEditing.run('fix_caption', { word, text }),
+  });
+
+  register({
+    id: 'edit_caption_position',
+    step: 'editing',
+    title: 'Set caption position',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ position }, _ideaId) => {
+      const captionY = { 'top': 520, 'middle': 1080, 'bottom': 1600 }[position];
+      window.BrandStudioEditing.run('caption_y', { captionY });
+    },
+  });
+
+  register({
+    id: 'edit_overlay_delete',
+    step: 'editing',
+    title: 'Delete overlay',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ n }, _ideaId) => window.BrandStudioEditing.run('delete_overlay', { n }),
+  });
+
+  register({
+    id: 'edit_overlays',
+    step: 'editing',
+    title: 'Toggle overlays',
+    needsConfirm: false,
+    cost: () => 0,
+    run: ({ on }, _ideaId) => window.BrandStudioEditing.run('overlays_enabled', { value: on }),
+  });
+
+  register({
+    id: 'edit_post_copy',
+    step: 'editing',
+    title: 'Generate post copy',
+    needsConfirm: false,
+    cost: () => 0,
+    run: () => window.BrandStudioEditing.run('gen_metadata'),
+  });
+
+  register({
+    id: 'edit_share_link',
+    step: 'editing',
+    title: 'Copy share link',
+    needsConfirm: false,
+    cost: () => 0,
+    run: () => window.BrandStudioEditing.run('copy_share_link'),
+  });
+
+  // Paid editing tools
+  register({
+    id: 'edit_try_another_take',
+    step: 'editing',
+    title: 'Try another take',
+    needsConfirm: true,
+    cost: () => 2,
+    run: ({ scene_n }, _ideaId) => window.BrandStudioEditing.run('redress_scene', { sceneN: scene_n }),
+  });
+
+  register({
+    id: 'edit_render',
+    step: 'editing',
+    title: 'Render video',
+    needsConfirm: true,
+    cost: async ({ _ideaId }) => {
+      const state = await window.BrandStudioEditing.loadEditingState(_ideaId);
+      return state.ir.render_price || state.render_price || 20;
+    },
+    run: async () => window.BrandStudioEditing.run('render'),
+  });
+
   window.BrandStudioActions = BrandStudioActions;
 })();
