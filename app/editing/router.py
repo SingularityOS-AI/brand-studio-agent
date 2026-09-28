@@ -339,7 +339,6 @@ def _state(
     }
 
 
-
 @router.get("/{idea_id}")
 async def get_editing_state(request: Request, idea_id: str) -> JSONResponse:
     """GET editing state endpoint."""
@@ -716,23 +715,42 @@ async def patch_captions(request: Request, idea_id: str, word_id: str) -> JSONRe
 class DressRequestBody(BaseModel):
     """Request body for POST /{idea_id}/dress endpoint (E2-11)."""
 
+    model_config = {"extra": "forbid"}
+
     style: str = "standard"
     expected_version: int | None = None
 
 
 @router.post("/{idea_id}/dress")
-async def post_dress(request: Request, idea_id: str) -> JSONResponse:
-    """POST dress endpoint — dresses all scenes using closed catalog."""
+async def post_dress(
+    request: Request, idea_id: str, body: DressRequestBody = DressRequestBody()
+) -> JSONResponse:
+    """POST dress endpoint — dresses all scenes using closed catalog.
+
+    E2-11: Accepts optional 'style' parameter (clean/standard/bold) and tracks
+    free restyles per raw cut. 3 free restyles allowed; 4th returns 409 'restyle_limit'
+    without charging credits. Limit resets when raw cut changes.
+    """
+    try:
+        raw_body = await request.json()
+        if isinstance(raw_body, dict) and raw_body:
+            body = DressRequestBody.model_validate(raw_body)
+    except Exception:
+        pass
+
+    style = body.style
+    if style not in ("clean", "standard", "bold"):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": f"Invalid style: {style}. Must be 'clean', 'standard', or 'bold'."
+            },
+        )
+
     try:
         session_token, script, jobs, edit = _load(request, idea_id)
     except EditingError as e:
         return JSONResponse(status_code=e.status_code, content=e.content)
-
-    try:
-        raw_body = await request.json()
-        body = DressRequestBody.model_validate(raw_body)
-    except Exception:
-        body = DressRequestBody()
 
     state = _state(session_token, idea_id, script, jobs, edit)
     missing_takes = state["missing_takes"]
@@ -742,67 +760,46 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
             content={"code": "missing_takes", "scenes": missing_takes},
         )
 
-    # Validate style (E2-11)
-    valid_styles = {"clean", "standard", "bold"}
-    if body.style not in valid_styles:
-        return JSONResponse(
-            status_code=422,
-            content={"detail": f"Invalid style: {body.style}. Must be one of: {valid_styles}"},
-        )
-
     timeline = state["timeline"]
     captions_words = state["captions_words"]
     raw_hash = cut_hash(timeline) if timeline else ""
 
-    # Check version conflict if expected_version is provided (E2-11)
-    if body.expected_version is not None:
-        if edit["version"] != body.expected_version:
-            return JSONResponse(
-                status_code=409,
-                content={"code": "version_conflict", "current": edit["version"]},
-            )
+    # E2-11: Track free_restyles_used per raw cut
+    current_dressing = state.get("dressing", {})
+    prev_raw_hash = current_dressing.get("raw_hash")
+    prev_style = current_dressing.get("style", "standard")
+    current_free_restyles = current_dressing.get("free_restyles_used", 0)
+
+    # Reset limit when raw cut changes (E2-11)
+    if prev_raw_hash != raw_hash:
+        current_free_restyles = 0
+
+    # Check if this is a restyle (different style on same cut) (E2-11)
+    is_restyle = prev_raw_hash == raw_hash and prev_style != style
+
+    # Enforce 3 free restyles limit (E2-11)
+    if is_restyle and current_free_restyles >= 3:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "code": "restyle_limit",
+                "free_restyles_used": current_free_restyles + 1,
+            },
+        )
+
+    # Check version conflict early (E2-11) - even if dressing is fresh
+    if body.expected_version is not None and body.expected_version != edit["version"]:
+        return JSONResponse(
+            status_code=409,
+            content={"code": "version_conflict", "current": edit["version"]},
+        )
 
     # "Vestir todo" is included once per raw cut (E-D13): pressing it again on the
     # same cut returns the dressing already made instead of paying Gemini again.
-    existing_dressing = state.get("dressing", {})
-    if existing_dressing.get("fresh"):
-        # E2-11: Count free restyles per raw cut - 3 free restyles per cut
-        dressing_raw_hash = existing_dressing.get("raw_hash", "")
-        if dressing_raw_hash == raw_hash and existing_dressing.get("source") == "llm":
-            # Same raw cut - check free restyles limit
-            free_restyles_used = existing_dressing.get("free_restyles_used", 0)
-            # Only count as a restyle if style is different from current
-            current_style = existing_dressing.get("style", "standard")
-            if body.style != current_style:
-                free_restyles_used += 1
-                if free_restyles_used > 3:
-                    return JSONResponse(
-                        status_code=409,
-                        content={"code": "restyle_limit", "free_restyles_used": free_restyles_used},
-                    )
-                # Update dressing with new free_restyles_used count
-                try:
-                    updated_dressing = existing_dressing.copy()
-                    updated_dressing["free_restyles_used"] = free_restyles_used
-                    updated_dressing["style"] = body.style
-                    save_edit(
-                        session_token,
-                        idea_id,
-                        fields={"dressing": updated_dressing},
-                        expected_version=edit["version"],
-                    )
-                    # Refresh state with updated dressing
-                    updated_edit = get_or_create_edit(session_token, idea_id)
-                    state = _state(session_token, idea_id, script, jobs, updated_edit)
-                except EditVersionConflict:
-                    # Version conflict - let client retry
-                    return JSONResponse(
-                        status_code=409,
-                        content={"code": "version_conflict", "current": edit.get("version")},
-                    )
-            state.pop("_inputs", None)
-            state.pop("_sfx_inputs", None)
-            return JSONResponse(status_code=200, content=state)
+    if state.get("dressing", {}).get("fresh") and not is_restyle:
+        state.pop("_inputs", None)
+        state.pop("_sfx_inputs", None)
+        return JSONResponse(status_code=200, content=state)
 
     try:
         _check_and_record_llm_call(session_token)
@@ -810,14 +807,23 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=e.status_code, content=e.content)
 
     contexts = scene_contexts(timeline, captions_words, script)
-    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1), style=body.style)
+    dressing_plan = await dress_all(
+        contexts, raw_hash, seed_base=edit.get("version", 1), style=style
+    )
+
+    # E2-11: Increment free_restyles_used if this was a restyle
+    if is_restyle:
+        current_free_restyles += 1
+        dressing_plan["free_restyles_used"] = current_free_restyles
+    else:
+        dressing_plan["free_restyles_used"] = 0
 
     try:
         updated_edit = save_edit(
             session_token,
             idea_id,
             fields={"dressing": dressing_plan},
-            expected_version=edit["version"],
+            expected_version=body.expected_version or edit["version"],
         )
     except EditVersionConflict as err:
         return JSONResponse(
@@ -1238,4 +1244,3 @@ async def post_redress_scene(
     new_state.pop("_sfx_inputs", None)
     new_state["credits_remaining"] = remaining
     return JSONResponse(status_code=200, content=new_state)
-
