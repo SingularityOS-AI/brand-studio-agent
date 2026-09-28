@@ -1534,7 +1534,7 @@
     run: runEditAction,
     EDIT_ACTIONS: EDIT_ACTIONS,
     hasFinalRender: hasFinalRender,
-    loadEditingState: getEditingState
+    loadEditingState: loadEditingState
   };
 
   if (typeof window !== "undefined") {
