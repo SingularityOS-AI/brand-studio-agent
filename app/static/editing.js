@@ -355,7 +355,7 @@
       label: "Auto-edit · free",
       credits: 0,
       run: async (args) => {
-        return await postDress(args.ideaId, state.dressStyle || "standard", args.editVersion);
+        return await postDress(args.ideaId, args.editVersion);
       }
     },
     redress_scene: {
@@ -414,37 +414,6 @@
           return linkData;
         }
         return null;
-      }
-    },
-    delete_overlay: {
-      label: "Delete overlay",
-      credits: 0,
-      run: async (args) => {
-        return await patchSettings(args.ideaId, {
-          op: "overlay_delete",
-          overlay_id: args.overlayId
-        });
-      }
-    },
-    edit_overlay_text: {
-      label: "Edit overlay text",
-      credits: 0,
-      run: async (args) => {
-        return await patchSettings(args.ideaId, {
-          op: "overlay_text",
-          overlay_id: args.overlayId,
-          value: args.text
-        });
-      }
-    },
-    toggle_overlays: {
-      label: "Overlays enabled",
-      credits: 0,
-      run: async (args) => {
-        return await patchSettings(args.ideaId, {
-          op: "overlays_enabled",
-          value: Boolean(args.value)
-        });
       }
     },
     // E2-09: Caption Y position
@@ -559,9 +528,6 @@
       try {
         const state = await loadEditingState(ideaId);
         if (!state) return;
-        // E2-11: Preserve dressStyle from current state or initialize from dressing
-        const prevStyle = currentEditingState && currentEditingState.dressStyle;
-        state.dressStyle = prevStyle || (state.dressing && state.dressing.style) || "standard";
         currentEditingState = state;
         updateProgressBars(state);
 
@@ -657,8 +623,6 @@
 
     try {
       const state = await loadEditingState(ideaId);
-      // E2-11: Initialize dressStyle from dressing state or default to standard
-      state.dressStyle = state.dressStyle || (state.dressing && state.dressing.style) || "standard";
       currentEditingState = state;
 
       if (!state) {
@@ -778,9 +742,6 @@
     const render = state.render || {};
     const dressing = state.dressing || {};
     const ir = state.ir || null;
-
-    // E2-11: Initialize dressStyle from dressing state or default to standard
-    state.dressStyle = state.dressStyle || (dressing.style || "standard");
 
     const hasRawVideo = Boolean(raw.signed_url && raw.fresh);
     const hasFinalVideo = Boolean(render.signed_url);
@@ -1010,11 +971,6 @@
           </p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <div style="display:flex;align-items:center;gap:4px;padding:4px;background:var(--surface-alt);border:1px solid var(--line);border-radius:6px;margin-right:8px">
-            <button type="button" class="style-btn" data-edit-style="clean" style="padding:6px 12px;border:none;background:${state.dressStyle === "clean" ? "var(--accent);color:#fff" : "transparent"};border-radius:4px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;min-width:60px">Clean</button>
-            <button type="button" class="style-btn" data-edit-style="standard" style="padding:6px 12px;border:none;background:${state.dressStyle === "standard" ? "var(--accent);color:#fff" : "transparent"};border-radius:4px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;min-width:60px">Standard</button>
-            <button type="button" class="style-btn" data-edit-style="bold" style="padding:6px 12px;border:none;background:${state.dressStyle === "bold" ? "var(--accent);color:#fff" : "transparent"};border-radius:4px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;min-width:60px">Bold</button>
-          </div>
           <button type="button" class="btn btn--secondary" data-edit-action="dress_all" style="font-size:13px">
             ${escapeHtml(dressBtnLabel)}
           </button>
@@ -1137,47 +1093,6 @@
             </div>
           </div>
 
-          <!-- Overlays Controls (E2-10) -->
-          <div style="background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <h3 style="font-size:14px;font-weight:700;margin:0;color:var(--ink)">Overlays</h3>
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--ink)">
-                <input type="checkbox" id="Editing-OverlaysToggle" ${settings.overlays_enabled !== false ? "checked" : ""} data-edit-action="toggle_overlays">
-                Enabled
-              </label>
-            </div>
-            <div id="Editing-Overlays-Content">
-              ${(() => {
-                const overlays = ir ? (ir.overlays || []) : [];
-                if (overlays.length === 0) {
-                  return `<p style="font-size:12px;color:var(--ink-soft)">No overlays generated yet.</p>`;
-                }
-                return overlays.map((ov) => {
-                  const isDeleted = settings.overlays && settings.overlays[ov.id] && settings.overlays[ov.id].deleted === true;
-                  const editedText = settings.overlays && settings.overlays[ov.id] && typeof settings.overlays[ov.id].text === "string" ? settings.overlays[ov.id].text : ov.text;
-                  const displayText = editedText || "";
-                  const timestamp = ov.start_ms ? ((ov.start_ms / 1000).toFixed(1) + "s") : "";
-                  const deleteStyle = isDeleted ? "opacity:0.5;text-decoration:line-through;" : "";
-
-                  return `
-                    <div class="editing-overlay-item" data-overlay-id="${ov.id}" style="padding:10px;background:var(--surface-alt);border:1px solid var(--line);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:12px;${deleteStyle}">
-                      <div style="flex:1;min-width:0">
-                        <span class="editing-overlay-text" style="display:block;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;" title="Click to edit text">
-                          ${escapeHtml(displayText)}
-                        </span>
-                        <span style="display:block;font-size:11px;color:var(--ink-soft);margin-top:2px">${escapeHtml(timestamp)}</span>
-                      </div>
-                      <div style="display:flex;gap:6px">
-                        <button type="button" class="btn btn--secondary editing-edit-overlay-btn" data-overlay-id="${ov.id}" style="padding:4px 8px;font-size:11px">Edit</button>
-                        <button type="button" class="btn btn--secondary editing-delete-overlay-btn" data-overlay-id="${ov.id}" style="padding:4px 8px;font-size:11px">${isDeleted ? "Restore" : "Delete"}</button>
-                      </div>
-                    </div>
-                  `;
-                }).join("");
-              })()}
-            </div>
-          </div>
-
         </div>
       </div>
     `;
@@ -1192,7 +1107,6 @@
         { label: "Captions", items: ir ? (ir.captions || []) : [], getTimes: (ev) => ({ start: ev.start_ms, end: ev.end_ms }), type: "bar", color: "#3B82F6" },
         { label: "Zoom", items: ir ? (ir.zoom_keys || []).filter((k) => k.scale > 1) : [], getTimes: (k) => ({ start: k.t_ms, end: k.t_ms }), type: "point", color: "#F59E0B" },
         { label: "Transitions", items: ir ? (ir.transitions || []) : [], getTimes: (tr) => ({ start: tr.at_ms, end: tr.at_ms + (tr.dur_ms || 0) }), type: "bar", color: "#8B5CF6" },
-        { label: "Overlays", items: ir ? (ir.overlays || []) : [], getTimes: (ov) => ({ start: ov.start_ms, end: ov.end_ms }), type: "bar", color: "#10B981" },
         { label: "SFX", items: ir ? (ir.sfx || []) : [], getTimes: (cue) => ({ start: cue.at_ms, end: cue.at_ms }), type: "point", color: "#EC4899" }
       ];
 
@@ -1478,65 +1392,6 @@
         await runEditAction("edit_metadata", { ideaId: currentIdeaId, platform: plat, field: field, value: val });
       };
     });
-
-    // --- Wire Up Overlays Delete/Edit (E2-10) ---
-    container.querySelectorAll(".editing-delete-overlay-btn").forEach((btn) => {
-      btn.onclick = async () => {
-        const overlayId = btn.dataset.overlayId;
-        await runEditAction("delete_overlay", { ideaId: currentIdeaId, overlayId: overlayId });
-      };
-    });
-
-    container.querySelectorAll(".editing-overlay-text").forEach((span) => {
-      span.onclick = (e) => {
-        e.stopPropagation();
-        const overlayItem = span.closest(".editing-overlay-item");
-        if (!overlayItem) return;
-
-        const overlayId = overlayItem.dataset.overlayId;
-        const oldText = span.textContent.trim();
-
-        const input = document.createElement("input");
-        input.type = "text";
-        input.maxLength = 80;
-        input.value = oldText;
-        input.style.width = "100%";
-        input.style.fontSize = "13px";
-        input.style.padding = "4px 6px";
-        input.style.border = "1px solid var(--accent)";
-        input.style.borderRadius = "4px";
-        input.style.boxSizing = "border-box";
-
-        span.replaceWith(input);
-        input.focus();
-        input.select();
-
-        const saveOverlayText = async () => {
-          const newText = input.value.trim();
-          if (newText && newText !== oldText && newText.length <= 80) {
-            await runEditAction("edit_overlay_text", { ideaId: currentIdeaId, overlayId: overlayId, text: newText });
-          } else {
-            renderEditingContent(state);
-          }
-        };
-
-        input.onkeydown = (ev) => {
-          if (ev.key === "Enter") {
-            ev.preventDefault();
-            input.onblur = null;
-            saveOverlayText();
-          } else if (ev.key === "Escape") {
-            ev.preventDefault();
-            input.onblur = null;
-            renderEditingContent(state);
-          }
-        };
-
-        input.onblur = () => {
-          saveOverlayText();
-        };
-      };
-    });
   }
 
   // --- Delegated Listener for [data-edit-action] ---
@@ -1563,19 +1418,6 @@
       await runEditAction(actionName, args);
     });
 
-    // Listener for style selector buttons (E2-11)
-    document.addEventListener("click", async (e) => {
-      const styleBtn = e.target.closest("#Editing-View .style-btn[data-edit-style]");
-      if (!styleBtn) return;
-
-      e.preventDefault();
-      const selectedStyle = styleBtn.dataset.editStyle;
-      if (selectedStyle && ["clean", "standard", "bold"].includes(selectedStyle)) {
-        state.dressStyle = selectedStyle;
-        await render(); // Re-render to update button styles
-      }
-    });
-
     document.addEventListener("change", async (e) => {
       const input = e.target.closest("#Editing-View [data-edit-action]");
       if (!input || input.type !== "checkbox") return;
@@ -1584,8 +1426,6 @@
       if (actionName === "mute_music") {
         await runEditAction(actionName, { ideaId: currentIdeaId, value: !input.checked });
       } else if (actionName === "toggle_sfx") {
-        await runEditAction(actionName, { ideaId: currentIdeaId, value: input.checked });
-      } else if (actionName === "toggle_overlays") {
         await runEditAction(actionName, { ideaId: currentIdeaId, value: input.checked });
       }
     });

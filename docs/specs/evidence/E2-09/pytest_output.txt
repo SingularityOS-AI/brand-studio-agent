@@ -1,8 +1,0 @@
-== PYTHON: pytest E2-09 Caption Drag ==
-24 passed, 5 warnings in 4.52s
-
-== RUFF: clean ==
-All checks passed!
-
-== NODE: editing.js and editing_preview.js: clean ==
-(no errors - clean)
