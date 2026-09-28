@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quote Overlay - Reveal Animation</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.4/gsap.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: transparent;
+      font-family: var(--brand-font, 'Georgia', serif);
+    }
+
+    #quote-container {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      opacity: 0; /* Hidden initially, animated in by GSAP */
+    }
+
+    #quote-marks {
+      font-family: var(--brand-font, 'Georgia', serif);
+      font-size: 280px;
+      line-height: 1;
+      color: var(--brand-accent, #FFD700);
+      font-weight: 300;
+      letter-spacing: -20px;
+      opacity: 0; /* Hidden initially */
+    }
+
+    #quote-text {
+      font-family: var(--brand-font, 'Georgia', serif);
+      color: var(--brand-color, #FFFFFF);
+      text-align: center;
+      line-height: 1.4;
+      font-size: 60px;
+      font-weight: 400;
+      max-width: 90%;
+      word-wrap: break-word;
+    }
+
+    #quote-text .word {
+      display: inline-block;
+      opacity: 0; /* Words hidden initially for revealed animation */
+      white-space: nowrap;
+    }
+
+    #quote-text .space {
+      display: inline-block;
+      width: 0.3em;
+    }
+  </style>
+</head>
+<body>
+  <div id="quote-container">
+    <div id="quote-marks">"</div>
+    <div id="quote-text"></div>
+  </div>
+
+  <script>
+    // Initialize main timeline as specified in requirements
+    window.__timelines = window.__timelines || {};
+  </script>
+
+  <script>
+    (function() {
+      'use strict';
+
+      /**
+       * Text fit implementation following E2-04 specification
+       * K = 0.58, shrink 2px per iteration, min 28px, max 3 lines
+       */
+      function fitText(element, maxWidth, maxHeight) {
+        const K = 0.58;
+        const fontSizeShrink = 2;
+        const minFontSize = 28;
+        const maxLines = 3;
+
+        let fontSize = parseInt(window.getComputedStyle(element).fontSize, 10);
+        const lineHeightRatio = 1.4;
+
+        // Check if text fits within bounds
+        function checkFit() {
+          const lineHeight = fontSize * lineHeightRatio;
+          const estimatedLineHeight = fontSize * K;
+          const textWidth = element.scrollWidth;
+          const textHeight = element.scrollHeight;
+
+          // Check width and height constraints
+          const widthFits = textWidth <= maxWidth;
+          const heightFits = textHeight <= maxHeight;
+          
+          // Estimate line count using scrollHeight
+          const estimatedLines = Math.ceil(textHeight / estimatedLineHeight);
+          const linesOk = estimatedLines <= maxLines;
+
+          return widthFits && heightFits && linesOk;
+        }
+
+        // Shrink font size until it fits or reaches minimum
+        while (fontSize > minFontSize && !checkFit()) {
+          fontSize -= fontSizeShrink;
+          if (fontSize < minFontSize) {
+            fontSize = minFontSize;
+          }
+          element.style.fontSize = fontSize + 'px';
+        }
+
+        return fontSize;
+      }
+
+      /**
+       * Wraps each word in a span with class 'word'
+       * Preserves spaces with separate span elements for proper layout
+       */
+      function wrapWords(element) {
+        const text = element.textContent;
+        element.innerHTML = '';
+        
+        const words = text.split(/(\s+)/);
+        words.forEach(part => {
+          if (part.trim() === '') {
+            // This is whitespace, create a space span
+            const space = document.createElement('span');
+            space.className = 'space';
+            element.appendChild(space);
+          } else if (part.trim() !== '') {
+            // This is a word
+            const wordSpan = document.createElement('span');
+            wordSpan.className = 'word';
+            wordSpan.textContent = part;
+            element.appendChild(wordSpan);
+          }
+        });
+      }
+
+      /**
+       * Initialize the quote overlay with parameters and build timeline
+       */
+      function initQuoteOverlay() {
+        // Get parameters from window.__params
+        const params = window.__params || {};
+        
+        const text = params.text || 'Your quote text here';
+        const x = params.x || 0;
+        const y = params.y || 0;
+        const w = params.w || 1080;
+        const h = params.h || 1920;
+        const brandSoul = params.brandSoul || {};
+
+        // CSS variable setup for brand styling
+        const brandColor = brandSoul.color || '#FFFFFF';
+        const brandAccent = brandSoul.accent || '#FFD700';
+        const brandFont = brandSoul.font || 'Georgia, serif';
+
+        document.body.style.setProperty('--brand-color', brandColor);
+        document.body.style.setProperty('--brand-accent', brandAccent);
+        document.body.style.setProperty('--brand-font', brandFont);
+
+        // Get DOM elements
+        const container = document.getElementById('quote-container');
+        const marks = document.getElementById('quote-marks');
+        const textEl = document.getElementById('quote-text');
+
+        // Position and size the container
+        container.style.left = x + 'px';
+        container.style.top = y + 'px';
+        container.style.width = w + 'px';
+        container.style.height = h + 'px';
+
+        // Set text content
+        textEl.textContent = text;
+
+        // Wrap words for animation
+        wrapWords(textEl);
+
+        // Fit text within bounds (E2-04 specification)
+        // Use container width with margin, and consider mark height
+        const textMaxWidth = w * 0.85; // 85% of container width
+        const textMaxHeight = h * 0.65; // 65% of container height (leave room for marks)
+        fitText(textEl, textMaxWidth, textMaxHeight);
+
+        // Build GSAP timeline (paused)
+        const tl = gsap.timeline({ paused: true });
+
+        // Get word elements for stagger
+        const words = container.querySelectorAll('.word');
+
+        // Entrance animation: <= 0.8s
+        // Phase 1: Quote marks fade in
+        tl.to(marks, {
+          opacity: 1,
+          duration: 0.4,
+          ease: 'power2.out'
+        }, 0);
+
+        // Phase 2: Words reveal word-by-word with stagger
+        tl.to(words, {
+          opacity: 1,
+          duration: 0.3,
+          ease: 'power2.out',
+          stagger: {
+            each: 0.08,
+            from: 'center'
+          }
+        }, 0.1);
+
+        // Show container
+        tl.to(container, {
+          opacity: 1,
+          duration: 0.3
+        }, 0);
+
+        // Exit animation: fade out, <= 0.4s
+        tl.to(container, {
+          opacity: 0,
+          duration: 0.4,
+          ease: 'power2.in'
+        }, 0.8);
+
+        // Export timeline as required
+        window.__timelines.main = tl;
+
+        return tl;
+      }
+
+      // Initialize on DOM content loaded
+      document.addEventListener('DOMContentLoaded', initQuoteOverlay);
+      
+    })();
+  </script>
+</body>
+</html>

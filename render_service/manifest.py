@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -37,6 +37,15 @@ OVERLAY_KINDS = (
     "card_lower_third",
     "broll_card",
     "emoji",
+    # E2-13: Animated overlay kinds
+    "stat_counter",
+    "checklist",
+    "arrow_callout",
+    "lower_third_anim",
+    "quote_reveal",
+    "icon_pop",
+    "progress_bar",
+    "keyword_highlight",
 )
 INPUT_KINDS = ("video", "image", "audio", "html")
 ERROR_CODES = ("bad_manifest", "fetch_failed", "ffmpeg_failed", "too_large", "timeout")
@@ -281,6 +290,14 @@ class OverlayCue(BaseModel):
         "card_lower_third",
         "broll_card",
         "emoji",
+        "stat_counter",
+        "checklist",
+        "arrow_callout",
+        "lower_third_anim",
+        "quote_reveal",
+        "icon_pop",
+        "progress_bar",
+        "keyword_highlight",
     ]
     asset: str | None = None
     text: str | None = Field(default=None, max_length=80)
@@ -290,7 +307,8 @@ class OverlayCue(BaseModel):
     y: int = Field(ge=0, le=1920)
     w: int = Field(ge=0, le=1080)
     h: int = Field(ge=0, le=1920)
-    anim: Literal["pop"]
+    anim: str | None = None
+    params: dict[str, Any] | None = None
     hide_captions: bool = Field(default=False)
 
     @model_validator(mode="after")

@@ -108,6 +108,18 @@
   var CARD_SHRINK_STEP_PX = 2;
   var CARD_PAD_W = 80;
   var CARD_PAD_H = 60;
+
+  // E2-13: Animated overlay kinds that use iframe + GSAP preview
+  var ANIMATED_OVERLAY_KINDS = {
+    stat_counter: true,
+    checklist: true,
+    arrow_callout: true,
+    lower_third_anim: true,
+    quote_reveal: true,
+    icon_pop: true,
+    progress_bar: true,
+    keyword_highlight: true,
+  };
   var CARD_DEFAULT_FONT_PX = {
     card_stat: 110,
     card_quote: 60,
@@ -602,6 +614,44 @@
       el.style.pointerEvents = "none";
       el._valid = true;
 
+      // E2-13: Animated overlays use iframe + GSAP
+      if (ANIMATED_OVERLAY_KINDS[stOv.kind]) {
+        el.style.display = "block";
+        var iframe = document.createElement("iframe");
+        iframe.style.width = "100%";
+        iframe.style.height = "100%";
+        iframe.style.border = "none";
+        iframe.style.background = "transparent";
+        iframe.scrolling = "no";
+
+        // Determine template URL for animated overlays
+        var templateName = stOv.kind === "lower_third_anim" ? "lower_third" : stOv.kind;
+        iframe.src = "/static/overlay_templates/" + templateName + ".html";
+
+        el.appendChild(iframe);
+        el._iframe = iframe;
+        el._templateName = templateName;
+        el._animKind = stOv.kind;
+        el._params = stOv.params || {};
+
+        // Set window.__params when iframe loads
+        iframe.onload = function () {
+          try {
+            var doc = iframe.contentDocument || iframe.contentWindow.document;
+            doc.defaultView.__params = el._params;
+            // Trigger GSAP timeline init if present
+            if (doc.defaultView.__timelines && doc.defaultView.__timelines.main) {
+              doc.defaultView.__timelines.main.pause();
+            }
+          } catch (e) {
+            // Cross-origin restrictions: fall back
+          }
+        };
+
+        return el;
+      }
+
+      // E2-13: Existing static overlay logic
       if (stOv.kind === "broll_card") {
         var img = document.createElement("img");
         img.style.width = "100%";
@@ -687,6 +737,21 @@
       el.style.width = stOv.w + "px";
       el.style.height = stOv.h + "px";
 
+      // E2-13: Update params if changed for animated overlays
+      if (el._animKind && el._params !== stOv.params) {
+        el._params = stOv.params || {};
+        try {
+          var iframe = el._iframe;
+          if (iframe && iframe.contentDocument) {
+            iframe.contentWindow.__params = el._params;
+          }
+        } catch (e) {
+          // Cross-origin restrictions: fall back
+        }
+        return; // iframe handles its own rendering
+      }
+
+      // E2-13: Existing static overlay logic
       if (stOv.kind === "broll_card") {
         var url = sfxMap ? sfxMap[stOv.asset] : null;
         var img = el.querySelector("img");
@@ -872,6 +937,7 @@
 
       // 6. Overlays
       var activeIds = {};
+      var curTimeMs = videoEl ? videoEl.currentTime * 1000 : 0;
       if (st.overlays && Array.isArray(st.overlays)) {
         for (var oIdx = 0; oIdx < st.overlays.length; oIdx++) {
           var stOv = st.overlays[oIdx];
@@ -884,6 +950,26 @@
             overlayLayer.appendChild(node);
           } else {
             updateOverlayNode(node, stOv, fontFamily, accentColor);
+          }
+
+          // E2-13: Seek GSAP timeline for animated overlays
+          if (node._iframe && node._animKind) {
+            try {
+              var iframe = node._iframe;
+              if (iframe.contentDocument && iframe.contentWindow.__timelines && iframe.contentWindow.__timelines.main) {
+                var timeline = iframe.contentWindow.__timelines.main;
+                var overlayLocalTime = curTimeMs - stOv.start_ms;
+                if (overlayLocalTime >= 0) {
+                  timeline.pause();
+                  timeline.seek(overlayLocalTime / 1000);
+                } else {
+                  timeline.seek(0);
+                  timeline.pause();
+                }
+              }
+            } catch (e) {
+              // Cross-origin restrictions: fall back
+            }
           }
 
           var targetDisplay = stOv.kind === "broll_card" ? "block" : "flex";

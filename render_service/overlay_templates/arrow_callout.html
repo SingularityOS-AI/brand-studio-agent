@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arrow Callout Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 1080px;
+            height: 1920px;
+            background-color: rgba(0, 0, 0, 0);
+            overflow: hidden;
+        }
+
+        #overlay-container {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #callout-text {
+            text-align: center;
+            line-height: 1.2;
+            font-weight: bold;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            padding: 16px 24px;
+        }
+
+        #arrow-svg {
+            width: 60px;
+            height: 60px;
+        }
+    </style>
+</head>
+<body>
+    <div id="overlay-container">
+        <div id="callout-text"></div>
+        <svg id="arrow-svg" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <filter id="arrow-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2" result="blur"/>
+                    <feMerge>
+                        <feMergeNode in="blur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+            <path id="arrow-path" d="M30 5 L5 30 L20 30 L20 55 L40 55 L40 30 L55 30 Z" filter="url(#arrow-glow)"/>
+        </svg>
+    </div>
+
+    <script src="gsap.min.js"></script>
+    <script>
+        (function() {
+            // Wait for window.__params to be available
+            const checkParams = setInterval(() => {
+                if (window.__params) {
+                    clearInterval(checkParams);
+                    initOverlay();
+                }
+            }, 10);
+
+            function initOverlay() {
+                const params = window.__params;
+                const container = document.getElementById('overlay-container');
+                const calloutText = document.getElementById('callout-text');
+                const arrowPath = document.getElementById('arrow-path');
+
+                // Apply brand styling
+                const brandColor = params.brandSoul.color;
+                const accentColor = params.brandSoul.accent;
+                const fontFamily = params.brandSoul.font;
+
+                calloutText.style.color = brandColor;
+                calloutText.style.fontFamily = fontFamily;
+                arrowPath.setAttribute('fill', accentColor);
+
+                // Calculate arrow direction based on position
+                // Arrow points toward the center of the 1080x1920 canvas
+                const canvasCenterX = 540;
+                const canvasCenterY = 960;
+                const containerCenterX = params.x + params.w / 2;
+                const containerCenterY = params.y + params.h / 2;
+
+                const dx = canvasCenterX - containerCenterX;
+                const dy = canvasCenterY - containerCenterY;
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
+
+                // Position container
+                container.style.left = params.x + 'px';
+                container.style.top = params.y + 'px';
+                container.style.width = params.w + 'px';
+                container.style.height = params.h + 'px';
+
+                const text = params.text;
+
+                // Text fit rule implementation (E2-04)
+                const K = 0.58;
+                const minFontSize = 28;
+                const maxLines = 3;
+
+                function fitText(element, textContent, availableWidth, availableHeight) {
+                    const lines = textContent.split('\n');
+                    const longestLineLength = Math.max(...lines.map(line => line.length));
+                    
+                    let fontSize = Math.floor(availableWidth / (K * longestLineLength));
+                    
+                    // Clamp to minimum size
+                    if (fontSize < minFontSize) {
+                        fontSize = minFontSize;
+                    }
+
+                    // Set font size and measure
+                    element.style.fontSize = fontSize + 'px';
+                    element.textContent = textContent;
+
+                    let textHeight = element.offsetHeight;
+                    let attempts = 0;
+                    const maxAttempts = 100;
+
+                    // Shrink until text fits height constraint (2px decrements)
+                    while (textHeight > availableHeight && fontSize > minFontSize && attempts < maxAttempts) {
+                        fontSize = Math.max(fontSize - 2, minFontSize);
+                        element.style.fontSize = fontSize + 'px';
+                        textHeight = element.offsetHeight;
+                        attempts++;
+                    }
+
+                    // Limit to max lines if still too tall
+                    if (textHeight > availableHeight) {
+                        const lineHeight = fontSize * 1.2;
+                        const maxHeight = lineHeight * maxLines;
+                        if (textHeight > maxHeight) {
+                            element.style.fontSize = Math.floor(maxHeight / (textContent.split('\n').length * 1.2)) + 'px';
+                        }
+                    }
+
+                    return fontSize;
+                }
+
+                // Apply text fit (account for arrow height of 60px)
+                const arrowHeight = 60;
+                const textAvailableHeight = params.h - arrowHeight - 20; // 20px padding
+                fitText(calloutText, text, params.w, textAvailableHeight);
+
+                // Create GSAP timeline
+                const tl = gsap.timeline({ paused: true });
+
+                // Set initial arrow rotation
+                gsap.set('#arrow-svg', { rotation: angle });
+
+                // Entrance animation: arrow bounces in from direction, text fades
+                const bounceDistance = 100;
+                const bounceX = Math.cos((angle - 90) * Math.PI / 180) * bounceDistance;
+                const bounceY = Math.sin((angle - 90) * Math.PI / 180) * bounceDistance;
+
+                tl.fromTo('#arrow-svg', 
+                    { 
+                        x: -bounceX, 
+                        y: -bounceY,
+                        opacity: 0,
+                        scale: 0
+                    },
+                    { 
+                        duration: 0.5,
+                        x: 0,
+                        y: 0,
+                        opacity: 1,
+                        scale: 1,
+                        ease: 'back.out(1.7)'
+                    }
+                );
+
+                tl.fromTo(calloutText,
+                    { opacity: 0, y: 10 },
+                    {
+                        duration: 0.4,
+                        opacity: 1,
+                        y: 0,
+                        ease: 'power2.out'
+                    },
+                    '<0.2'
+                );
+
+                // Optional: subtle arrow pulse during display
+                tl.to('#arrow-svg',
+                    {
+                        duration: 0.3,
+                        scale: 1.1,
+                        yoyo: true,
+                        repeat: 1,
+                        ease: 'power1.inOut'
+                    },
+                    '+=0.2'
+                );
+
+                // Exit animation: shrink + fade
+                tl.to('#overlay-container', {
+                    duration: 0.4,
+                    scale: 0.8,
+                    opacity: 0,
+                    ease: 'power2.in'
+                });
+
+                // Export timeline as required
+                window.__timelines = window.__timelines || {};
+                window.__timelines.main = tl;
+            }
+        })();
+    </script>
+</body>
+</html>

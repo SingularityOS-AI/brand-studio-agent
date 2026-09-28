@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 1080px;
+            height: 1920px;
+            background-color: rgba(0, 0, 0, 0);
+            overflow: hidden;
+        }
+
+        #overlay-container {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            transform: scale(1);
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            opacity: 0;
+            transform: translateX(100px);
+        }
+
+        .checkmark {
+            width: 24px;
+            height: 24px;
+            min-width: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 20px;
+            font-weight: bold;
+            line-height: 1;
+            opacity: 0;
+            transform: scale(0);
+        }
+
+        .item-text {
+            flex: 1;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div id="overlay-container"></div>
+
+    <script src="gsap.min.js"></script>
+    <script>
+        (function() {
+            // Wait for window.__params to be available
+            const checkParams = setInterval(() => {
+                if (window.__params) {
+                    clearInterval(checkParams);
+                    initOverlay();
+                }
+            }, 10);
+
+            function initOverlay() {
+                const params = window.__params;
+                const container = document.getElementById('overlay-container');
+
+                // Apply brand styling
+                const brandColor = params.brandSoul.color;
+                const accentColor = params.brandSoul.accent;
+                const fontFamily = params.brandSoul.font;
+
+                // Position container
+                container.style.left = params.x + 'px';
+                container.style.top = params.y + 'px';
+                container.style.width = params.w + 'px';
+                container.style.height = params.h + 'px';
+
+                // Parse text items (comma-separated or newlines)
+                const rawText = params.text || '';
+                const items = rawText.includes('\n') 
+                    ? rawText.split('\n').map(s => s.trim()).filter(s => s)
+                    : rawText.split(',').map(s => s.trim()).filter(s => s);
+
+                // Text fit rule implementation (E2-04)
+                const K = 0.58;
+                const minFontSize = 28;
+                const maxLinesPerItem = 3;
+                const itemSpacing = 40; // approx height for item + margin
+                const availableHeightPerItem = Math.min(params.h / items.length, params.h / items.length * 0.9);
+
+                function fitItemText(element, textContent, availableWidth, availableHeight) {
+                    const lines = textContent.split('\n');
+                    const longestLineLength = Math.max(...lines.map(line => line.length));
+                    
+                    let fontSize = Math.floor(availableWidth / (K * longestLineLength));
+                    
+                    // Clamp to minimum size
+                    if (fontSize < minFontSize) {
+                        fontSize = minFontSize;
+                    }
+
+                    // Set font size and measure
+                    element.style.fontSize = fontSize + 'px';
+                    element.textContent = textContent;
+
+                    let textHeight = element.offsetHeight;
+                    let attempts = 0;
+                    const maxAttempts = 100;
+
+                    // Shrink until text fits height constraint
+                    while (textHeight > availableHeight && fontSize > minFontSize && attempts < maxAttempts) {
+                        fontSize = Math.max(fontSize - 2, minFontSize);
+                        element.style.fontSize = fontSize + 'px';
+                        textHeight = element.offsetHeight;
+                        attempts++;
+                    }
+
+                    // Limit to max lines per item if still too tall
+                    if (textHeight > availableHeight) {
+                        const lineHeight = fontSize * 1.4;
+                        const maxHeight = lineHeight * maxLinesPerItem;
+                        if (textHeight > maxHeight) {
+                            const adjustedSize = Math.floor(maxHeight / (textContent.split('\n').length * 1.4));
+                            element.style.fontSize = Math.max(adjustedSize, minFontSize) + 'px';
+                        }
+                    }
+
+                    return fontSize;
+                }
+
+                // Create checklist items
+                items.forEach((itemText, index) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'checklist-item';
+
+                    const checkmark = document.createElement('div');
+                    checkmark.className = 'checkmark';
+                    checkmark.textContent = '✓';
+                    checkmark.style.color = accentColor;
+
+                    const textSpan = document.createElement('span');
+                    textSpan.className = 'item-text';
+                    textSpan.textContent = itemText;
+                    textSpan.style.color = brandColor;
+                    textSpan.style.fontFamily = fontFamily;
+
+                    // Fit text to container
+                    const textWidth = params.w - 36; // account for checkmark + spacing
+                    const textHeight = availableHeightPerItem - 16; // account for margin
+                    fitItemText(textSpan, itemText, textWidth, textHeight);
+
+                    itemDiv.appendChild(checkmark);
+                    itemDiv.appendChild(textSpan);
+                    container.appendChild(itemDiv);
+                });
+
+                // Create GSAP timeline
+                const tl = gsap.timeline({ paused: true });
+
+                const allItems = document.querySelectorAll('.checklist-item');
+                const allCheckmarks = document.querySelectorAll('.checkmark');
+
+                // Entrance animation: items slide in from right with stagger
+                tl.to(container, {
+                    duration: 0.3,
+                    opacity: 1,
+                    ease: 'none'
+                });
+
+                tl.to(allItems, {
+                    duration: 0.5,
+                    x: 0,
+                    opacity: 1,
+                    stagger: 0.1,
+                    ease: 'power2.out'
+                }, '-=0.1');
+
+                // Checkmarks animate in
+                tl.to(allCheckmarks, {
+                    duration: 0.4,
+                    scale: 1,
+                    opacity: 1,
+                    stagger: 0.08,
+                    ease: 'back.out(1.5)'
+                }, '-=0.3');
+
+                // Exit animation: scale down + fade out
+                tl.to(container, {
+                    duration: 0.4,
+                    scale: 0.8,
+                    opacity: 0,
+                    ease: 'power2.in'
+                }, '+=0.2');
+
+                // Export timeline as required
+                window.__timelines = window.__timelines || {};
+                window.__timelines.main = tl;
+            }
+        })();
+    </script>
+</body>
+</html>

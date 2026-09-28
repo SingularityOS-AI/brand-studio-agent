@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -12,10 +13,29 @@ from typing import Any
 
 from render_service.cards import render_card_png
 from render_service.manifest import OverlayCue, RenderIR, RenderRequest, ZoomKey, hex_to_ass
+from render_service.seek_capture import capture
 
 logger = logging.getLogger(__name__)
 
 FONTS_DIR: Path = Path(__file__).parent / "fonts"
+OVERLAY_TEMPLATES_DIR: Path = Path(__file__).parent / "overlay_templates"
+
+# Animated overlay kinds that use seek_capture rendering
+ANIMATED_OVERLAY_KINDS = {
+    "stat_counter",
+    "checklist",
+    "arrow_callout",
+    "lower_third_anim",
+    "quote_reveal",
+    "icon_pop",
+    "progress_bar",
+    "keyword_highlight",
+}
+
+# Map IR kind to template filename (e.g., lower_third_anim -> lower_third.html)
+KIND_TO_TEMPLATE = {
+    "lower_third_anim": "lower_third",
+}
 
 
 def layout_text(
@@ -661,6 +681,67 @@ def build_final_args(
     return args
 
 
+def _render_animated_overlay_png_frames(
+    ov: OverlayCue,
+    style: Any,
+    workdir: Path,
+) -> list[Path]:
+    """Render animated overlay as PNG frame sequence using seek_capture.
+
+    Returns list of frame paths OR empty list on error (graceful fallback).
+    """
+    if ov.anim is None or ov.kind not in ANIMATED_OVERLAY_KINDS:
+        logger.debug("Overlay %s: no anim or kind=%s not animated", ov.id, ov.kind)
+        return []
+
+    # Map IR kind to template filename
+    template_name = KIND_TO_TEMPLATE.get(ov.kind, ov.kind)
+    template_path = OVERLAY_TEMPLATES_DIR / f"{template_name}.html"
+
+    if not template_path.exists():
+        logger.warning("Animated overlay template not found: %s", template_path)
+        return []
+
+    if ov.params is None:
+        logger.debug("Overlay %s: params missing, using empty dict", ov.id)
+        ov_params = {}
+    else:
+        ov_params = ov.params
+
+    # Build params JSON with Brand Soul colors and font
+    params_json = json.dumps({
+        "text": ov.text or "",
+        "color": style.color if hasattr(style, "color") else "#000000",
+        "accent": style.accent if hasattr(style, "accent") else "#FF6B35",
+        "font": style.font if hasattr(style, "font") else "Arial",
+        **ov_params,
+    })
+
+    try:
+        # Duration in seconds for seek_capture
+        dur_s = (ov.end_ms - ov.start_ms) / 1000.0
+        if dur_s <= 0:
+            logger.warning("Overlay %s has invalid duration %d-%d ms", ov.id, ov.start_ms, ov.end_ms)
+            return []
+
+        # Render PNG frames at 30fps
+        frame_paths = capture(
+            template_path=template_path,
+            params_json=params_json,
+            workdir=workdir,
+            output_prefix=f"anim_{ov.id}",
+            duration_s=dur_s,
+            fps=30,
+        )
+
+        logger.info("Overlay %s: rendered %d animated frames", ov.id, len(frame_paths))
+        return frame_paths
+
+    except Exception as e:
+        logger.error("Failed to render animated overlay %s: %s", ov.id, e)
+        return []
+
+
 def build_final(
     request: RenderRequest,
     local_inputs: dict[str, Path],
@@ -682,18 +763,31 @@ def build_final(
     overlay_files: dict[str, Path] = {}
     if request.ir.overlays:
         for ov in request.ir.overlays:
-            if ov.kind == "broll_card":
-                if ov.asset and ov.asset in local_inputs:
-                    overlay_files[ov.id] = local_inputs[ov.asset]
+            # Animated overlay: use seek_capture to render PNG frames
+            if ov.anim is not None and ov.kind in ANIMATED_OVERLAY_KINDS:
+                animated_frames = _render_animated_overlay_png_frames(
+                    ov, request.ir.style, workdir
+                )
+                if animated_frames:
+                    # Use first frame as the static overlay file for FFmpeg composition
+                    overlay_files[ov.id] = animated_frames[0]
                 else:
-                    logger.warning("broll_card asset '%s' not found in local_inputs", ov.asset)
-            else:
-                out_png = workdir / f"overlay_{ov.id}.png"
-                try:
-                    render_card_png(ov, request.ir.style, out_png, workdir)
-                    overlay_files[ov.id] = out_png
-                except Exception as e:
-                    logger.warning("Failed to render overlay card %s: %s", ov.id, e)
+                    # Fallback to static rendering if seek_capture fails
+                    logger.info("Animated overlay %s failed, falling back to static", ov.id)
+            # Static overlay rendering
+            if ov.id not in overlay_files:
+                if ov.kind == "broll_card":
+                    if ov.asset and ov.asset in local_inputs:
+                        overlay_files[ov.id] = local_inputs[ov.asset]
+                    else:
+                        logger.warning("broll_card asset '%s' not found in local_inputs", ov.asset)
+                else:
+                    out_png = workdir / f"overlay_{ov.id}.png"
+                    try:
+                        render_card_png(ov, request.ir.style, out_png, workdir)
+                        overlay_files[ov.id] = out_png
+                    except Exception as e:
+                        logger.warning("Failed to render overlay card %s: %s", ov.id, e)
 
     ass_name = "subs.ass"
     ass_path = workdir / ass_name

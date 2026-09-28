@@ -700,6 +700,20 @@ def build_ir_stage2(
                 text = text_formatted[:80]
 
             ov_id = f"ov_s{n}_{k}"
+
+            # E2-13: Conditional anim - set only for animated overlay kinds
+            animated_kinds = {
+                "stat_counter",
+                "checklist",
+                "arrow_callout",
+                "lower_third_anim",
+                "quote_reveal",
+                "icon_pop",
+                "progress_bar",
+                "keyword_highlight",
+            }
+            anim = kind if kind in animated_kinds else None
+
             cue_dict = {
                 "id": ov_id,
                 "kind": kind,
@@ -711,7 +725,7 @@ def build_ir_stage2(
                 "y": y,
                 "w": w,
                 "h": h,
-                "anim": "pop",
+                "anim": anim,
             }
 
             raw_overlay_candidates.append({
@@ -769,6 +783,11 @@ def build_ir_stage2(
                             )
                             # Reconstruct multi-line text with explicit <br>
                             cue["text"] = "<br>".join(lines)
+                # E2-13: Apply params override if provided
+                if "params" in ov_override:
+                    params_override = ov_override["params"]
+                    if isinstance(params_override, dict):
+                        cue["params"] = params_override
 
         if cue["start_ms"] < last_accepted_end:
             continue

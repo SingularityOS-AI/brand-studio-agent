@@ -3054,6 +3054,16 @@ async def get_motion_graphic_preview(
 # Mount static folder
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# Mount overlay templates directory for animated overlays (Piece E2-13)
+_render_service_dir = Path(__file__).parent.parent / "render_service"
+_overlay_templates_dir = _render_service_dir / "overlay_templates"
+if _overlay_templates_dir.exists():
+    app.mount(
+        "/static/overlay_templates",
+        StaticFiles(directory=str(_overlay_templates_dir)),
+        name="overlay_templates",
+    )
+
 # Register Editing router (Bloque E)
 app.include_router(editing_router)
 
