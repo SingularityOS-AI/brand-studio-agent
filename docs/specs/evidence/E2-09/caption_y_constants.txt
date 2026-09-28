@@ -1,0 +1,6 @@
+CAPTION_Y_MIN: 360
+CAPTION_Y_MAX: 1700
+Preset Top: 520
+Preset Middle: 1080
+Preset Bottom: 1600
+Arrow increment: 20px

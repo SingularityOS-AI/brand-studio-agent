@@ -1,6 +1,10 @@
 (function () {
   "use strict";
 
+  // E2-09: Module-level state tracking for caption drag
+  var _lastState = null;
+  var _draw = null;
+
   function layoutText(kind, linesOrText) {
     var K = 0.58;
     if (!linesOrText) {
@@ -391,6 +395,116 @@
     };
   }
 
+  // E2-09: Caption drag handler
+  // Define constants (from FFmpeg manifest)
+  var CAPTION_Y_MIN = 360;
+  var CAPTION_Y_MAX = 1700;
+
+  function setupCaptionDrag(canvas, previewScale, onDragEnd) {
+    if (!canvas) return null;
+
+    var isDragging = false;
+    var startY = 0;
+    var startCaptionTop = 0;
+
+    var onPointerDown = function(e) {
+      // Only respond to left mouse button
+      if (e.button !== 0) return;
+
+      var rect = canvas.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var clientY = e.clientY;
+      var touchY = clientY - rect.top;
+
+      var state = _lastState;
+      if (!state || !state.caption) return;
+
+      var captionTop = state.caption.top;
+      var captionBottom = captionTop + (state.caption.height || 80);
+      var captionWidth = rect.width;
+      var captionLeft = 0;
+      var captionRight = captionWidth;
+
+      var scaleFactor = previewScale || 1;
+      var visualTop = captionTop / scaleFactor;
+      var visualBottom = captionBottom / scaleFactor;
+
+      // Check if pointer is within caption band area (with expanded hit area)
+      if (x >= captionLeft && x <= captionRight &&
+          touchY >= visualTop - 30 && touchY <= visualBottom + 30) {
+        isDragging = true;
+        startY = clientY;
+        startCaptionTop = captionTop;
+        e.preventDefault();
+      }
+    };
+
+    var onPointerMove = function(e) {
+      if (!isDragging) return;
+
+      var state = _lastState;
+      if (!state || !state.caption) return;
+
+      var clientY = e.clientY;
+      var screenDy = clientY - startY;
+
+      // Convert screen dy to canvas px
+      var canvasDy = screenDy * (previewScale || 1);
+
+      // Calculate new position and clamp
+      var newTop = startCaptionTop + canvasDy;
+      newTop = Math.max(CAPTION_Y_MIN, Math.min(CAPTION_Y_MAX, newTop));
+
+      // Update visual immediately (free operation)
+      state.caption.top = newTop;
+
+      // Redraw by getting the video element and triggering state apply
+      if (canvas._mountInstance && canvas._mountInstance._applyState) {
+        canvas._mountInstance._applyState(state);
+      }
+
+      e.preventDefault();
+    };
+
+    var onPointerUp = function(e) {
+      if (!isDragging) return;
+      isDragging = false;
+
+      var state = _lastState;
+      if (state && state.caption && onDragEnd) {
+        var finalTop = Math.max(CAPTION_Y_MIN, Math.min(CAPTION_Y_MAX, state.caption.top));
+        onDragEnd(finalTop);
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    // Register event listeners for mouse
+    canvas.addEventListener('mousedown', onPointerDown);
+    canvas.addEventListener('mousemove', onPointerMove);
+    canvas.addEventListener('mouseup', onPointerUp);
+    canvas.addEventListener('mouseleave', onPointerUp);
+
+    // Register event listeners for touch
+    canvas.addEventListener('touchstart', onPointerDown, {passive: false});
+    canvas.addEventListener('touchmove', onPointerMove, {passive: false});
+    canvas.addEventListener('touchend', onPointerUp, {passive: false});
+    canvas.addEventListener('touchcancel', onPointerUp, {passive: false});
+
+    // Return cleanup function
+    return function cleanup() {
+      canvas.removeEventListener('mousedown', onPointerDown);
+      canvas.removeEventListener('mousemove', onPointerMove);
+      canvas.removeEventListener('mouseup', onPointerUp);
+      canvas.removeEventListener('mouseleave', onPointerUp);
+      canvas.removeEventListener('touchstart', onPointerDown);
+      canvas.removeEventListener('touchmove', onPointerMove);
+      canvas.removeEventListener('touchend', onPointerUp);
+      canvas.removeEventListener('touchcancel', onPointerUp);
+    };
+  }
+
   function mount(container, videoEl, ir, opts) {
     var currentIr = ir || null;
     var sfxMap = {};
@@ -405,6 +519,16 @@
     layer.style.inset = "0";
     layer.style.pointerEvents = "none";
     layer.style.overflow = "hidden";
+
+    // E2-09: Canvas overlay for caption drag capture
+    var dragCanvas = document.createElement("canvas");
+    dragCanvas.style.position = "absolute";
+    dragCanvas.style.inset = "0";
+    dragCanvas.style.pointerEvents = "auto";
+    dragCanvas.style.cursor = "move";
+    dragCanvas.style.zIndex = "100";
+    dragCanvas.id = "brand-studio-preview-drag-canvas";
+    layer.appendChild(dragCanvas);
 
     var stage = document.createElement("div");
     stage.style.position = "absolute";
@@ -596,6 +720,17 @@
       return container.clientWidth / 1080;
     }
 
+    // E2-09: Update drag canvas size and store preview scale
+    var previewScale = 1.0;
+    function updateDragCanvas() {
+      previewScale = getScale();
+      if (dragCanvas && container) {
+        dragCanvas.width = container.clientWidth;
+        dragCanvas.height = container.clientHeight;
+        dragCanvas.setAttribute("data-preview-scale", String(previewScale));
+      }
+    }
+
     function setSfxUrls(map) {
       if (!map) return;
       sfxMap = map;
@@ -625,6 +760,9 @@
 
     function applyState(st) {
       if (!st) return;
+
+      // E2-09: Track current state for caption drag
+      _lastState = st;
 
       var fontName = currentIr && currentIr.style && currentIr.style.font ? currentIr.style.font : "Inter";
       var textColor = currentIr && currentIr.style && currentIr.style.text ? currentIr.style.text : "#FFFFFF";
@@ -767,6 +905,9 @@
       var s = getScale();
       stage.style.transform = "scale(" + s + ")";
 
+      // E2-09: Update drag canvas size
+      updateDragCanvas();
+
       if (videoEl) {
         var curTimeMs = videoEl.currentTime * 1000;
 
@@ -809,14 +950,23 @@
       videoEl.addEventListener("timeupdate", onSeekOrPause);
     }
 
+    // E2-09: Update drag canvas on resize
+    window.addEventListener("resize", updateDragCanvas);
+    updateDragCanvas();
+
+    // E2-09: Store mount instance on canvas for drag handler access
+    dragCanvas._mountInstance = null;
+
     renderFrame();
 
-    return {
+    // E2-09: Create mount instance object that will be returned
+    var mountInstance = {
       update: function (newIr) {
         currentIr = newIr || null;
         onSeekOrPause();
       },
       setSfxUrls: setSfxUrls,
+      _applyState: applyState,  // E2-09: Expose applyState for drag handler
       destroy: function () {
         isDestroyed = true;
         if (videoEl) {
@@ -834,11 +984,20 @@
         if (animFrameId && typeof cancelAnimationFrame === "function") {
           cancelAnimationFrame(animFrameId);
         }
+        // E2-09: Clean up resize listener
+        if (typeof window !== "undefined") {
+          window.removeEventListener("resize", updateDragCanvas);
+        }
         if (layer && layer.parentNode) {
           layer.parentNode.removeChild(layer);
         }
       }
     };
+
+    // E2-09: Store mount instance on canvas for drag handler access
+    dragCanvas._mountInstance = mountInstance;
+
+    return mountInstance;
   }
 
   var API = {
@@ -846,7 +1005,8 @@
     stateAt: stateAt,
     zoomAt: zoomAt,
     layoutText: layoutText,
-    fitCardText: fitCardText
+    fitCardText: fitCardText,
+    setupCaptionDrag: setupCaptionDrag
   };
 
   if (typeof window !== "undefined") {
@@ -857,7 +1017,8 @@
       stateAt: stateAt,
       zoomAt: zoomAt,
       layoutText: layoutText,
-      fitCardText: fitCardText
+      fitCardText: fitCardText,
+      setupCaptionDrag: setupCaptionDrag
     };
   }
 })();

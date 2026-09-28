@@ -150,6 +150,19 @@
     }
   }
 
+  // E2-09: Helper to set caption Y position via same function as buttons/voice
+  async function handleSetCaptionY(captionY) {
+    if (!currentIdeaId) {
+      console.error("[Editing] Cannot set caption Y: no current idea");
+      return null;
+    }
+    // Clamp to valid range
+    const CAPTION_Y_MIN = 360;
+    const CAPTION_Y_MAX = 1700;
+    const clamped = Math.max(CAPTION_Y_MIN, Math.min(CAPTION_Y_MAX, captionY));
+    return await runEditAction("caption_y", { captionY: clamped });
+  }
+
   // --- API Callers ---
   async function apiCall(endpoint, method, body) {
     clearError();
@@ -203,8 +216,15 @@
     return res.ok ? res.data : null;
   }
 
-  async function postDress(ideaId) {
-    const res = await apiCall(`/api/editing/${ideaId}/dress`, "POST");
+  async function postDress(ideaId, style = "standard", expectedVersion = null) {
+    const payload = { style: style };
+    if (expectedVersion !== null) {
+      payload.expected_version = expectedVersion;
+    }
+    const res = await apiCall(`/api/editing/${ideaId}/dress`, "POST", payload);
+    if (res.ok && res.data && res.data.code === "restyle_limit") {
+      showError("Restyle limit reached. You can restyle a cut up to 3 times for free.");
+    }
     return res.ok ? res.data : null;
   }
 
@@ -335,7 +355,7 @@
       label: "Auto-edit · free",
       credits: 0,
       run: async (args) => {
-        return await postDress(args.ideaId);
+        return await postDress(args.ideaId, state.dressStyle || "standard", args.editVersion);
       }
     },
     redress_scene: {
@@ -394,6 +414,49 @@
           return linkData;
         }
         return null;
+      }
+    },
+    delete_overlay: {
+      label: "Delete overlay",
+      credits: 0,
+      run: async (args) => {
+        return await patchSettings(args.ideaId, {
+          op: "overlay_delete",
+          overlay_id: args.overlayId
+        });
+      }
+    },
+    edit_overlay_text: {
+      label: "Edit overlay text",
+      credits: 0,
+      run: async (args) => {
+        return await patchSettings(args.ideaId, {
+          op: "overlay_text",
+          overlay_id: args.overlayId,
+          value: args.text
+        });
+      }
+    },
+    toggle_overlays: {
+      label: "Overlays enabled",
+      credits: 0,
+      run: async (args) => {
+        return await patchSettings(args.ideaId, {
+          op: "overlays_enabled",
+          value: Boolean(args.value)
+        });
+      }
+    },
+    // E2-09: Caption Y position
+    caption_y: {
+      label: "Caption Y position",
+      credits: 0,
+      run: async (args) => {
+        return await patchSettings(args.ideaId, {
+          op: "caption_y",
+          value: args.captionY,
+          expected_version: (currentEditingState && currentEditingState.edit_version) || undefined
+        });
       }
     }
   };
@@ -496,6 +559,9 @@
       try {
         const state = await loadEditingState(ideaId);
         if (!state) return;
+        // E2-11: Preserve dressStyle from current state or initialize from dressing
+        const prevStyle = currentEditingState && currentEditingState.dressStyle;
+        state.dressStyle = prevStyle || (state.dressing && state.dressing.style) || "standard";
         currentEditingState = state;
         updateProgressBars(state);
 
@@ -591,6 +657,8 @@
 
     try {
       const state = await loadEditingState(ideaId);
+      // E2-11: Initialize dressStyle from dressing state or default to standard
+      state.dressStyle = state.dressStyle || (state.dressing && state.dressing.style) || "standard";
       currentEditingState = state;
 
       if (!state) {
@@ -694,6 +762,9 @@
     const container = document.getElementById("Editing-Content");
     if (!container) return;
 
+    // E2-09: Caption drag cleanup variable
+    let captionDragCleanup = null;
+
     if (state.render && state.render.status === "done" && state.render.signed_url) {
       if (lastRenderedEditVersion === null) {
         lastRenderedEditVersion = state.render.edit_version || state.edit_version;
@@ -707,6 +778,9 @@
     const render = state.render || {};
     const dressing = state.dressing || {};
     const ir = state.ir || null;
+
+    // E2-11: Initialize dressStyle from dressing state or default to standard
+    state.dressStyle = state.dressStyle || (dressing.style || "standard");
 
     const hasRawVideo = Boolean(raw.signed_url && raw.fresh);
     const hasFinalVideo = Boolean(render.signed_url);
@@ -936,6 +1010,11 @@
           </p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
+          <div style="display:flex;align-items:center;gap:4px;padding:4px;background:var(--surface-alt);border:1px solid var(--line);border-radius:6px;margin-right:8px">
+            <button type="button" class="style-btn" data-edit-style="clean" style="padding:6px 12px;border:none;background:${state.dressStyle === "clean" ? "var(--accent);color:#fff" : "transparent"};border-radius:4px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;min-width:60px">Clean</button>
+            <button type="button" class="style-btn" data-edit-style="standard" style="padding:6px 12px;border:none;background:${state.dressStyle === "standard" ? "var(--accent);color:#fff" : "transparent"};border-radius:4px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;min-width:60px">Standard</button>
+            <button type="button" class="style-btn" data-edit-style="bold" style="padding:6px 12px;border:none;background:${state.dressStyle === "bold" ? "var(--accent);color:#fff" : "transparent"};border-radius:4px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;min-width:60px">Bold</button>
+          </div>
           <button type="button" class="btn btn--secondary" data-edit-action="dress_all" style="font-size:13px">
             ${escapeHtml(dressBtnLabel)}
           </button>
@@ -975,6 +1054,17 @@
           <!-- Video Container -->
           <div id="Editing-Player-Container" style="position:relative;width:100%;aspect-ratio:9/16;background:#000;border-radius:6px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center">
             <!-- Video element handled programmatically to preserve video element on re-render -->
+          </div>
+
+          <!-- E2-09: Caption Position Presets -->
+          <div style="margin-top:12px;text-align:center">
+            <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px">Caption position</div>
+            <div style="display:flex;gap:8px;justify-content:center">
+              <button type="button" class="btn btn--secondary caption-preset-btn" data-caption-y="520" style="flex:1;font-size:12px;padding:6px 10px">Top</button>
+              <button type="button" class="btn btn--secondary caption-preset-btn" data-caption-y="1080" style="flex:1;font-size:12px;padding:6px 10px">Middle</button>
+              <button type="button" class="btn btn--secondary caption-preset-btn" data-caption-y="1600" style="flex:1;font-size:12px;padding:6px 10px">Bottom</button>
+            </div>
+            <div style="font-size:11px;color:var(--ink-soft);margin-top:6px">Tip: Use ↑↓ keys when focused (20px)</div>
           </div>
 
           <!-- Sharing & Download Actions (E8 / E9) -->
@@ -1037,13 +1127,54 @@
           </div>
 
           <!-- Social Copy & Publication Metadata (E8) -->
-          <div style="background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px">
+          <div style="background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px;margin-bottom:20px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
               <h3 style="font-size:14px;font-weight:700;margin:0;color:var(--ink)">Social Copy & Metadata</h3>
               <button type="button" class="btn btn--secondary" data-edit-action="gen_metadata" style="font-size:12px">Generate post copy · free</button>
             </div>
             <div id="Editing-Metadata-Content">
               ${metaCardsHtml || `<p style="font-size:12px;color:var(--ink-soft)">Click "Generate post copy · free" to produce post copy for LinkedIn, Instagram, and TikTok.</p>`}
+            </div>
+          </div>
+
+          <!-- Overlays Controls (E2-10) -->
+          <div style="background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h3 style="font-size:14px;font-weight:700;margin:0;color:var(--ink)">Overlays</h3>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--ink)">
+                <input type="checkbox" id="Editing-OverlaysToggle" ${settings.overlays_enabled !== false ? "checked" : ""} data-edit-action="toggle_overlays">
+                Enabled
+              </label>
+            </div>
+            <div id="Editing-Overlays-Content">
+              ${(() => {
+                const overlays = ir ? (ir.overlays || []) : [];
+                if (overlays.length === 0) {
+                  return `<p style="font-size:12px;color:var(--ink-soft)">No overlays generated yet.</p>`;
+                }
+                return overlays.map((ov) => {
+                  const isDeleted = settings.overlays && settings.overlays[ov.id] && settings.overlays[ov.id].deleted === true;
+                  const editedText = settings.overlays && settings.overlays[ov.id] && typeof settings.overlays[ov.id].text === "string" ? settings.overlays[ov.id].text : ov.text;
+                  const displayText = editedText || "";
+                  const timestamp = ov.start_ms ? ((ov.start_ms / 1000).toFixed(1) + "s") : "";
+                  const deleteStyle = isDeleted ? "opacity:0.5;text-decoration:line-through;" : "";
+
+                  return `
+                    <div class="editing-overlay-item" data-overlay-id="${ov.id}" style="padding:10px;background:var(--surface-alt);border:1px solid var(--line);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:12px;${deleteStyle}">
+                      <div style="flex:1;min-width:0">
+                        <span class="editing-overlay-text" style="display:block;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;" title="Click to edit text">
+                          ${escapeHtml(displayText)}
+                        </span>
+                        <span style="display:block;font-size:11px;color:var(--ink-soft);margin-top:2px">${escapeHtml(timestamp)}</span>
+                      </div>
+                      <div style="display:flex;gap:6px">
+                        <button type="button" class="btn btn--secondary editing-edit-overlay-btn" data-overlay-id="${ov.id}" style="padding:4px 8px;font-size:11px">Edit</button>
+                        <button type="button" class="btn btn--secondary editing-delete-overlay-btn" data-overlay-id="${ov.id}" style="padding:4px 8px;font-size:11px">${isDeleted ? "Restore" : "Delete"}</button>
+                      </div>
+                    </div>
+                  `;
+                }).join("");
+              })()}
             </div>
           </div>
 
@@ -1186,6 +1317,21 @@
         if (window.BrandStudioPreview && activeTab === "preview") {
           if (!previewMountInstance) {
             previewMountInstance = window.BrandStudioPreview.mount(playerContainer, videoEl, irToUse);
+            // E2-09: Set up caption drag
+            if (window.BrandStudioPreview.setupCaptionDrag) {
+              const canvas = playerContainer.querySelector("canvas");
+              if (canvas) {
+                // Get preview scale from canvas dimensions
+                const previewScale = canvas.getAttribute("data-preview-scale") || 1;
+                captionDragCleanup = window.BrandStudioPreview.setupCaptionDrag(
+                  canvas,
+                  parseFloat(previewScale),
+                  function onDragEnd(captionY) {
+                    handleSetCaptionY(captionY);
+                  }
+                );
+              }
+            }
           } else {
             previewMountInstance.update(irToUse);
           }
@@ -1195,6 +1341,11 @@
         } else if (previewMountInstance && activeTab === "final") {
           previewMountInstance.destroy();
           previewMountInstance = null;
+          // E2-09: Clean up caption drag handlers
+          if (captionDragCleanup) {
+            captionDragCleanup();
+            captionDragCleanup = null;
+          }
         }
       }
     }
@@ -1327,6 +1478,65 @@
         await runEditAction("edit_metadata", { ideaId: currentIdeaId, platform: plat, field: field, value: val });
       };
     });
+
+    // --- Wire Up Overlays Delete/Edit (E2-10) ---
+    container.querySelectorAll(".editing-delete-overlay-btn").forEach((btn) => {
+      btn.onclick = async () => {
+        const overlayId = btn.dataset.overlayId;
+        await runEditAction("delete_overlay", { ideaId: currentIdeaId, overlayId: overlayId });
+      };
+    });
+
+    container.querySelectorAll(".editing-overlay-text").forEach((span) => {
+      span.onclick = (e) => {
+        e.stopPropagation();
+        const overlayItem = span.closest(".editing-overlay-item");
+        if (!overlayItem) return;
+
+        const overlayId = overlayItem.dataset.overlayId;
+        const oldText = span.textContent.trim();
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.maxLength = 80;
+        input.value = oldText;
+        input.style.width = "100%";
+        input.style.fontSize = "13px";
+        input.style.padding = "4px 6px";
+        input.style.border = "1px solid var(--accent)";
+        input.style.borderRadius = "4px";
+        input.style.boxSizing = "border-box";
+
+        span.replaceWith(input);
+        input.focus();
+        input.select();
+
+        const saveOverlayText = async () => {
+          const newText = input.value.trim();
+          if (newText && newText !== oldText && newText.length <= 80) {
+            await runEditAction("edit_overlay_text", { ideaId: currentIdeaId, overlayId: overlayId, text: newText });
+          } else {
+            renderEditingContent(state);
+          }
+        };
+
+        input.onkeydown = (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            input.onblur = null;
+            saveOverlayText();
+          } else if (ev.key === "Escape") {
+            ev.preventDefault();
+            input.onblur = null;
+            renderEditingContent(state);
+          }
+        };
+
+        input.onblur = () => {
+          saveOverlayText();
+        };
+      };
+    });
   }
 
   // --- Delegated Listener for [data-edit-action] ---
@@ -1353,6 +1563,19 @@
       await runEditAction(actionName, args);
     });
 
+    // Listener for style selector buttons (E2-11)
+    document.addEventListener("click", async (e) => {
+      const styleBtn = e.target.closest("#Editing-View .style-btn[data-edit-style]");
+      if (!styleBtn) return;
+
+      e.preventDefault();
+      const selectedStyle = styleBtn.dataset.editStyle;
+      if (selectedStyle && ["clean", "standard", "bold"].includes(selectedStyle)) {
+        state.dressStyle = selectedStyle;
+        await render(); // Re-render to update button styles
+      }
+    });
+
     document.addEventListener("change", async (e) => {
       const input = e.target.closest("#Editing-View [data-edit-action]");
       if (!input || input.type !== "checkbox") return;
@@ -1362,6 +1585,48 @@
         await runEditAction(actionName, { ideaId: currentIdeaId, value: !input.checked });
       } else if (actionName === "toggle_sfx") {
         await runEditAction(actionName, { ideaId: currentIdeaId, value: input.checked });
+      } else if (actionName === "toggle_overlays") {
+        await runEditAction(actionName, { ideaId: currentIdeaId, value: input.checked });
+      }
+    });
+
+    // E2-09: Caption preset buttons listener
+    document.addEventListener("click", async (e) => {
+      const captionPresetBtn = e.target.closest("#Editing-View .caption-preset-btn");
+      if (!captionPresetBtn) return;
+
+      e.preventDefault();
+      const captionY = parseInt(captionPresetBtn.dataset.captionY, 10);
+      if (captionY) {
+        const btn = captionPresetBtn;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite;margin-right:6px"></span> Setting…`;
+        try {
+          await handleSetCaptionY(captionY);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      }
+    });
+
+    // E2-09: Arrow key listener for caption position (20px increments)
+    document.addEventListener("keydown", async (e) => {
+      // Only handle when in preview tab
+      if (activeTab !== "preview" || !currentIdeaId || !currentEditingState) {
+        return;
+      }
+
+      // Get current caption Y from state
+      const currentCaptionY = currentEditingState.ir?.layout?.caption_y || currentEditingState.ir?.caption?.top || 1080;
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        await handleSetCaptionY(currentCaptionY + 20);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        await handleSetCaptionY(currentCaptionY - 20);
       }
     });
   }
