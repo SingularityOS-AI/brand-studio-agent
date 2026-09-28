@@ -492,6 +492,7 @@ class SettingsPatchBody(BaseModel):
     op: str
     scene_n: int | None = None
     value: Any = None
+    overlay_id: str | None = None
     expected_version: int
 
 
@@ -510,7 +511,17 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
 
     op = body.op
-    allowed_ops = {"face", "trim", "music_mute", "sfx_enabled", "music_volume", "caption_y"}
+    allowed_ops = {
+        "face",
+        "trim",
+        "music_mute",
+        "sfx_enabled",
+        "music_volume",
+        "caption_y",
+        "overlay_delete",
+        "overlay_text",
+        "overlays_enabled",
+    }
     if op not in allowed_ops:
         return JSONResponse(status_code=422, content={"detail": f"Invalid op: {op}"})
 
@@ -584,6 +595,40 @@ async def patch_settings(request: Request, idea_id: str) -> JSONResponse:
                 status_code=422, content={"detail": "caption_y must be a number"}
             )
         settings_dict["caption_y"] = clamp_caption_y(body.value)
+
+    elif op == "overlay_delete":
+        if not body.overlay_id:
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_id required for overlay_delete"}
+            )
+        overlay_id = str(body.overlay_id)
+        overlays_dict = settings_dict.setdefault("overlays", {})
+        overlays_dict[overlay_id] = {"deleted": True}
+
+    elif op == "overlay_text":
+        if not body.overlay_id:
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_id required for overlay_text"}
+            )
+        if not isinstance(body.value, str):
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_text value must be a string"}
+            )
+        text = str(body.value).strip()
+        if len(text) > 80:
+            return JSONResponse(
+                status_code=422, content={"detail": "overlay_text value must be at most 80 characters"}
+            )
+        overlay_id = str(body.overlay_id)
+        overlays_dict = settings_dict.setdefault("overlays", {})
+        overlays_dict[overlay_id] = {"text": text}
+
+    elif op == "overlays_enabled":
+        if not isinstance(body.value, bool):
+            return JSONResponse(
+                status_code=422, content={"detail": "overlays_enabled value must be bool"}
+            )
+        settings_dict["overlays_enabled"] = body.value
 
     try:
         updated_edit = save_edit(
@@ -668,6 +713,13 @@ async def patch_captions(request: Request, idea_id: str, word_id: str) -> JSONRe
     return JSONResponse(status_code=200, content=state)
 
 
+class DressRequestBody(BaseModel):
+    """Request body for POST /{idea_id}/dress endpoint (E2-11)."""
+
+    style: str = "standard"
+    expected_version: int | None = None
+
+
 @router.post("/{idea_id}/dress")
 async def post_dress(request: Request, idea_id: str) -> JSONResponse:
     """POST dress endpoint — dresses all scenes using closed catalog."""
@@ -675,6 +727,12 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
         session_token, script, jobs, edit = _load(request, idea_id)
     except EditingError as e:
         return JSONResponse(status_code=e.status_code, content=e.content)
+
+    try:
+        raw_body = await request.json()
+        body = DressRequestBody.model_validate(raw_body)
+    except Exception:
+        body = DressRequestBody()
 
     state = _state(session_token, idea_id, script, jobs, edit)
     missing_takes = state["missing_takes"]
@@ -684,16 +742,67 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
             content={"code": "missing_takes", "scenes": missing_takes},
         )
 
+    # Validate style (E2-11)
+    valid_styles = {"clean", "standard", "bold"}
+    if body.style not in valid_styles:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"Invalid style: {body.style}. Must be one of: {valid_styles}"},
+        )
+
     timeline = state["timeline"]
     captions_words = state["captions_words"]
     raw_hash = cut_hash(timeline) if timeline else ""
 
+    # Check version conflict if expected_version is provided (E2-11)
+    if body.expected_version is not None:
+        if edit["version"] != body.expected_version:
+            return JSONResponse(
+                status_code=409,
+                content={"code": "version_conflict", "current": edit["version"]},
+            )
+
     # "Vestir todo" is included once per raw cut (E-D13): pressing it again on the
     # same cut returns the dressing already made instead of paying Gemini again.
-    if state.get("dressing", {}).get("fresh"):
-        state.pop("_inputs", None)
-        state.pop("_sfx_inputs", None)
-        return JSONResponse(status_code=200, content=state)
+    existing_dressing = state.get("dressing", {})
+    if existing_dressing.get("fresh"):
+        # E2-11: Count free restyles per raw cut - 3 free restyles per cut
+        dressing_raw_hash = existing_dressing.get("raw_hash", "")
+        if dressing_raw_hash == raw_hash and existing_dressing.get("source") == "llm":
+            # Same raw cut - check free restyles limit
+            free_restyles_used = existing_dressing.get("free_restyles_used", 0)
+            # Only count as a restyle if style is different from current
+            current_style = existing_dressing.get("style", "standard")
+            if body.style != current_style:
+                free_restyles_used += 1
+                if free_restyles_used > 3:
+                    return JSONResponse(
+                        status_code=409,
+                        content={"code": "restyle_limit", "free_restyles_used": free_restyles_used},
+                    )
+                # Update dressing with new free_restyles_used count
+                try:
+                    updated_dressing = existing_dressing.copy()
+                    updated_dressing["free_restyles_used"] = free_restyles_used
+                    updated_dressing["style"] = body.style
+                    save_edit(
+                        session_token,
+                        idea_id,
+                        fields={"dressing": updated_dressing},
+                        expected_version=edit["version"],
+                    )
+                    # Refresh state with updated dressing
+                    updated_edit = get_or_create_edit(session_token, idea_id)
+                    state = _state(session_token, idea_id, script, jobs, updated_edit)
+                except EditVersionConflict:
+                    # Version conflict - let client retry
+                    return JSONResponse(
+                        status_code=409,
+                        content={"code": "version_conflict", "current": edit.get("version")},
+                    )
+            state.pop("_inputs", None)
+            state.pop("_sfx_inputs", None)
+            return JSONResponse(status_code=200, content=state)
 
     try:
         _check_and_record_llm_call(session_token)
@@ -701,7 +810,7 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=e.status_code, content=e.content)
 
     contexts = scene_contexts(timeline, captions_words, script)
-    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1))
+    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1), style=body.style)
 
     try:
         updated_edit = save_edit(
