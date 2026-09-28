@@ -1,0 +1,13 @@
+﻿
+Name                   Length LastWriteTime     
+----                   ------ -------------     
+arrow_callout.html       8116 9/28/2026 11:40:39
+checklist.html           7741 9/28/2026 11:40:40
+icon_pop.html            4282 9/28/2026 11:40:36
+keyword_highlight.html   6130 9/28/2026 11:40:52
+lower_third.html         5050 9/28/2026 11:40:28
+progress_bar.html        5452 9/28/2026 11:40:44
+quote_reveal.html        7201 9/28/2026 11:40:45
+stat_counter.html        6604 9/28/2026 11:40:12
+
+
