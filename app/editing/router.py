@@ -488,6 +488,14 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
     return JSONResponse(status_code=202, content={"job": job, "created": created})
 
 
+class DressRequestBody(BaseModel):
+    """Request body for POST /dress endpoint (E2-11)."""
+    model_config = {"extra": "forbid"}
+
+    style: str = "standard"
+    expected_version: int | None = None
+
+
 class SettingsPatchBody(BaseModel):
     op: str
     scene_n: int | None = None
@@ -669,8 +677,21 @@ async def patch_captions(request: Request, idea_id: str, word_id: str) -> JSONRe
 
 
 @router.post("/{idea_id}/dress")
-async def post_dress(request: Request, idea_id: str) -> JSONResponse:
-    """POST dress endpoint — dresses all scenes using closed catalog."""
+async def post_dress(request: Request, idea_id: str, body: DressRequestBody = DressRequestBody()) -> JSONResponse:
+    """POST dress endpoint — dresses all scenes using closed catalog.
+
+    E2-11: Accepts optional 'style' parameter (clean/standard/bold) and tracks
+    free restyles per raw cut. 3 free restyles allowed; 4th returns 409 'restyle_limit'
+    without charging credits. Limit resets when raw cut changes.
+    """
+    # Validate style parameter (E2-11)
+    style = body.style
+    if style not in ("clean", "standard", "bold"):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"Invalid style: {style}. Must be 'clean', 'standard', or 'bold'."},
+        )
+
     try:
         session_token, script, jobs, edit = _load(request, idea_id)
     except EditingError as e:
@@ -688,9 +709,36 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
     captions_words = state["captions_words"]
     raw_hash = cut_hash(timeline) if timeline else ""
 
+    # E2-11: Track free_restyles_used per raw cut
+    current_dressing = state.get("dressing", {})
+    prev_raw_hash = current_dressing.get("raw_hash")
+    prev_style = current_dressing.get("style", "standard")
+    current_free_restyles = current_dressing.get("free_restyles_used", 0)
+
+    # Reset limit when raw cut changes (E2-11)
+    if prev_raw_hash != raw_hash:
+        current_free_restyles = 0
+
+    # Check if this is a restyle (different style on same cut) (E2-11)
+    is_restyle = (prev_raw_hash == raw_hash and prev_style != style)
+
+    # Enforce 3 free restyles limit (E2-11)
+    if is_restyle and current_free_restyles >= 3:
+        return JSONResponse(
+            status_code=409,
+            content={"code": "restyle_limit", "free_restyles_used": current_free_restyles + 1},
+        )
+
+    # Check version conflict early (E2-11) - even if dressing is fresh
+    if body.expected_version is not None and body.expected_version != edit["version"]:
+        return JSONResponse(
+            status_code=409,
+            content={"code": "version_conflict", "current": edit["version"]},
+        )
+
     # "Vestir todo" is included once per raw cut (E-D13): pressing it again on the
     # same cut returns the dressing already made instead of paying Gemini again.
-    if state.get("dressing", {}).get("fresh"):
+    if state.get("dressing", {}).get("fresh") and not is_restyle:
         state.pop("_inputs", None)
         state.pop("_sfx_inputs", None)
         return JSONResponse(status_code=200, content=state)
@@ -701,14 +749,21 @@ async def post_dress(request: Request, idea_id: str) -> JSONResponse:
         return JSONResponse(status_code=e.status_code, content=e.content)
 
     contexts = scene_contexts(timeline, captions_words, script)
-    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1))
+    dressing_plan = await dress_all(contexts, raw_hash, seed_base=edit.get("version", 1), style=style)
+
+    # E2-11: Increment free_restyles_used if this was a restyle
+    if is_restyle:
+        current_free_restyles += 1
+        dressing_plan["free_restyles_used"] = current_free_restyles
+    else:
+        dressing_plan["free_restyles_used"] = 0
 
     try:
         updated_edit = save_edit(
             session_token,
             idea_id,
             fields={"dressing": dressing_plan},
-            expected_version=edit["version"],
+            expected_version=body.expected_version or edit["version"],
         )
     except EditVersionConflict as err:
         return JSONResponse(

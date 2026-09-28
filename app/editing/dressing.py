@@ -75,6 +75,8 @@ class Dressing(BaseModel):
     source: Literal["llm", "fallback"]
     raw_hash: str
     scenes: list[DressScene]
+    style: str = "standard"
+    free_restyles_used: int = 0
 
 
 def load_catalog() -> dict:
@@ -139,8 +141,23 @@ def scene_contexts(
     return contexts
 
 
-def build_prompt(contexts: list[dict], catalog: dict) -> str:
-    """Build prompt for Brandy LLM dressing director."""
+def build_prompt(contexts: list[dict], catalog: dict, style: str = "standard") -> str:
+    """Build prompt for Brandy LLM dressing director.
+
+    Args:
+        contexts: Scene context dictionaries
+        catalog: Catalog dictionary containing styles and limits
+        style: One of "clean", "standard", or "bold" - selects which limits to apply
+    """
+    # Build style-aware prompt instruction
+    style_instruction = ""
+    if style == "clean":
+        style_instruction = "Use a CLEAN style: minimal edits, 1 zoom per scene max, 1 overlay per 2 scenes, only 'cut' or 'flash' transitions. Keep edits subtle and focused on the key message."
+    elif style == "bold":
+        style_instruction = "Use a BOLD style: dynamic edits, up to 3 zooms per scene, up to 2 overlays per scene, all transitions allowed. Make the edit feel energetic and attention-grabbing."
+    else:  # standard
+        style_instruction = "Use a STANDARD style: balanced edits, up to 3 zooms per scene, up to 2 overlays per scene, all transitions allowed."
+
     return (
         "You are Brandy, a vertical video edit director for personal brand content (LinkedIn-first).\n"
         "Your focus is on what the founder says. Visual edits should create emphasis every 3-5 seconds.\n"
@@ -148,6 +165,7 @@ def build_prompt(contexts: list[dict], catalog: dict) -> str:
         "Within the catalog you have full creative freedom: vary where, when and how strong each move lands, "
         "pick the words that deserve emphasis, combine zooms, overlays and sound so the edit feels alive and "
         "surprising, and never repeat the same pattern scene after scene.\n\n"
+        f"{style_instruction}\n\n"
         f"Catalog:\n{json.dumps(catalog, indent=2, ensure_ascii=False)}\n\n"
         f"Scene Contexts:\n{json.dumps(contexts, indent=2, ensure_ascii=False)}\n\n"
         "Rules:\n"
@@ -173,16 +191,39 @@ def build_prompt(contexts: list[dict], catalog: dict) -> str:
 
 
 def fallback_dressing(
-    contexts: list[dict], catalog: dict, raw_hash: str, seeds: dict[int, int]
+    contexts: list[dict], catalog: dict, raw_hash: str, seeds: dict[int, int], style: str = "standard"
 ) -> dict:
-    """Generate deterministic fallback dressing."""
+    """Generate deterministic fallback dressing.
+
+    Args:
+        contexts: Scene context dictionaries
+        catalog: Catalog dictionary containing styles and limits
+        raw_hash: Hash of the raw timeline cut
+        seeds: Seed dictionary per scene
+        style: One of "clean", "standard", or "bold" - determines which limits to apply
+    """
     catalog_version = catalog.get("version", "v1")
-    limits = catalog.get("limits", {})
-    max_zooms = limits.get("zooms_per_scene", 3)
-    max_overlays = limits.get("overlays_per_scene", 2)
-    max_emphasis = limits.get("emphasis_per_scene", 3)
+
+    # Get style-specific limits, fallback to catalog-level limits
+    style_obj = catalog.get("styles", {}).get(style, {})
+    if style_obj and "limits" in style_obj:
+        limits = style_obj.get("limits", {})
+        max_zooms = limits.get("zooms_per_scene", 3)
+        max_overlays = limits.get("overlays_per_scene", 2)
+        max_emphasis = limits.get("emphasis_per_scene", 3)
+        allowed_transitions = limits.get("transitions_allowed")
+        overlays_per_two_scenes = limits.get("overlays_per_two_scenes")
+    else:
+        # Fallback to catalog-level limits
+        limits = catalog.get("limits", {})
+        max_zooms = limits.get("zooms_per_scene", 3)
+        max_overlays = limits.get("overlays_per_scene", 2)
+        max_emphasis = limits.get("emphasis_per_scene", 3)
+        allowed_transitions = None
+        overlays_per_two_scenes = None
 
     raw_transitions = []
+    # Determine raw transitions based on phase
     for idx, ctx in enumerate(contexts):
         phase = ctx.get("phase", "")
         if idx == 0:
@@ -196,17 +237,26 @@ def fallback_dressing(
         else:
             raw_transitions.append("cut")
 
+    # Apply style restrictions to transitions
+    if allowed_transitions is None:
+        effective_transitions = list(catalog.get("transitions", {}).keys()) or [
+            "cut",
+            "flash",
+            "zoom_through",
+            "whip",
+        ]
+    else:
+        effective_transitions = allowed_transitions
+
     chosen_transitions: list[str] = []
-    allowed_transitions = list(catalog.get("transitions", {}).keys()) or [
-        "cut",
-        "flash",
-        "zoom_through",
-        "whip",
-    ]
     for idx, tr in enumerate(raw_transitions):
+        # Filter to allowed transitions for this style
+        if tr not in effective_transitions:
+            tr = effective_transitions[0] if effective_transitions else "cut"
+        # Avoid consecutive duplicates
         if idx > 0 and tr == chosen_transitions[idx - 1]:
             alt = [
-                t for t in allowed_transitions if t != chosen_transitions[idx - 1]
+                t for t in effective_transitions if t != chosen_transitions[idx - 1]
             ]
             tr = alt[0] if alt else "cut"
         chosen_transitions.append(tr)
@@ -246,7 +296,23 @@ def fallback_dressing(
         zooms = zooms[:max_zooms]
 
         overlays: list[Overlay] = []
-        if ctx.get("on_screen_text") and words:
+        # Handle overlays_per_two_scenes for clean style
+        if overlays_per_two_scenes is not None:
+            # Clean style: 1 overlay per 2 scenes (even-indexed scenes only)
+            if idx % 2 == 0 and ctx.get("on_screen_text") and words:
+                dur = min(3500, max(1200, duration_ms))
+                overlays.append(
+                    Overlay(
+                        kind="onscreen_text",
+                        word_idx=0,
+                        duration_ms=dur,
+                        position="lower_third",
+                        accent=False,
+                        broll_scene=None,
+                        emoji=None,
+                    )
+                )
+        elif ctx.get("on_screen_text") and words:
             dur = min(3500, max(1200, duration_ms))
             overlays.append(
                 Overlay(
@@ -280,6 +346,7 @@ def fallback_dressing(
         source="fallback",
         raw_hash=raw_hash,
         scenes=scenes,
+        style=style,
     )
     return dressing_model.model_dump()
 
@@ -291,8 +358,19 @@ def validate_dressing(
     raw_hash: str,
     seeds: dict[int, int],
     source: str,
+    style: str = "standard",
 ) -> dict:
-    """Validate raw dressing output against catalog and contexts."""
+    """Validate raw dressing output against catalog and contexts.
+
+    Args:
+        raw: Raw LLM output dict
+        contexts: Scene context dictionaries
+        catalog: Catalog dictionary containing styles and limits
+        raw_hash: Hash of the raw timeline cut
+        seeds: Seed dictionary per scene
+        source: Either "llm" or "fallback"
+        style: One of "clean", "standard", or "bold" - determines which limits to apply
+    """
     valid_transitions = set(catalog.get("transitions", {}).keys())
     valid_sfx_tags = set(catalog.get("sfx_tags", []))
     valid_zoom_types = set(catalog.get("zoom", {}).get("types", []))
@@ -308,10 +386,21 @@ def validate_dressing(
     valid_emojis = set(catalog.get("emoji", []))
     broll_scene_n_set = {int(c["n"]) for c in contexts if c.get("has_broll")}
 
-    limits = catalog.get("limits", {})
-    max_zooms = int(limits.get("zooms_per_scene", 3))
-    max_overlays = int(limits.get("overlays_per_scene", 2))
-    max_emphasis = int(limits.get("emphasis_per_scene", 3))
+    # Get style-specific limits, fallback to catalog-level limits
+    style_obj = catalog.get("styles", {}).get(style, {})
+    if style_obj and "limits" in style_obj:
+        limits = style_obj.get("limits", {})
+        max_zooms = int(limits.get("zooms_per_scene", 3))
+        max_overlays = int(limits.get("overlays_per_scene", 2))
+        max_emphasis = int(limits.get("emphasis_per_scene", 3))
+        allowed_transitions = limits.get("transitions_allowed")
+    else:
+        # Fallback to catalog-level limits
+        limits = catalog.get("limits", {})
+        max_zooms = int(limits.get("zooms_per_scene", 3))
+        max_overlays = int(limits.get("overlays_per_scene", 2))
+        max_emphasis = int(limits.get("emphasis_per_scene", 3))
+        allowed_transitions = None
 
     raw_scenes_list = (
         raw.get("scenes")
@@ -344,10 +433,21 @@ def validate_dressing(
             continue
 
         raw_tr = raw_s.get("transition_in")
-        if not isinstance(raw_tr, str) or raw_tr not in valid_transitions:
-            logger.info(
-                f"Scene {n}: transition_in '{raw_tr}' not in catalog, resetting to cut"
-            )
+        # Apply style-specific transition restrictions
+        effective_transitions = valid_transitions
+        if allowed_transitions is not None:
+            effective_transitions = set(allowed_transitions)
+
+        if not isinstance(raw_tr, str) or raw_tr not in effective_transitions:
+            # If style restricts transitions, user should be notified via the prompt
+            if allowed_transitions is not None and raw_tr in valid_transitions:
+                logger.info(
+                    f"Scene {n}: transition_in '{raw_tr}' not allowed in {style} style, resetting to cut"
+                )
+            else:
+                logger.info(
+                    f"Scene {n}: transition_in '{raw_tr}' not in catalog, resetting to cut"
+                )
             transition_in = "cut"
         else:
             transition_in = raw_tr
@@ -512,6 +612,7 @@ def validate_dressing(
         source=source if source in ("llm", "fallback") else "fallback",
         raw_hash=raw_hash,
         scenes=scenes,
+        style=style,
     )
     return dressing_model.model_dump()
 
@@ -522,11 +623,19 @@ async def dress_all(
     seed_base: int,
     *,
     timeout_s: float | None = None,
+    style: str = "standard",
 ) -> dict:
-    """Dress all scenes using LLM or fallback if LLM fails/times out."""
+    """Dress all scenes using LLM or fallback if LLM fails/times out.
+
+    Args:
+        contexts: Scene context dictionaries
+        raw_hash: Hash of the raw timeline cut
+        seed_base: Base seed for randomization
+        style: One of "clean", "standard", or "bold" - determines limits applied
+    """
     seeds = {int(c["n"]): seed_base * 1000 + int(c["n"]) for c in contexts}
     catalog = load_catalog()
-    prompt = build_prompt(contexts, catalog)
+    prompt = build_prompt(contexts, catalog, style=style)
 
     from app.editing.config import LLM_TIMEOUT_DRESS
 
@@ -560,11 +669,11 @@ async def dress_all(
         raw_text = getattr(resp, "text", "") or ""
         raw_json = json.loads(raw_text)
         result = validate_dressing(
-            raw_json, contexts, catalog, raw_hash, seeds, source="llm"
+            raw_json, contexts, catalog, raw_hash, seeds, source="llm", style=style
         )
     except Exception as exc:
         logger.info(f"Dressing LLM failed or timed out: {exc}, falling back")
-        result = fallback_dressing(contexts, catalog, raw_hash, seeds)
+        result = fallback_dressing(contexts, catalog, raw_hash, seeds, style=style)
 
     Dressing.model_validate(result)
     return result
