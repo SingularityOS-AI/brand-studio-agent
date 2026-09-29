@@ -335,7 +335,7 @@ _BLANK_MG_HTML = """<!doctype html>
     shutil.which("ffmpeg") is None or chromium_path() is None,
     reason="ffmpeg and Chromium are required for this end-to-end test",
 )
-def test_build_raw_end_to_end_from_a_deliberately_blank_mg_html(tmp_path):
+def test_build_raw_end_to_end_from_a_deliberately_blank_mg_html(tmp_path, evidence_dir_for):
     """The literal 'Done when' scenario: a real motion-graphic HTML whose on-screen
     content is invisible (text color == background) goes through the real HTML->MP4
     converter, then through build_raw()'s guard, and the scene lands on the founder's
@@ -375,8 +375,7 @@ def test_build_raw_end_to_end_from_a_deliberately_blank_mg_html(tmp_path):
     assert scene2_stddevs
     assert _is_empty_motion_graphic(scene2_stddevs) is False
 
-    evidence_dir = REPO_ROOT / "docs" / "specs" / "evidence" / "E2-03"
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir = evidence_dir_for("E2-03")
 
     def _extract_frame(video: Path, t_s: float, out_png: Path) -> None:
         subprocess.run(

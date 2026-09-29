@@ -55,8 +55,8 @@ def test_agent_actions_node_harness_passes():
 
 def test_actions_js_registers_the_ten_pieces_actions():
     """Static-loads actions.js alone (no app.js, no DOM) and checks the
-    registry contains exactly the 10 actions the piece calls for, each with
-    the shape register() requires."""
+    registry contains the 10 actions F-04 calls for (a subset: later pieces
+    add more), each with the shape register() requires."""
     node_script = """
     const fs = require('fs');
     global.window = {};
@@ -99,7 +99,8 @@ def test_actions_js_registers_the_ten_pieces_actions():
         "audiovisual.open_recording_studio": False,
     }
 
-    assert set(by_id) == set(expected_script) | set(expected_audiovisual), sorted(by_id)
+    missing = (set(expected_script) | set(expected_audiovisual)) - set(by_id)
+    assert not missing, f"F-04 actions missing from the registry: {sorted(missing)}"
 
     for action_id, needs_confirm in expected_script.items():
         assert by_id[action_id]["step"] == "script", action_id

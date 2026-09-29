@@ -257,26 +257,30 @@ async function testRegistryShape() {
     throw new Error('fetch should not be called by this test');
   });
 
-  check('registers exactly 5 Script actions', () => {
-    const ids = BrandStudioActions.list('script').map((a) => a.id).sort();
-    assert.deepStrictEqual(ids, [
+  check('registers the 5 F-04 Script actions (later pieces may add more)', () => {
+    const ids = new Set(BrandStudioActions.list('script').map((a) => a.id));
+    for (const id of [
       'script.audit',
       'script.edit_scene_text',
       'script.generate',
       'script.iterate_scene',
       'script.lock',
-    ]);
+    ]) {
+      assert.ok(ids.has(id), `missing ${id}`);
+    }
   });
 
-  check('registers exactly 5 Audiovisual actions', () => {
-    const ids = BrandStudioActions.list('audiovisual').map((a) => a.id).sort();
-    assert.deepStrictEqual(ids, [
+  check('registers the 5 F-04 Audiovisual actions (later pieces may add more)', () => {
+    const ids = new Set(BrandStudioActions.list('audiovisual').map((a) => a.id));
+    for (const id of [
       'audiovisual.change_scene_type',
       'audiovisual.estimate',
       'audiovisual.generate_all',
       'audiovisual.open_recording_studio',
       'audiovisual.regenerate_one',
-    ]);
+    ]) {
+      assert.ok(ids.has(id), `missing ${id}`);
+    }
   });
 
   check('get() returns null for an unregistered id', () => {

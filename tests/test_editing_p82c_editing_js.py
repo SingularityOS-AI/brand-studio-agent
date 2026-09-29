@@ -64,7 +64,13 @@ def test_editing_js_router_ops_contract():
 
     js_ops = set(re.findall(r'op\s*:\s*["\']([^"\']+)["\']', js_content))
 
-    for op in js_ops:
+    # Ops that patchOverlays() maps client-side before the request goes out
+    # (`payload.op === "delete"` -> `op: "overlay_delete"`): they never reach
+    # the router under their client-side name, so only the mapped target counts.
+    client_mapped_ops = set(re.findall(r'payload\.op\s*===\s*["\']([^"\']+)["\']', js_content))
+    assert "delete" in client_mapped_ops, "editing.js must map the client-side 'delete' op"
+
+    for op in js_ops - client_mapped_ops:
         assert op in router_ops, f"Op '{op}' sent by editing.js is not in router.py allowed_ops {router_ops}"
 
 
@@ -73,10 +79,12 @@ def test_editing_js_router_endpoints_contract():
     js_content = EDITING_JS.read_text(encoding="utf-8")
     router_content = ROUTER_PY.read_text(encoding="utf-8")
 
-    raw_routes = re.findall(r'/api/editing/[a-zA-Z0-9_/$\{\}-]+', js_content)
+    # Take the whole quoted/template-literal string, so a route like
+    # `/api/editing/${encodeURIComponent(ideaId)}/settings` is parsed in full.
+    raw_routes = re.findall(r'[`"\'](/api/editing[^`"\']*)[`"\']', js_content)
     normalized_routes = set()
     for r in raw_routes:
-        norm = re.sub(r'\$\{.*?\}', '{param}', r)
+        norm = re.sub(r'\$\{[^}]*\}', '{param}', r)
         normalized_routes.add(norm)
 
     missing_routes = []
@@ -97,7 +105,7 @@ def test_editing_js_router_endpoints_contract():
 
 
 def test_node_load_and_expose_edit_actions():
-    """4. Load editing.js in Node with fake DOM and verify 13 EDIT_ACTIONS exposed."""
+    """4. Load editing.js in Node with fake DOM and verify EDIT_ACTIONS exposed."""
     node_bin = shutil.which("node")
     assert node_bin is not None, "Node.js must be in PATH"
 
@@ -125,7 +133,7 @@ def test_node_load_and_expose_edit_actions():
     assert res.returncode == 0, f"Node execution failed: {res.stderr}"
 
     actions_found = json.loads(res.stdout.strip())
-    expected_13_actions = [
+    expected_core_actions = [
         "toggle_face",
         "reset_face",
         "trim",
@@ -141,7 +149,9 @@ def test_node_load_and_expose_edit_actions():
         "copy_share_link",
     ]
 
-    for expected in expected_13_actions:
+    for expected in expected_core_actions:
         assert expected in actions_found, f"EDIT_ACTIONS missing expected action '{expected}'"
 
-    assert len(actions_found) == 13, f"Expected 13 EDIT_ACTIONS, found {len(actions_found)}: {actions_found}"
+    # Later pieces (E2-06, E2-09, ...) add actions; the P82C core set must stay.
+    assert len(actions_found) >= len(expected_core_actions), actions_found
+    assert len(actions_found) == len(set(actions_found)), f"Duplicate EDIT_ACTIONS: {actions_found}"

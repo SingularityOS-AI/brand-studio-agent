@@ -37,7 +37,6 @@ from render_service.manifest import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EVIDENCE_DIR = REPO_ROOT / "docs" / "specs" / "evidence" / "E2-06"
 
 NODE_AVAILABLE = shutil.which("node") is not None
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
@@ -363,15 +362,15 @@ def _green_pixel_bottom_edge(mp4_path: Path, at_s: float) -> tuple[int, Path]:
 
 @pytest.mark.skipif(not FFMPEG_AVAILABLE, reason="ffmpeg is not installed")
 @pytest.mark.parametrize("caption_y", [520, 1600])
-def test_offline_e2e_caption_bottom_edge_matches_caption_y(tmp_path, caption_y):
+def test_offline_e2e_caption_bottom_edge_matches_caption_y(tmp_path, caption_y, evidence_dir_for):
     out_mp4 = _render_caption_band_mp4(tmp_path, caption_y)
     assert out_mp4.is_file()
 
     max_y, raw_frame = _green_pixel_bottom_edge(out_mp4, at_s=1.0)
     assert max_y > 0, "caption text was not rendered"
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    png_out = EVIDENCE_DIR / f"caption_y_{caption_y}.png"
+    evidence_dir = evidence_dir_for("E2-06")
+    png_out = evidence_dir / f"caption_y_{caption_y}.png"
     subprocess.run(
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
@@ -380,7 +379,7 @@ def test_offline_e2e_caption_bottom_edge_matches_caption_y(tmp_path, caption_y):
         check=True,
         capture_output=True,
     )
-    (EVIDENCE_DIR / f"caption_y_{caption_y}_measurement.txt").write_text(
+    (evidence_dir / f"caption_y_{caption_y}_measurement.txt").write_text(
         f"requested caption_y: {caption_y}\n"
         f"measured bottom edge (max y with green caption pixel): {max_y}\n"
         f"tolerance: +-{CLIP_TOLERANCE_PX}px\n"
