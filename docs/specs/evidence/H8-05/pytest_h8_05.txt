@@ -1,0 +1,16 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Python312_Neural\python.exe
+rootdir: C:\Users\gabri\AppData\Local\Temp\claude\wt\h8-05
+configfile: pytest.ini
+plugins: anyio-4.12.1, asyncio-1.4.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+tests/test_h8_05_editing_ui.py::test_static_no_innerhtml_for_new_controls PASSED [ 20%]
+tests/test_h8_05_editing_ui.py::test_style_selector_renders_and_sends_style PASSED [ 40%]
+tests/test_h8_05_editing_ui.py::test_overlays_card_rows PASSED           [ 60%]
+tests/test_h8_05_editing_ui.py::test_overlay_switch_edit_delete_send_ops_with_version PASSED [ 80%]
+tests/test_h8_05_editing_ui.py::test_overlays_track_has_one_mark_per_overlay PASSED [100%]
+
+============================== 5 passed in 1.72s ==============================
+exit=0

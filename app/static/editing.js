@@ -122,6 +122,8 @@
       msg = "Payment could not be processed. You were not charged.";
     } else if (code === "too_many_ai_calls") {
       msg = "Too many AI requests this hour. Try again later.";
+    } else if (code === "restyle_limit") {
+      msg = "Restyle limit reached. You can restyle a cut up to 3 times for free.";
     } else if (code === "402") {
       showPaywall();
       return;
@@ -161,6 +163,30 @@
     const CAPTION_Y_MAX = 1700;
     const clamped = Math.max(CAPTION_Y_MIN, Math.min(CAPTION_Y_MAX, captionY));
     return await runEditAction("caption_y", { captionY: clamped });
+  }
+
+  // --- Style selector (E2-11) ---
+  const STYLE_OPTIONS = [
+    { value: "clean", label: "Clean" },
+    { value: "standard", label: "Standard" },
+    { value: "bold", label: "Bold" }
+  ];
+  const FREE_RESTYLES = 3;
+  // GET /api/editing/{id} does not echo the dressing style or the restyle counter,
+  // so the last style picked in this tab is remembered here as a fallback.
+  const styleMemory = { ideaId: null, style: null, restylesUsed: 0 };
+
+  function currentStyle(dressing) {
+    const fromState = dressing && typeof dressing.style === "string" ? dressing.style : "";
+    if (STYLE_OPTIONS.some((o) => o.value === fromState)) return fromState;
+    if (styleMemory.ideaId === currentIdeaId && styleMemory.style) return styleMemory.style;
+    return "standard";
+  }
+
+  function restylesLeft(dressing) {
+    let used = styleMemory.ideaId === currentIdeaId ? styleMemory.restylesUsed : 0;
+    if (dressing && typeof dressing.free_restyles_used === "number") used = dressing.free_restyles_used;
+    return Math.max(0, FREE_RESTYLES - used);
   }
 
   // --- API Callers ---
@@ -222,8 +248,9 @@
       payload.expected_version = editVersion;
     }
     const res = await apiCall(`/api/editing/${ideaId}/dress`, "POST", payload);
-    if (res.ok && res.data && res.data.code === "restyle_limit") {
-      showError("Restyle limit reached. You can restyle a cut up to 3 times for free.");
+    if (!res.ok && res.status === 409 && res.data && res.data.code === "restyle_limit") {
+      styleMemory.ideaId = currentIdeaId;
+      styleMemory.restylesUsed = FREE_RESTYLES;
     }
     return res.ok ? res.data : null;
   }
@@ -481,6 +508,19 @@
         return await patchOverlays(args.ideaId, {
           op: "enabled",
           enabled: args.value
+        });
+      }
+    },
+    // E2-10: inline overlay text edit (free, never re-runs auto-edit)
+    overlay_text: {
+      label: "Edit overlay text",
+      credits: 0,
+      run: async (args) => {
+        return await patchSettings(args.ideaId, {
+          op: "overlay_text",
+          overlay_id: String(args.overlayId),
+          value: String(args.text),
+          expected_version: (currentEditingState && currentEditingState.edit_version) || undefined
         });
       }
     }
@@ -776,6 +816,197 @@
     }
   }
 
+  // --- E2-11 style selector / E2-10 overlays card / timeline rows (DOM, no innerHTML for data) ---
+  function makeEl(tag, text, cssText) {
+    const node = document.createElement(tag);
+    if (text !== undefined && text !== null) node.textContent = text;
+    if (cssText) node.style.cssText = cssText;
+    return node;
+  }
+
+  function buildStyleControl(dressing) {
+    const wrap = makeEl("div", null, "display:flex;flex-direction:column;align-items:flex-start;gap:2px");
+    const group = makeEl("div", null, "display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden");
+    const active = currentStyle(dressing);
+    STYLE_OPTIONS.forEach((opt) => {
+      const btn = makeEl("button", opt.label, "padding:4px 10px;font-size:12px;border-radius:0;" + (opt.value === active ? "background:var(--accent);color:#fff;" : ""));
+      btn.type = "button";
+      btn.className = "btn btn--secondary editing-style-btn";
+      btn.dataset.style = opt.value;
+      btn.setAttribute("aria-pressed", opt.value === active ? "true" : "false");
+      btn.addEventListener("click", async () => {
+        const dressedBefore = Boolean(currentEditingState && currentEditingState.dressing && currentEditingState.dressing.fresh);
+        const changed = opt.value !== currentStyle(currentEditingState && currentEditingState.dressing);
+        const result = await runEditAction("dress_all", {
+          ideaId: currentIdeaId,
+          style: opt.value,
+          editVersion: currentEditingState ? currentEditingState.edit_version : null
+        });
+        if (result) {
+          if (styleMemory.ideaId !== currentIdeaId) {
+            styleMemory.ideaId = currentIdeaId;
+            styleMemory.restylesUsed = 0;
+          }
+          if (dressedBefore && changed) styleMemory.restylesUsed += 1;
+          styleMemory.style = opt.value;
+          if (currentEditingState) renderEditingContent(currentEditingState);
+        }
+      });
+      group.appendChild(btn);
+    });
+    wrap.appendChild(group);
+    const left = makeEl("div", "Restyles left: " + restylesLeft(dressing), "font-size:11px;color:var(--ink-soft)");
+    left.className = "editing-restyles-left";
+    wrap.appendChild(left);
+    return wrap;
+  }
+
+  function fmtOverlayRange(ov) {
+    const a = ((ov.start_ms || 0) / 1000).toFixed(1);
+    const b = ((ov.end_ms || 0) / 1000).toFixed(1);
+    return a + "s \u2013 " + b + "s";
+  }
+
+  function plainOverlayText(ov) {
+    return ov.text.replace(/<br\s*\/?>/gi, " ");
+  }
+
+  function buildOverlaysCard(state) {
+    const settings = state.settings || {};
+    const overlays = (state.ir && Array.isArray(state.ir.overlays)) ? state.ir.overlays : [];
+
+    const card = makeEl("div", null, "background:var(--surface);padding:16px;border:1px solid var(--line);border-radius:8px;margin-bottom:20px");
+    card.className = "editing-overlays-card";
+    card.appendChild(makeEl("h3", "Overlays", "font-size:14px;font-weight:700;margin:0 0 12px;color:var(--ink)"));
+
+    const switchLabel = makeEl("label", null, "display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--ink);margin-bottom:12px");
+    const sw = makeEl("input");
+    sw.type = "checkbox";
+    sw.className = "editing-overlays-switch";
+    sw.checked = settings.overlays_enabled !== false;
+    sw.addEventListener("change", async () => {
+      await runEditAction("overlays_enabled", { ideaId: currentIdeaId, value: sw.checked });
+    });
+    switchLabel.appendChild(sw);
+    switchLabel.appendChild(makeEl("span", "Show overlays"));
+    card.appendChild(switchLabel);
+
+    if (overlays.length === 0) {
+      card.appendChild(makeEl("p", "No overlays in this cut.", "font-size:12px;color:var(--ink-soft);margin:0"));
+      return card;
+    }
+
+    overlays.forEach((ov) => {
+      const row = makeEl("div", null, "display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);flex-wrap:wrap");
+      row.className = "editing-overlay-row";
+      row.dataset.overlayId = String(ov.id);
+      row.appendChild(makeEl("span", fmtOverlayRange(ov), "font-size:11px;font-weight:600;color:var(--ink-soft);min-width:90px"));
+
+      if (typeof ov.text === "string") {
+        const input = makeEl("input", null, "flex:1;min-width:140px;padding:4px 6px;font-size:12px;border:1px solid var(--line);border-radius:4px");
+        input.type = "text";
+        input.className = "editing-overlay-text";
+        input.maxLength = 80;
+        input.value = plainOverlayText(ov);
+        input.addEventListener("change", async () => {
+          const next = input.value.trim();
+          if (!next || next.length > 80) {
+            input.value = plainOverlayText(ov);
+            return;
+          }
+          await runEditAction("overlay_text", { ideaId: currentIdeaId, overlayId: ov.id, text: next });
+        });
+        row.appendChild(input);
+      } else {
+        row.appendChild(makeEl("span", String(ov.kind || "overlay").replace(/_/g, " "), "flex:1;font-size:12px;color:var(--ink-soft)"));
+      }
+
+      const del = makeEl("button", "Delete", "padding:2px 8px;font-size:11px");
+      del.type = "button";
+      del.className = "btn btn--secondary editing-overlay-delete";
+      del.addEventListener("click", async () => {
+        await runEditAction("delete_overlay", { ideaId: currentIdeaId, n: ov.id });
+      });
+      row.appendChild(del);
+      card.appendChild(row);
+    });
+    return card;
+  }
+
+  function getTrackDefs(ir) {
+    return [
+      { label: "Captions", items: ir ? (ir.captions || []) : [], getTimes: (ev) => ({ start: ev.start_ms, end: ev.end_ms }), type: "bar", color: "#3B82F6" },
+      { label: "Zoom", items: ir ? (ir.zoom_keys || []).filter((k) => k.scale > 1) : [], getTimes: (k) => ({ start: k.t_ms, end: k.t_ms }), type: "point", color: "#F59E0B" },
+      { label: "Transitions", items: ir ? (ir.transitions || []) : [], getTimes: (tr) => ({ start: tr.at_ms, end: tr.at_ms + (tr.dur_ms || 0) }), type: "bar", color: "#8B5CF6" },
+      { label: "SFX", items: ir ? (ir.sfx || []) : [], getTimes: (cue) => ({ start: cue.at_ms, end: cue.at_ms }), type: "point", color: "#EC4899" },
+      { label: "Overlays", items: ir ? (ir.overlays || []) : [], getTimes: (ov) => ({ start: ov.start_ms, end: ov.end_ms }), type: "bar", color: "#14B8A6" }
+    ];
+  }
+
+  function buildTrackRow(def, totalMs) {
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.height = "14px";
+    row.style.marginBottom = "2px";
+
+    const labelSpan = document.createElement("span");
+    labelSpan.style.width = "75px";
+    labelSpan.style.fontSize = "10px";
+    labelSpan.style.fontWeight = "600";
+    labelSpan.style.color = "var(--ink-soft)";
+    labelSpan.textContent = def.label;
+    row.appendChild(labelSpan);
+
+    const trackArea = document.createElement("div");
+    trackArea.style.flex = "1";
+    trackArea.style.height = "100%";
+    trackArea.style.position = "relative";
+    trackArea.style.background = "var(--surface-alt)";
+    trackArea.style.borderRadius = "3px";
+    trackArea.style.overflow = "hidden";
+
+    def.items.forEach((item) => {
+      const times = def.getTimes(item);
+      const start = times.start;
+      const end = times.end;
+
+      const mark = document.createElement("div");
+      mark.style.position = "absolute";
+      mark.style.height = "100%";
+      mark.style.backgroundColor = def.color;
+      mark.style.cursor = "pointer";
+
+      if (def.type === "point") {
+        const posPct = Math.max(0, Math.min(100, (start / totalMs) * 100));
+        mark.style.left = posPct + "%";
+        mark.style.width = "4px";
+        mark.style.transform = "translateX(-50%)";
+        mark.style.borderRadius = "2px";
+      } else {
+        const startPct = Math.max(0, Math.min(100, (start / totalMs) * 100));
+        const durPct = Math.max(0.5, Math.min(100 - startPct, ((end - start) / totalMs) * 100));
+        mark.style.left = startPct + "%";
+        mark.style.width = durPct + "%";
+        mark.style.opacity = "0.75";
+        mark.style.borderRadius = "2px";
+      }
+
+      mark.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const v = document.getElementById("Editing-Video");
+        if (v) {
+          v.currentTime = start / 1000;
+        }
+      });
+
+      trackArea.appendChild(mark);
+    });
+
+    row.appendChild(trackArea);
+    return row;
+  }
+
   // --- Main View Renderer ---
   function renderEditingContent(state) {
     if (typeof document === "undefined") return;
@@ -1027,6 +1258,7 @@
           </p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
+          <div id="Editing-Style-Control"></div>
           <button type="button" class="btn btn--secondary" data-edit-action="dress_all" style="font-size:13px">
             ${escapeHtml(dressBtnLabel)}
           </button>
@@ -1123,6 +1355,9 @@
             </div>
           </div>
 
+          <!-- Overlays (E2-10) -->
+          <div id="Editing-Overlays-Card"></div>
+
           <!-- Scene Settings List -->
           <div style="margin-bottom:20px">
             <h3 style="font-size:14px;font-weight:700;margin:0 0 12px;color:var(--ink)">Scenes (${scenes.length})</h3>
@@ -1153,81 +1388,19 @@
       </div>
     `;
 
-    // --- Wire 5 Timeline Track Rows (E6) without innerHTML with data ---
+    // --- E2-11 style selector and E2-10 overlays card ---
+    const styleHost = document.getElementById("Editing-Style-Control");
+    if (styleHost) styleHost.appendChild(buildStyleControl(dressing));
+    const overlaysHost = document.getElementById("Editing-Overlays-Card");
+    if (overlaysHost) overlaysHost.appendChild(buildOverlaysCard(state));
+
+    // --- Wire Timeline Track Rows (E6) without innerHTML with data ---
     const tracksContainer = document.getElementById("Editing-Timeline-Tracks");
     if (tracksContainer) {
       tracksContainer.innerHTML = "";
       const totalMs = (timeline && timeline.duration_ms) || (ir && ir.duration_ms) || 1;
-
-      const trackDefs = [
-        { label: "Captions", items: ir ? (ir.captions || []) : [], getTimes: (ev) => ({ start: ev.start_ms, end: ev.end_ms }), type: "bar", color: "#3B82F6" },
-        { label: "Zoom", items: ir ? (ir.zoom_keys || []).filter((k) => k.scale > 1) : [], getTimes: (k) => ({ start: k.t_ms, end: k.t_ms }), type: "point", color: "#F59E0B" },
-        { label: "Transitions", items: ir ? (ir.transitions || []) : [], getTimes: (tr) => ({ start: tr.at_ms, end: tr.at_ms + (tr.dur_ms || 0) }), type: "bar", color: "#8B5CF6" },
-        { label: "SFX", items: ir ? (ir.sfx || []) : [], getTimes: (cue) => ({ start: cue.at_ms, end: cue.at_ms }), type: "point", color: "#EC4899" }
-      ];
-
-      trackDefs.forEach((def) => {
-        const row = document.createElement("div");
-        row.style.display = "flex";
-        row.style.alignItems = "center";
-        row.style.height = "14px";
-        row.style.marginBottom = "2px";
-
-        const labelSpan = document.createElement("span");
-        labelSpan.style.width = "75px";
-        labelSpan.style.fontSize = "10px";
-        labelSpan.style.fontWeight = "600";
-        labelSpan.style.color = "var(--ink-soft)";
-        labelSpan.textContent = def.label;
-        row.appendChild(labelSpan);
-
-        const trackArea = document.createElement("div");
-        trackArea.style.flex = "1";
-        trackArea.style.height = "100%";
-        trackArea.style.position = "relative";
-        trackArea.style.background = "var(--surface-alt)";
-        trackArea.style.borderRadius = "3px";
-        trackArea.style.overflow = "hidden";
-
-        def.items.forEach((item) => {
-          const times = def.getTimes(item);
-          const start = times.start;
-          const end = times.end;
-
-          const mark = document.createElement("div");
-          mark.style.position = "absolute";
-          mark.style.height = "100%";
-          mark.style.backgroundColor = def.color;
-          mark.style.cursor = "pointer";
-
-          if (def.type === "point") {
-            const posPct = Math.max(0, Math.min(100, (start / totalMs) * 100));
-            mark.style.left = posPct + "%";
-            mark.style.width = "4px";
-            mark.style.transform = "translateX(-50%)";
-            mark.style.borderRadius = "2px";
-          } else {
-            const startPct = Math.max(0, Math.min(100, (start / totalMs) * 100));
-            const durPct = Math.max(0.5, Math.min(100 - startPct, ((end - start) / totalMs) * 100));
-            mark.style.left = startPct + "%";
-            mark.style.width = durPct + "%";
-            mark.style.opacity = "0.75";
-            mark.style.borderRadius = "2px";
-          }
-
-          mark.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const v = document.getElementById("Editing-Video");
-            if (v) {
-              v.currentTime = start / 1000;
-            }
-          });
-
-          trackArea.appendChild(mark);
-        });
-
-        row.appendChild(trackArea);
-        tracksContainer.appendChild(row);
+      getTrackDefs(ir).forEach((def) => {
+        tracksContainer.appendChild(buildTrackRow(def, totalMs));
       });
     }
 
@@ -1534,7 +1707,18 @@
     run: runEditAction,
     EDIT_ACTIONS: EDIT_ACTIONS,
     hasFinalRender: hasFinalRender,
-    loadEditingState: loadEditingState
+    loadEditingState: loadEditingState,
+    // Test seams (H8-05): build the new controls without mounting the whole view.
+    __test: {
+      buildStyleControl: buildStyleControl,
+      buildOverlaysCard: buildOverlaysCard,
+      getTrackDefs: getTrackDefs,
+      buildTrackRow: buildTrackRow,
+      setState: function (ideaId, state) {
+        currentIdeaId = ideaId;
+        currentEditingState = state;
+      }
+    }
   };
 
   if (typeof window !== "undefined") {
