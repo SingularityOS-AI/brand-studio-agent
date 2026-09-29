@@ -109,3 +109,8 @@ DEPLOYMENT_STATUS.md
 PRODUCTION_STRIPE_SETUP.md
 TEST_WEBHOOK_SETUP.md
 QA_RESEARCH_BUTTONS.md
+
+# 2026-09-29 — repo hygiene (H7-05)
+*.lnk
+temp_render/
+output/

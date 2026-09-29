@@ -2,6 +2,45 @@
 
 What changed, when, and why. Newest first. Commit hashes point to `main`.
 
+## 2026-09-29 — Block H7: hardening before the first-account production run
+
+- **H7-01** Raw cuts no longer fail after upload: the render response contract carries the scene fallback list again, and the empty-scene warning reaches the editing state. Render engine `2026.09.29`.
+- **H7-02** Test suite green on `main`: stale assertions updated for the agentic tools, a ghost test removed, UTF-8 output on Windows, tests no longer rewrite tracked evidence files.
+- **H7-03** The render button shows the price that will actually be charged, also after a server restart.
+- **H7-04** The production panel waits for sign-in and shows a friendly state when the audit table is not available.
+- **H7-05** Repo hygiene: shortcut file untracked, ignore rules extended, `.env.example` lists every variable the code reads, README and changelog match what ships.
+- **H7-06** Readiness check that a brand-new account can complete the full lap within the 500 free credits.
+
+## Block F (2026-09) — Agentic Mode
+
+- **F-01** Brand Soul rendered as prose from the 9-section brain.
+- **F-02** `agent_actions` audit table (migration 014, RLS on, service-role access only).
+- **F-03** Production panel: live audit trail as a card queue.
+- **F-04** Action Registry: every agentic call stamped with `X-Agent-Action-Id` and logged.
+- **F-05** Agentic Mode toggle, step-scoped Brandy, English orb states.
+- **F-06** Confirmation engine: explicit phrase required, 45 s expiry, "yes" alone rejected.
+- **F-07** Script voice tools: generate, review, iterate, lock.
+- **F-08** Audiovisual voice tools: regenerate assets and B-roll.
+- **F-09** Catalog and Brand Soul voice tools, with idea resolution.
+- **F-10** Proactive announcements when a job finishes.
+- **F-11** 14 editing voice tools in the action registry.
+
+## Block E.2 (2026-09) — Editing
+
+- **E2-01** Offline end-to-end test that renders a real MP4 with synthetic media.
+- **E2-02** Chromium seek-capture for motion graphics: deterministic 30 fps frames.
+- **E2-03** Empty-scene guard: a blank motion graphic falls back to the face take or an AI image, with a warning.
+- **E2-04** Title cards shrink their text to fit the safe zone.
+- **E2-05** Render pricing by engine version: first render 20 credits, later renders 5, free when only the engine changed.
+- **E2-06** One caption style per script with a vertical position control.
+- **E2-07** Overlays and captions no longer collide.
+- **E2-08** Three-step editor in English: 1 Cut · 2 Auto-edit · 3 Export, with a loading screen.
+- **E2-09** Draggable caption band with presets.
+- **E2-10** Overlay controls: delete, edit text, switch on or off.
+- **E2-11** Auto-edit looks: Clean, Standard, Bold, with free restyles.
+- **E2-12** Recording guide silhouette for takes.
+- **E2-13** Animated overlay library: 8 templates, identical in preview and MP4.
+
 ## 2026-09-24 — Audiovisual: the founder decides, and AI spend can't bankrupt us
 
 - **Founders choose each scene's visual type** (camera, stock, motion graphic, AI image, AI video) with the price shown before spending. In 47 real scenes the script model never picked AI once, so AI assets were unreachable; now the script proposes and the founder decides. When a type needs a prompt the scene doesn't have, a text model writes it (async, 8 s timeout, deterministic fallback). `b6cdc93`

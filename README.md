@@ -4,9 +4,22 @@
 
 Built for the [AssemblyAI Voice Agent Hackathon](https://lablab.ai/ai-hackathons/assemblyai-voice-agent-hackathon) (September 2026) by **VibeMarketing Studio**.
 
-- **Live demo:** https://brand.singularityos-ai.com
-- **Judges:** a judge account with a fixed credit allowance is shared privately through the lablab support ticket, never in this public repo (every AI asset costs real money).
+- **Live demo:** https://brand-studio-agent.onrender.com
+- **How a judge tries it:** open the demo, sign in with Google and you start with **500 free credits**. Follow the rail from Brand Soul to Editing; every price is shown before anything is charged. (Every AI asset costs real money, so the allowance is fixed.)
 - **What changed and when:** [CHANGELOG.md](CHANGELOG.md)
+
+Brand Studio Agent turns a spoken interview into a Brand Soul, a catalog of demand-backed video ideas, an audited script, recorded takes with AI or stock B-roll, and a rendered MP4 — all in one rail. A voice agent (Brandy) runs the interview and, in Agentic Mode, can also operate the app for you. Nothing is charged until an asset succeeds.
+
+### What ships
+
+| Block | What the founder gets | Built on |
+|---|---|---|
+| Brand Soul | Voice interview that fills a 9-section brand brain, each section backed by a quote | AssemblyAI Voice Agent API |
+| Catalog | 30 video ideas in 5 categories, each tied to a demand signal | YouTube Data API, Gemini grounding |
+| Script | 6-phase script with a 14-rule deterministic audit; 9 rules must pass to lock | Rules engine, no LLM |
+| Audiovisual | Teleprompter takes, word-level subtitles, B-roll per scene chosen by the founder | AssemblyAI, Pexels/Pixabay, Vertex AI |
+| Editing | 1 Cut · 2 Auto-edit · 3 Export, rendered to MP4 by an FFmpeg service | Render service on Cloud Run, engine `2026.09.29` |
+| Agentic Mode | Voice tools for the app's actions, two-turn explicit confirmation, audit trail | Action Registry, `agent_actions` table |
 
 ---
 
@@ -61,23 +74,22 @@ You can iterate a single scene with an intent ("make it punchier") and the audit
 - **Soundtrack and SFX:** an AI audio director picks mood and energy; the track comes from a local **CC0 library** (14 tracks, 15 effects, Freesound — credits in `app/audiovisual/library/*.json`). Listen-only here; mixing happens in Editing.
 - **Generation runs as resumable background jobs** with a live progress bar. Charges happen only when an asset succeeds, written ahead so a retry can never charge twice.
 
-### 5. Editing — shipped ✅
-The pipeline assembles takes and B-roll into a finished MP4 via a local render service (`render_service/`):
+### 5. Editing — 1 Cut · 2 Auto-edit · 3 Export
+The pipeline assembles takes and B-roll into a finished MP4 through the render service (`render_service/`, FFmpeg + Chromium, deployed on Cloud Run):
 
-- **Scene assembly:** raw cut built scene-by-scene (`ffmpeg_raw.py`); motion-graphic HTML scenes rendered to MP4 via Chromium seek-capture at 30 fps (`seek_capture.py`, `motion.py`).
-- **Empty-scene guard (E2-03):** if a motion graphic renders blank (luma std-dev < threshold across 90%+ of sampled frames), the engine falls back to the founder's face take or a declared AI image, and surfaces a `scene_fallbacks` list all the way up to the `/v1/render` HTTP response so the UI can show an inline warning.
-- **One caption style (E2-06):** a single style (font, size, colour, position) is set once per script and written into the IR; `caption_y` controls vertical position in both the raw cutter and the final dresser.
-- **Card text fit (E2-04):** title cards shrink font to fit the safe-zone without overflow.
-- **Chromium seek-capture (E2-02):** GSAP timeline advanced frame-by-frame via `tl.seek(t, false)` for deterministic renders without real-time playback.
+- **1 Cut:** raw cut built scene by scene (`ffmpeg_raw.py`); motion-graphic HTML scenes rendered to MP4 via Chromium seek-capture at 30 fps (`seek_capture.py`, `motion.py`).
+- **2 Auto-edit:** silence and filler trimming, one caption style per script, Clean / Standard / Bold looks, overlay controls, a draggable caption band, an animated overlay library (8 templates), and collision-free overlay layout.
+- **3 Export:** subtitles and overlays burned in by `ffmpeg_dress.py`; the browser preview and the MP4 both draw what the RenderIR says, with the same numbers.
+- **Empty-scene guard:** a motion graphic that renders blank falls back to the founder's face take or a declared AI image, and the render response lists the fallback so the UI can warn.
+- **Pricing:** first render of an idea 20 credits, later renders 5, free when only the engine version changed.
 
-### 6. Agentic mode — core shipped ✅
-Brandy can now act on your behalf, not just interview you. Every agentic action is tracked end-to-end:
+### 6. Agentic Mode — Brandy operates the app
+Agentic Mode is a toggle in the brand bar. Brandy's tools are scoped to the current step and call the same frontend functions and backend endpoints as the buttons — there is no parallel backend.
 
-- **Action Registry (F-04):** every agentic call is stamped with `X-Agent-Action-Id` and logged to `agent_actions` (Supabase, RLS-on, service-role key only). The registry maps action IDs to human-readable titles.
-- **Confirmation engine (F-06):** before executing any irreversible action, Brandy asks for an explicit confirmation phrase (`"confirm"`, `"yes do it"`, `"do it"`, `"go ahead"`, `"proceed"`, or Spanish equivalents). `"yes"` alone is not accepted. The pending confirmation expires after **45 seconds** TTL. Implemented in `app/static/confirm_engine.js`, tested with a Node harness + pytest.
-- **Production panel (F-03):** a live audit trail of every agentic action renders in the UI as a card queue — status chip, step tag, credit cost, and an Open link to the asset. Built entirely with DOM APIs (zero `innerHTML` for user strings), wired to `app.js` at 6 call sites.
-- **Brand Soul in prose (F-01):** the 9-section brand brain generates a readable prose document from structured data, not a template fill.
-- **Agent actions audit table (F-02):** migration `014_agent_actions.sql` creates the table with RLS enabled; all access goes through FastAPI with the service-role key.
+- **Tools:** script (generate, review, iterate, lock), catalog and Brand Soul, audiovisual (regenerate assets, B-roll) and editing (14 tools), plus proactive announcements when a job finishes.
+- **Two-turn confirmation:** before any irreversible or paid action Brandy states what will happen and its price, then waits for an explicit phrase (`"confirm"`, `"yes do it"`, `"do it"`, `"go ahead"`, `"proceed"`). `"yes"` alone is not accepted, and a pending confirmation expires after **45 seconds** (`app/static/confirm_engine.js`).
+- **Audit trail:** every agentic call carries `X-Agent-Action-Id` and is logged to `agent_actions` (Supabase, RLS on, service-role access only; migration `014_agent_actions.sql`). The production panel shows it live as a card queue with status, step, credit cost and a link to the asset.
+- **Brand Soul in prose:** the 9-section brain is rendered as a readable document, not a template fill.
 
 ---
 
@@ -103,13 +115,18 @@ flowchart LR
     JOBS --> ST[(Supabase Storage · private bucket)]
     LOCK --> RS[render_service]
     RS --> RAW[ffmpeg_raw · scene assembly]
+    RS --- CR[[Cloud Run · engine 2026.09.29]]
     RS --> CAP[seek_capture · Chromium 30 fps]
     RS --> DRESS[ffmpeg_dress · subtitles + overlays]
     RS --> MP4([Final MP4])
-    VA -->|agentic actions| ACT[Action Registry · X-Agent-Action-Id]
+    VA -->|voice tool call| TOOLS[Agentic tools · step-scoped]
+    TOOLS --> CONF{Confirmation engine<br/>two turns · 45s TTL}
+    CONF -->|explicit phrase| ACT[Action Registry · X-Agent-Action-Id]
+    ACT -->|same functions and endpoints as the buttons| APP[App actions: script · assets · editing]
+    APP --> JOBS
+    APP --> RS
     ACT --> DB[(agent_actions · Supabase RLS)]
-    ACT --> CONF[Confirmation engine · 45s TTL]
-    ACT --> PP[Production panel · live audit trail]
+    DB --> PP[Production panel · live audit trail]
 ```
 
 **Where AssemblyAI sits:** the whole voice conversation (Voice Agent API) and the transcription of every recorded take (word-level timestamps). Gemini/Veo cover images, video and research — things AssemblyAI does not offer.
@@ -131,48 +148,15 @@ Real AI calls cost real money, so the app is built to fail closed:
 
 ## Status
 
-### Production (shipped and on `main`)
-
-| Piece | What it does | PR |
-|---|---|---|
-| Brand Soul voice interview | AssemblyAI Voice Agent, barge-in, 9-section brain | pre-existing |
-| Demand catalog | YouTube Data API + Gemini grounding, 30 ideas | pre-existing |
-| Script blueprint + 14-rule audit | deterministic audit, lock | pre-existing |
-| Teleprompter + AssemblyAI transcription | word-level timestamps per take | pre-existing |
-| B-roll pipeline + AI asset generation | Stock / MG / Gemini image / Veo, spend brake | pre-existing |
-| Credits + Stripe checkout | test mode until launch | pre-existing |
-| **E2-01** Offline MP4 test | CI smoke test for the render pipeline | #5 |
-| **E2-05** Dynamic pricing | real-time credit cost preview per scene type | #7 |
-| **F-01** Brand Soul prose | 9-section brain → readable document | #8 |
-| **F-02** Agent actions audit table | migration 014, RLS, service-role key | #6 |
-| **E2-02** Chromium seek-capture | GSAP seek at 30 fps, deterministic render | #10 |
-| **E2-04** Card text fit | title cards shrink to safe-zone, no overflow | #9 |
-| **F-04** Action Registry | X-Agent-Action-Id header, action titles, DB log | #11 |
-| **E2-06** One caption style | single font/size/colour/position per script, caption_y | #14 |
-| **E2-03** Empty-scene guard | blank MG → face/image fallback + HTTP warning | #15 |
-| **F-03** Production panel | live agentic audit trail, card queue, zero innerHTML | #13 |
-| **F-06** Confirmation engine | 45s TTL, explicit phrase required, "yes" alone rejected | #12 |
-| **F-07** Script voice tools | voice-controlled script tools (generate, review, iterate, lock) | #16 |
-| **E2-08** 3-step editor (EN) | 1 Cut · 2 Auto-edit · 3 Export, English labels, loading screen | #17 |
-| **F-05** Agentic mode toggle | Brandy scope selector, step-scoped session.update, English orb states | #17 |
-| **E2-07** No-collision layout | 2D box collision resolution between overlays and captions in IR | #18 |
-
-### In progress / planned
-
-| Piece | What it does |
-|---|---|
-| **E2-09** UI caption_y drag | visual slider/drag to adjust caption band height |
-| **F-08** Voice audiovisual tools | voice-controlled audiovisual asset regeneration and B-roll |
-
----
+Everything in the table above is on `main` and deployed. Per-piece history is in [CHANGELOG.md](CHANGELOG.md); specs and evidence live in [docs/specs/](docs/specs/README.md).
 
 ## What's missing
 
 Being explicit, because a judge will open the code:
 
-- **Voice drives the Brand Soul interview only.** The agentic action core is live (registry, confirmation engine, audit panel), but F-05 (the UI toggle that expands Brandy's scope) and F-07 (voice-controlled script tools) are in progress.
 - **Raw footage upload** is not available; the selector says "coming soon" and the backend returns 400 before charging.
 - The music and SFX library was selected by metadata (tags, rating, duration); a human listening pass is in progress.
+- Stripe runs in test mode until launch.
 
 ---
 
@@ -200,7 +184,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Credit purchases |
 | `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_STUDIO` | Live price IDs (required with a live key) |
 | `AV_MONTHLY_AI_SPEND_CAP_USD` | Monthly AI spend brake (default 20) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side writes (audit table, storage) |
 | `AV_IMAGE_MODEL`, `AV_VIDEO_MODEL`, `AV_STORAGE_BUCKET` | Optional overrides |
+| `RENDER_SERVICE_URL`, `RENDER_SERVICE_SECRET`, `RENDER_ALLOWED_HOSTS` | Connection to the render service |
+
+Every variable the code reads, with its default, is listed in [`.env.example`](.env.example).
 
 **Never commit `.env`.** It is gitignored.
 
@@ -210,7 +198,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 python -m pytest -q -m "not e2e"
 ```
 
-~600 tests. A network lock blocks every outbound connection (sync and async) during tests, and the test config never loads the real `.env`.
+A network lock blocks every outbound connection (sync and async) during tests, and the test config never loads the real `.env`.
 
 ## Notes for anyone reading the code
 
@@ -222,7 +210,7 @@ python -m pytest -q -m "not e2e"
 
 ## Deployment
 
-Render (auto-deploy on push to `main`) via [`render.yaml`](render.yaml). Stripe webhook: `https://brand-studio-agent.onrender.com/api/stripe/webhook`.
+The app deploys to Render (auto-deploy on push to `main`) via [`render.yaml`](render.yaml). The render service is a separate container image deployed to Cloud Run. Stripe webhook: `https://brand-studio-agent.onrender.com/api/stripe/webhook`.
 
 ## License
 

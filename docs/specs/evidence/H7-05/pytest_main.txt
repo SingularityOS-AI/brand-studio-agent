@@ -1,0 +1,34 @@
+$ python -m pytest -q -m "not e2e" -p no:cacheprovider   # origin/main 1d27219
+  /tmp/claude-0/main_wt/render_service/manifest.py:437: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+=========================== short test summary info ============================
+ERROR tests/test_agent_f11.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 skipped, 1 deselected, 12 warnings, 1 error in 4.69s
+
+$ python -m pytest -q -m "not e2e" -p no:cacheprovider --ignore=tests/test_agent_f11.py   # origin/main 1d27219
+    warnings.warn(
+tests/test_editing_e2_13_anim.py::TestE2_13AnimatedOverlayTemplates::test_template_declares_window_params[stat_counter.html]
+  /tmp/claude-0/venv/lib/python3.11/site-packages/pluggy/_callers.py:115: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    function_gen = cast(Generator[None, object, object], res)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+=========================== short test summary info ============================
+FAILED tests/test_actions_f04.py::test_agent_actions_node_harness_passes - As...
+FAILED tests/test_actions_f04.py::test_actions_js_registers_the_ten_pieces_actions
+FAILED tests/test_editing_e2_03_empty_scene.py::test_resolve_raw_render_forwards_scene_fallbacks
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_face_warning
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_image_warning
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_ops_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_endpoints_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_node_load_and_expose_edit_actions
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_render_service_p73_app.py::test_happy_path_raw_render - pyd...
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_render_service_p75_container.py::test_app_converter_replaces_local_inputs_path
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+16 failed, 1238 passed, 52 skipped, 1 deselected, 17 warnings, 1 error in 24.04s

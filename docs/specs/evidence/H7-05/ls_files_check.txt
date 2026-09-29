@@ -1,0 +1,2 @@
+$ git ls-files | grep -iE "\.lnk$|__pycache__|\.pyc$|\.log$"
+(exit=1)
