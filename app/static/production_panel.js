@@ -170,6 +170,14 @@
       }
     }
 
+    // H8-04: a failed job explains itself in the card instead of a bare chip.
+    if (row.status === 'failed' && row.error) {
+      var failure = document.createElement('p');
+      failure.className = 'pp-error';
+      failure.textContent = String(row.error);
+      card.appendChild(failure);
+    }
+
     if (row.result_ref && isSafeHref(row.result_ref)) {
       var link = document.createElement('a');
       link.className = 'pp-open';
@@ -345,6 +353,7 @@
       '.pp-voice-detail{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}',
       '.pp-voice-line{margin:0 0 4px;font-size:12px;color:var(--ink-soft);word-break:break-word}',
       '.pp-voice-line strong{color:var(--ink)}',
+      '.pp-error{margin:8px 0 0;font-size:12px;color:#B5311C;word-break:break-word}',
       '.pp-open{display:inline-block;margin-top:8px;font-size:12px;color:var(--accent);text-decoration:none}',
       '.pp-open:hover{text-decoration:underline}',
     ].join('\n');
@@ -357,6 +366,13 @@
 
   if (typeof window !== 'undefined') {
     window.BrandStudioPanel = BrandStudioPanel;
+    // H8-04: app.js announces every finished non-GET request; refresh once per
+    // event so in-step actions (Script iterate/lock, ...) show up right away.
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('brandstudio:action-finished', function () {
+        refresh();
+      });
+    }
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
       document.addEventListener('DOMContentLoaded', function () {
         injectStyleOnce();

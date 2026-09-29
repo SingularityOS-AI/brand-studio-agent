@@ -1,0 +1,35 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Python312_Neural\python.exe
+rootdir: C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04
+configfile: pytest.ini
+plugins: anyio-4.12.1, asyncio-1.4.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 12 items
+
+tests/test_h8_04_audit_async.py::test_middleware_stores_result_ref_and_credits_from_202_body PASSED [  8%]
+tests/test_h8_04_audit_async.py::test_middleware_records_no_credits_for_a_reused_job PASSED [ 16%]
+tests/test_h8_04_audit_async.py::test_middleware_leaves_bodies_without_a_job_alone PASSED [ 25%]
+tests/test_h8_04_audit_async.py::test_voice_row_updated_via_header_also_gets_result_ref PASSED [ 33%]
+tests/test_h8_04_audit_async.py::test_worker_completion_marks_the_row_done PASSED [ 41%]
+tests/test_h8_04_audit_async.py::test_worker_failure_marks_the_row_failed_with_the_job_error PASSED [ 50%]
+tests/test_h8_04_audit_async.py::test_worker_only_closes_rows_of_its_own_job PASSED [ 58%]
+tests/test_h8_04_audit_async.py::test_update_failures_are_swallowed_by_the_worker PASSED [ 66%]
+tests/test_h8_04_audit_async.py::test_settle_actions_never_raises_when_the_table_call_fails PASSED [ 75%]
+tests/test_h8_04_audit_async.py::test_settle_ignores_rows_that_already_finished PASSED [ 83%]
+tests/test_h8_04_audit_async.py::test_panel_refreshes_once_per_action_finished_event_and_shows_failure_detail PASSED [ 91%]
+tests/test_h8_04_audit_async.py::test_app_js_announces_non_get_requests_with_a_single_line PASSED [100%]
+
+============================== warnings summary ===============================
+..\..\..\..\..\..\..\Python312_Neural\Lib\site-packages\fastapi\testclient.py:1
+  C:\Python312_Neural\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_h8_04_audit_async.py::test_middleware_stores_result_ref_and_credits_from_202_body
+tests/test_h8_04_audit_async.py::test_middleware_records_no_credits_for_a_reused_job
+tests/test_h8_04_audit_async.py::test_middleware_leaves_bodies_without_a_job_alone
+tests/test_h8_04_audit_async.py::test_voice_row_updated_via_header_also_gets_result_ref
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\jwt_helpers.py:36: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "exp": (datetime.utcnow() + timedelta(hours=expires_in_hours)).timestamp(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 12 passed, 5 warnings in 5.59s ========================

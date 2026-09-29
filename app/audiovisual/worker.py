@@ -27,6 +27,17 @@ from app.guard import guard
 
 logger = logging.getLogger(__name__)
 
+
+def _settle_trail(job_id: str, status: str, error: str | None = None) -> None:
+    """Close the agent_actions rows that point at this job (H8-04). Never raises."""
+    try:
+        from app.agent.store import settle_actions_for_job
+
+        settle_actions_for_job(job_id, status, error)
+    except Exception as e:  # noqa: BLE001 — audit trail must never break a worker
+        logger.warning(f"[worker] audit trail settle failed for job {job_id}: {e}")
+
+
 async def resolve_transcript(job: dict[str, Any]) -> dict[str, Any]:
     """
     Resolver for 'transcript' job (Pieza 51):
@@ -171,6 +182,7 @@ async def process_one_job(kinds: list[str] | None = None) -> bool:
                 f"[worker] Job {job['id']} ({kind}) failed: monthly AI spend cap exceeded."
             )
             mark_failed(job_id_or_job=job["id"], error="AI generation paused (platform spend limit)")
+            _settle_trail(job["id"], "failed", "AI generation paused (platform spend limit)")
             return True
 
     if kind in EDITING_KINDS:
@@ -179,6 +191,7 @@ async def process_one_job(kinds: list[str] | None = None) -> bool:
                 f"[worker] Job {job['id']} ({kind}) failed: platform spend limit reached."
             )
             mark_failed(job_id_or_job=job["id"], error="Render paused (platform spend limit)")
+            _settle_trail(job["id"], "failed", "Render paused (platform spend limit)")
             return True
 
     if kind in ("ai_image", "ai_video"):
@@ -189,6 +202,7 @@ async def process_one_job(kinds: list[str] | None = None) -> bool:
                 f"[worker] Job {job['id']} ({kind}) failed: Missing visual prompt."
             )
             mark_failed(job_id_or_job=job["id"], error="Missing visual prompt")
+            _settle_trail(job["id"], "failed", "Missing visual prompt")
             return True
 
     try:
@@ -197,6 +211,7 @@ async def process_one_job(kinds: list[str] | None = None) -> bool:
         logger.error(f"[worker] Job {job['id']} resolver error: {e}")
         # Job fallido: 0 cobro
         mark_failed(job_id_or_job=job["id"], error=str(e))
+        _settle_trail(job["id"], "failed", str(e))
         return True
 
     cost_usd = None
@@ -228,6 +243,7 @@ async def process_one_job(kinds: list[str] | None = None) -> bool:
                     error=f"Payment failed: {e}",
                     internal_storage_path=internal_path,
                 )
+                _settle_trail(job["id"], "failed", f"Payment failed: {e}")
                 return True
         else:
             # Otra llamada o proceso ya cobró
@@ -239,6 +255,7 @@ async def process_one_job(kinds: list[str] | None = None) -> bool:
         cost_usd=cost_usd,
         charged=charged,
     )
+    _settle_trail(job["id"], "done")
     return True
 
 

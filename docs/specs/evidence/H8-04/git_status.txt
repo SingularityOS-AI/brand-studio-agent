@@ -1,0 +1,13 @@
+ M app/agent/middleware.py
+ M app/agent/store.py
+ M app/audiovisual/worker.py
+ M app/static/app.js
+ M app/static/production_panel.js
+?? docs/specs/evidence/H8-04/
+?? tests/test_h8_04_audit_async.py
+ app/agent/middleware.py        | 91 +++++++++++++++++++++++++++++++++++++++++-
+ app/agent/store.py             | 53 +++++++++++++++++++++++-
+ app/audiovisual/worker.py      | 17 ++++++++
+ app/static/app.js              |  1 +
+ app/static/production_panel.js | 16 ++++++++
+ 5 files changed, 175 insertions(+), 3 deletions(-)

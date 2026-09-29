@@ -8,12 +8,15 @@ callers of this module never expose another session's rows.
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _actions_client: Any = None
 _local_actions: dict[str, dict[str, Any]] = {}
@@ -69,6 +72,7 @@ def create_action(
     credits: int | None = None,
     status: str = "proposed",
     error: str | None = None,
+    result_ref: str | None = None,
 ) -> dict[str, Any]:
     """Insert a new agent_actions row.
 
@@ -93,7 +97,7 @@ def create_action(
         "confirmed_at": None,
         "credits": credits,
         "status": status,
-        "result_ref": None,
+        "result_ref": result_ref,
         "error": error,
     }
 
@@ -196,3 +200,50 @@ def list_actions(
         ]
         rows.sort(key=lambda r: r["created_at"], reverse=True)
         return rows[:limit]
+
+
+def settle_actions_for_job(
+    job_id: str,
+    status: str,
+    error: str | None = None,
+) -> int:
+    """Move the still-open rows that point at `job_id` (result_ref) to a final status.
+
+    Called by the background worker when a job reaches done/failed/cancelled, so
+    the panel stops showing "queued" for work that already finished. Internal:
+    it matches on result_ref, not on session (the job id is a uuid only the
+    owner's request ever received). Never raises -- the audit trail must not
+    break or slow a worker -- and returns how many rows were touched (0 on any
+    failure).
+    """
+    try:
+        if not job_id or status not in STATUSES:
+            return 0
+        fields: dict[str, Any] = {
+            "status": status,
+            "error": error,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        open_statuses = ["queued", "running"]
+
+        client = _get_actions_client()
+        if client is not None:
+            res = (
+                client.table("agent_actions")
+                .update(fields)
+                .eq("result_ref", str(job_id))
+                .in_("status", open_statuses)
+                .execute()
+            )
+            return len(res.data or [])
+
+        touched = 0
+        with _actions_lock:
+            for row in _local_actions.values():
+                if row.get("result_ref") == str(job_id) and row.get("status") in open_statuses:
+                    row.update(fields)
+                    touched += 1
+        return touched
+    except Exception as exc:  # noqa: BLE001 — audit trail must never break a worker
+        logger.warning("[agent_actions] settle for job %s failed: %s", job_id, exc)
+        return 0

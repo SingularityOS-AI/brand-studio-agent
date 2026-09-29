@@ -33,6 +33,7 @@
       options.headers['X-Agent-Action-Id'] = window.BrandStudioActions.currentActionId;
     }
     const response = await fetch(url, { ...options, credentials: 'same-origin' });
+    if ((options.method || 'GET').toUpperCase() !== 'GET' && typeof document.dispatchEvent === 'function') document.dispatchEvent(new CustomEvent('brandstudio:action-finished'));
 
     // Centralized 402 handling - show paywall
     if (response.status === 402) {
