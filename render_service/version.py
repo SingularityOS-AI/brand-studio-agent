@@ -5,4 +5,4 @@ or how a renderer (`ffmpeg_dress.py`, `ffmpeg_raw.py`, `motion.py`) draws a fram
 so a re-render after the fix produces a new MP4 instead of reusing a cached one.
 """
 
-ENGINE_VERSION = "2026.09.27-1"
+ENGINE_VERSION = "2026.09.28"
