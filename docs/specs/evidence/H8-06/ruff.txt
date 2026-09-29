@@ -1,0 +1,159 @@
+F401 [*] `fastapi.Response` imported but unused
+  --> app\main.py:20:60
+   |
+18 | from pathlib import Path
+19 | from typing import Any
+20 | from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+   |                                                            ^^^^^^^^
+21 | from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+22 | from fastapi.staticfiles import StaticFiles
+   |
+help: Remove unused import: `fastapi.Response`
+
+E402 Module level import not at top of file
+   --> app\main.py:284:1
+    |
+282 | # =============================================================================
+283 |
+284 | from pydantic import BaseModel, ValidationError
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+E402 Module level import not at top of file
+   --> app\main.py:489:1
+    |
+487 | # =============================================================================
+488 |
+489 | from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+F401 [*] `app.catalog.demand.NicheReport` imported but unused
+   --> app\main.py:489:55
+    |
+487 | # =============================================================================
+488 |
+489 | from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+    |                                                       ^^^^^^^^^^^
+    |
+help: Remove unused import
+
+F401 [*] `app.catalog.demand.clear_demand_cache` imported but unused
+   --> app\main.py:489:68
+    |
+487 | # =============================================================================
+488 |
+489 | from app.catalog.demand import validate_niche_demand, NicheReport, clear_demand_cache
+    |                                                                    ^^^^^^^^^^^^^^^^^^
+    |
+help: Remove unused import
+
+E402 Module level import not at top of file
+   --> app\main.py:578:1
+    |
+576 | # =============================================================================
+577 |
+578 | from app.catalog.ideas import generate_catalog
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+F401 [*] `app.catalog.ideas.generate_catalog` imported but unused
+   --> app\main.py:578:31
+    |
+576 | # =============================================================================
+577 |
+578 | from app.catalog.ideas import generate_catalog
+    |                               ^^^^^^^^^^^^^^^^
+    |
+help: Remove unused import: `app.catalog.ideas.generate_catalog`
+
+E402 Module level import not at top of file
+   --> app\main.py:585:1
+    |
+583 |   # =============================================================================
+584 |
+585 | / from app.scripting.scripts import (
+586 | |     generate_script,
+587 | |     audit_script,
+588 | |     regenerate_scene,
+589 | |     update_scene_text,
+590 | |     lock_script,
+591 | |     confirm_script,
+592 | |     ScriptStorageError,
+593 | |     SceneRegenerationInProgressError,
+594 | |     CREDITS_COST_GENERATE,
+595 | |     CREDITS_COST_REGENERATE_SCENE,
+596 | | )
+    | |_^
+597 |   from typing import Literal, Optional
+    |
+
+F401 [*] `app.scripting.scripts.audit_script` imported but unused
+   --> app\main.py:587:5
+    |
+585 | from app.scripting.scripts import (
+586 |     generate_script,
+587 |     audit_script,
+    |     ^^^^^^^^^^^^
+588 |     regenerate_scene,
+589 |     update_scene_text,
+    |
+help: Remove unused import
+
+F401 [*] `app.scripting.scripts.confirm_script` imported but unused
+   --> app\main.py:591:5
+    |
+589 |     update_scene_text,
+590 |     lock_script,
+591 |     confirm_script,
+    |     ^^^^^^^^^^^^^^
+592 |     ScriptStorageError,
+593 |     SceneRegenerationInProgressError,
+    |
+help: Remove unused import
+
+E402 Module level import not at top of file
+   --> app\main.py:597:1
+    |
+595 |     CREDITS_COST_REGENERATE_SCENE,
+596 | )
+597 | from typing import Literal, Optional
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+F811 [*] Redefinition of unused `confirm_script` from line 591
+    --> app\main.py:1019:39
+     |
+1017 |         )
+1018 |
+1019 |     from app.scripting.scripts import confirm_script, ScriptStorageError
+     |                                       ^^^^^^^^^^^^^^ `confirm_script` redefined here
+1020 |
+1021 |     try:
+     |
+    ::: app\main.py:591:5
+     |
+ 589 |     update_scene_text,
+ 590 |     lock_script,
+ 591 |     confirm_script,
+     |     -------------- previous definition of `confirm_script` here
+ 592 |     ScriptStorageError,
+ 593 |     SceneRegenerationInProgressError,
+     |
+help: Remove definition: `confirm_script`
+
+F841 Local variable `remaining` is assigned to but never used
+    --> app\main.py:2935:9
+     |
+2933 |     # 6. Deduct initial credits for voice session startup (1 credit = minimum)
+2934 |     try:
+2935 |         remaining = guard.deduct_credits(session_token, amount=1)
+     |         ^^^^^^^^^
+2936 |     except HTTPException as e:
+2937 |         if e.status_code == 402:
+     |
+help: Remove assignment to unused variable `remaining`
+
+Found 13 errors.
+[*] 7 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+exit=1

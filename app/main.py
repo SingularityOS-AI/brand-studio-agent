@@ -145,6 +145,14 @@ async def mint_temporary_token(request: Request):
         raise
 
     # 5. Mint token from AssemblyAI
+    def _refund_after_failure(token: str, amount: int, endpoint: str) -> None:
+        # Refund never masks the original error: a failing refund is only logged.
+        import time
+        try:
+            guard.refund_credits(token, amount, source=f"refund:{endpoint}:{int(time.time())}")
+        except Exception as refund_exc:
+            logger.error(f"[{endpoint}] refund of {amount} credits failed: {refund_exc}")
+
     api_key = settings.assemblyai_api_key
     token_url = (
         f"https://agents.assemblyai.com/v1/token?"
@@ -173,8 +181,12 @@ async def mint_temporary_token(request: Request):
             return JSONResponse(content={"token": data.get("token"), "credits_remaining": remaining})
 
     except httpx.RequestError as exc:
+        _refund_after_failure(session_token, 1, "agent-token")
         raise HTTPException(status_code=502, detail=f"Failed to connect to AssemblyAI: {str(exc)}")
     except Exception as e:
+        # Also catches the non-200 HTTPException raised above: the 1 credit is
+        # refunded, then the same 500 as before is raised.
+        _refund_after_failure(session_token, 1, "agent-token")
         print(f"[ERROR] Token minting error: {e}")
         raise HTTPException(status_code=500, detail=f"Token minting failed: {str(e)}")
 
@@ -542,6 +554,11 @@ async def get_demand_validation(request: Request):
         report = await validate_niche_demand(niche=niche, use_cache=True)
     except Exception as e:
         logger.error(f"[demand] Validation error for '{niche}': {e}")
+        import time
+        try:
+            guard.refund_credits(session_token, 10, source=f"refund:demand:{int(time.time())}")
+        except Exception as refund_exc:
+            logger.error(f"[demand] refund of 10 credits failed: {refund_exc}")
         return JSONResponse(
             status_code=500,
             content={"error": f"Demand validation failed: {str(e)}"}
@@ -2415,10 +2432,10 @@ async def add_founder_idea_endpoint(request: Request):
     try:
         body = await request.json()
     except Exception:
-        return JSONResponse(status_code=400, content={"error": "Body debe ser JSON válido"})
+        return JSONResponse(status_code=400, content={"error": "Body must be valid JSON"})
 
     if not isinstance(body, dict):
-        return JSONResponse(status_code=400, content={"error": "Body debe ser un objeto JSON"})
+        return JSONResponse(status_code=400, content={"error": "Body must be a JSON object"})
 
     title = body.get("title")
     master_category = body.get("master_category")
