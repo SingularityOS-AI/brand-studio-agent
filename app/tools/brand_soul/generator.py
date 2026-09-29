@@ -933,7 +933,7 @@ def _save_cache(brain: BrandBrain, html: str, session_token: str) -> bool:
         return False
 
 
-def generate_brand_soul(session_token: str) -> tuple[str, str]:
+def generate_brand_soul(session_token: str, force: bool = False) -> tuple[str, str]:
     """
     Generate the Brand Soul document for the given session.
 
@@ -952,6 +952,7 @@ def generate_brand_soul(session_token: str) -> tuple[str, str]:
 
     Args:
         session_token: The session token
+        force: True skips the cache check and overwrites the cache (Regenerate)
 
     Returns:
         Tuple of (html_document, cache_status)
@@ -974,7 +975,7 @@ def generate_brand_soul(session_token: str) -> tuple[str, str]:
         raise IncompleteBrainError(f"Faltan secciones: {missing_text}")
 
     # 3. Check cache
-    cached_html = _check_cache(brain, session_token)
+    cached_html = None if force else _check_cache(brain, session_token)
     if cached_html:
         # Validate cached HTML citations (defense in depth)
         is_valid, invented = validate_citations_in_html(cached_html, brain)

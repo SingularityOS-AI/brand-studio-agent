@@ -1,0 +1,9 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Python312_Neural\python.exe
+rootdir: C:\Users\gabri\AppData\Local\Temp\claude\wt\h8-02
+configfile: pytest.ini
+plugins: anyio-4.12.1, asyncio-1.4.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 9 items
+
+tests/test_h8_02_soul_regenerate.py::test_regenerate_calls_generator_with_force_and_charges_20_once 
