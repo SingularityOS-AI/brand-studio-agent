@@ -1,0 +1,70 @@
+$ python -m pytest -q -m "not e2e" -p no:cacheprovider --continue-on-collection-errors   # main (my test file stashed)
+16 failed, 1238 passed, 52 skipped, 1 deselected, 17 warnings, 2 errors in 24.46s
+ERROR tests/test_agent_f11.py
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+FAILED tests/test_actions_f04.py::test_actions_js_registers_the_ten_pieces_actions
+FAILED tests/test_actions_f04.py::test_agent_actions_node_harness_passes - As...
+FAILED tests/test_editing_e2_03_empty_scene.py::test_resolve_raw_render_forwards_scene_fallbacks
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_face_warning
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_image_warning
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_endpoints_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_ops_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_node_load_and_expose_edit_actions
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_render_service_p73_app.py::test_happy_path_raw_render - pyd...
+FAILED tests/test_render_service_p75_container.py::test_app_converter_replaces_local_inputs_path
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
+
+$ same command, with tests/test_h7_06_fresh_user.py
+16 failed, 1240 passed, 52 skipped, 1 deselected, 17 warnings, 2 errors in 24.51s
+ERROR tests/test_agent_f11.py
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+FAILED tests/test_actions_f04.py::test_actions_js_registers_the_ten_pieces_actions
+FAILED tests/test_actions_f04.py::test_agent_actions_node_harness_passes - As...
+FAILED tests/test_editing_e2_03_empty_scene.py::test_resolve_raw_render_forwards_scene_fallbacks
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_face_warning
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_image_warning
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_endpoints_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_ops_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_node_load_and_expose_edit_actions
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_render_service_p73_app.py::test_happy_path_raw_render - pyd...
+FAILED tests/test_render_service_p75_container.py::test_app_converter_replaces_local_inputs_path
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
+
+$ diff of FAILED/ERROR lines (main vs branch)
+(no difference)
+
+$ python -m pytest -q -s -p no:cacheprovider tests/test_h7_06_fresh_user.py
+STEP | GET /api/session (new user)        | HTTP 200 | credits_after=500
+STEP | POST /api/brain/extract            | HTTP 200 | credits_after=499
+STEP | POST /api/soul/generate            | HTTP 200 | credits_after=479
+STEP | POST /api/catalog/generate         | HTTP 200 | credits_after=464
+STEP | POST /api/catalog/lock             | HTTP 200 | credits_after=464
+STEP | POST /api/script/generate          | HTTP 200 | credits_after=454
+STEP | POST /api/script/{id}/lock         | HTTP 200 | credits_after=454
+STEP | GET /api/audiovisual/{id}/estimate | HTTP 200 | credits_after=454
+ESTIMATE | credits_total = 0 | by scene = [('a_roll', 0), ('stock', 0), ('a_roll', 0), ('motion_graphic', 0), ('stock', 0), ('a_roll', 0)]
+STEP | GET /api/editing/{id}              | HTTP 200 | credits_after=454
+EDITING STATE | render_price = 20 | render_price_kind = first | missing_takes = [1, 2, 3, 4, 5, 6]
+WALK | start=500 end=454 charged=46
+.LAP | B-roll = stock | 15 min | reserve 8/min (code path) | voice=120 | total=191 | left=309
+LAP | B-roll = stock | 15 min | 7.5/min (config) | voice=112.5 | total=183.5 | left=316.5
+LAP | B-roll = stock | 30 min | reserve 8/min (code path) | voice=240 | total=311 | left=189
+LAP | B-roll = stock | 30 min | 7.5/min (config) | voice=225.0 | total=296.0 | left=204.0
+LAP | B-roll = ai_image | 15 min | reserve 8/min (code path) | voice=120 | total=221 | left=279
+LAP | B-roll = ai_image | 15 min | 7.5/min (config) | voice=112.5 | total=213.5 | left=286.5
+LAP | B-roll = ai_image | 30 min | reserve 8/min (code path) | voice=240 | total=341 | left=159
+LAP | B-roll = ai_image | 30 min | 7.5/min (config) | voice=225.0 | total=326.0 | left=174.0
+LAP-CONSTANTS | extract=1 soul=20 catalog=15 script=10 render=20 rerender=5 initial=500
+2 passed, 4 warnings in 0.90s
+
+$ ruff check tests/test_h7_06_fresh_user.py
+All checks passed!
+
+$ node --check   # no .js file touched
+(none)
