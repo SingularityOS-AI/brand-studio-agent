@@ -1,0 +1,11 @@
+$ grep -rhoE "os\.(getenv|environ\.get)\(\"[A-Z_]+" app render_service | sort -u  (names only)
+55
+$ names found in .env.example (active or commented)
+58
+$ comm -23 code_vars example_vars   (in code, missing from .env.example)
+(end)
+$ comm -13 code_vars example_vars   (in .env.example only)
+STRIPE_PRICE_PRO
+STRIPE_PRICE_STARTER
+STRIPE_PRICE_STUDIO
+(end)
