@@ -1,0 +1,60 @@
+$ python -m pytest -q -m "not e2e" -p no:cacheprovider --ignore=tests/test_agent_f11.py   (tail)
+  /usr/lib/python3.11/unittest/mock.py:2133: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    setattr(_type, entry, MagicProxy(entry, self))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_actions_f04.py::test_agent_actions_node_harness_passes - As...
+FAILED tests/test_actions_f04.py::test_actions_js_registers_the_ten_pieces_actions
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_ops_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_endpoints_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_node_load_and_expose_edit_actions
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
+ERROR tests/test_render_service_p92_rebote.py::test_p92_post_progress_host_validation
+11 failed, 1248 passed, 52 skipped, 1 deselected, 17 warnings, 1 error in 23.02s
+
+$ baseline (main, same command): tail
+16 failed, 1238 passed, 52 skipped, 1 deselected, 16 warnings, 1 error in 23.08s
+
+$ python -m pytest -v -p no:cacheprovider <listed tests>
+tests/test_render_service_p73_app.py::test_auth_and_secret_configuration PASSED [  3%]
+tests/test_render_service_p73_app.py::test_invalid_manifest_redacts_detail PASSED [  6%]
+tests/test_render_service_p73_app.py::test_check_url_validation PASSED   [  9%]
+tests/test_render_service_p73_app.py::test_download_too_large_cleanup PASSED [ 12%]
+tests/test_render_service_p73_app.py::test_download_redirect_to_disallowed_host_fails PASSED [ 15%]
+tests/test_render_service_p73_app.py::test_happy_path_raw_render PASSED  [ 18%]
+tests/test_render_service_p73_app.py::test_builder_exceptions_mapped_to_status_codes PASSED [ 21%]
+tests/test_render_service_p73_app.py::test_output_exceeds_max_bytes_fails PASSED [ 24%]
+tests/test_render_service_p73_app.py::test_render_service_does_not_import_app PASSED [ 27%]
+tests/test_render_service_p73_app.py::test_healthz_endpoint PASSED       [ 30%]
+tests/test_render_service_p75_container.py::test_app_converter_replaces_local_inputs_path PASSED [ 33%]
+tests/test_render_e2e_offline.py::test_render_e2e_offline_mp4 SKIPPED    [ 36%]
+tests/test_editing_e2_03_empty_scene.py::test_is_empty_true_when_over_90pct_samples_near_uniform PASSED [ 39%]
+tests/test_editing_e2_03_empty_scene.py::test_is_empty_false_when_exactly_90pct_samples_near_uniform PASSED [ 42%]
+tests/test_editing_e2_03_empty_scene.py::test_is_empty_false_for_normal_video_stddevs PASSED [ 45%]
+tests/test_editing_e2_03_empty_scene.py::test_is_empty_false_when_no_samples PASSED [ 48%]
+tests/test_editing_e2_03_empty_scene.py::test_sample_luma_stddevs_flags_near_black_video_as_empty SKIPPED [ 51%]
+tests/test_editing_e2_03_empty_scene.py::test_sample_luma_stddevs_does_not_flag_normal_video SKIPPED [ 54%]
+tests/test_editing_e2_03_empty_scene.py::test_build_raw_falls_back_to_face_when_motion_graphic_is_empty SKIPPED [ 57%]
+tests/test_editing_e2_03_empty_scene.py::test_build_raw_falls_back_to_ai_image_when_manifest_declares_one SKIPPED [ 60%]
+tests/test_editing_e2_03_empty_scene.py::test_build_raw_leaves_normal_motion_graphic_untouched SKIPPED [ 63%]
+tests/test_editing_e2_03_empty_scene.py::test_build_raw_end_to_end_from_a_deliberately_blank_mg_html SKIPPED [ 66%]
+tests/test_editing_e2_03_empty_scene.py::test_resolve_raw_render_forwards_scene_fallbacks PASSED [ 69%]
+tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_face_warning PASSED [ 72%]
+tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_image_warning PASSED [ 75%]
+tests/test_editing_e2_03_empty_scene.py::test_state_scene_fallbacks_defaults_to_empty_list PASSED [ 78%]
+tests/test_editing_e2_03_empty_scene.py::test_node_check_editing_js PASSED [ 81%]
+tests/test_editing_e2_03_empty_scene.py::test_editing_js_renders_state_warnings PASSED [ 84%]
+tests/test_h7_01_render_ok.py::test_render_ok_scene_fallbacks_defaults_to_empty_list PASSED [ 87%]
+tests/test_h7_01_render_ok.py::test_render_ok_accepts_scene_fallbacks PASSED [ 90%]
+tests/test_h7_01_render_ok.py::test_render_ok_still_forbids_unknown_fields_and_bad_used PASSED [ 93%]
+tests/test_h7_01_render_ok.py::test_engine_version_bumped PASSED         [ 96%]
+tests/test_h7_01_render_ok.py::test_raw_request_with_blank_mg_returns_200_and_scene_fallbacks PASSED [100%]
+================== 26 passed, 7 skipped, 11 warnings in 1.19s ==================

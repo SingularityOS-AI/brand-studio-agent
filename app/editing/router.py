@@ -272,6 +272,14 @@ def _state(
     else:
         raw_dict = {}
 
+    # E2-03: a blank motion graphic was swapped by the render service; tell the founder.
+    for fb in raw_dict.get("scene_fallbacks") or []:
+        substitute = "your face" if fb.get("used") == "face" else "the AI image"
+        warnings.append(
+            f"Scene {fb.get('scene_n')}'s motion graphic could not be drawn, "
+            f"so we used {substitute}."
+        )
+
     # Construct render dict
     render_jobs = [j for j in jobs if j.get("kind") == "render"]
     render_jobs.sort(key=lambda j: j.get("created_at") or "", reverse=True)
