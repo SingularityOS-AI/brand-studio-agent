@@ -174,6 +174,26 @@ def _load(
     return session_token, script_dict, jobs, edit
 
 
+def _raw_job_engine(jobs: list[dict[str, Any]], job_id: str | None) -> str | None:
+    """Engine the given raw_render job was created under (None for raws built before
+    the engine was recorded)."""
+    for j in jobs:
+        if job_id and j.get("id") == job_id and j.get("kind") == "raw_render":
+            return (j.get("input") or {}).get("engine_version") or None
+    return None
+
+
+def _same_engine(raw_engine: str | None, current_engine: str | None) -> bool:
+    """A raw is only stale when both engines are known and differ: an unknown engine
+    (a /health hiccup, or a raw built before the engine was recorded) never forces a
+    rebuild."""
+    if not raw_engine or not current_engine:
+        return True
+    if raw_engine == "unknown" or current_engine == "unknown":
+        return True
+    return raw_engine == current_engine
+
+
 def _state(
     session_token: str,
     idea_id: str,
@@ -247,6 +267,9 @@ def _state(
     else:
         ir = None
 
+    if engine_version is None:
+        engine_version = get_cached_engine_version()
+
     # Construct raw dict
     raw_jobs = [j for j in jobs if j.get("kind") == "raw_render"]
     raw_jobs.sort(key=lambda j: j.get("created_at") or "", reverse=True)
@@ -263,7 +286,16 @@ def _state(
         raw_hash = edit_raw.get("timeline_hash")
         # The hash only covers what the raw cut is made of (see raw_content_hash),
         # so saving captions or a dressing never makes a finished raw stale.
-        raw_dict["fresh"] = bool(t_hash and raw_hash and raw_hash == t_hash)
+        raw_engine = edit_raw.get("engine_version") or _raw_job_engine(
+            jobs, edit_raw.get("job_id")
+        )
+        raw_dict["engine_version"] = raw_engine
+        raw_dict["fresh"] = bool(
+            t_hash
+            and raw_hash
+            and raw_hash == t_hash
+            and _same_engine(raw_engine, engine_version)
+        )
         if edit_raw.get("status") == "done" and edit_raw.get("storage_path"):
             raw_dict["signed_url"] = _cached_signed_url(edit_raw["storage_path"], ttl=3600)
     elif latest_raw_job:
@@ -318,8 +350,6 @@ def _state(
     # so label and charge agree. Other callers fall back to the no-I/O cached peek,
     # which is "unknown" (never free) when cold. Always emitted (even before an IR
     # exists): with no previous done render it's just RENDER_CREDITS, no IR needed.
-    if engine_version is None:
-        engine_version = get_cached_engine_version()
     content_hash_for_price = None
     if ir is not None:
         raw_storage_path_for_price = edit_raw.get("storage_path") or ""
@@ -387,8 +417,10 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
             status_code=503, content={"code": "render_service_not_configured"}
         )
 
+    engine_version = await get_engine_version()
+
     # First build state with current edit
-    state = _state(session_token, idea_id, script, jobs, edit)
+    state = _state(session_token, idea_id, script, jobs, edit, engine_version=engine_version)
     missing_takes = state["missing_takes"]
     if missing_takes:
         return JSONResponse(
@@ -420,7 +452,7 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
                 expected_version=fresh_edit["version"],
             )
         # Re-build state with updated edit version if saved
-        state = _state(session_token, idea_id, script, jobs, edit)
+        state = _state(session_token, idea_id, script, jobs, edit, engine_version=engine_version)
 
     # Check 1 hour rate limit
     raw_per_hour = getattr(dispatch_config, "RAW_PER_HOUR", 12)
@@ -450,17 +482,34 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
     t_hash = timeline["hash"]
 
     base_key = f"{session_token}:{idea_id}:raw:{t_hash}"
-    failed_count = sum(
-        1
+    family = [
+        rj
         for rj in raw_jobs
-        if (rj.get("idempotency_key") or "").startswith(base_key)
-        and rj.get("status") == "failed"
+        if (rj.get("idempotency_key") or "") == base_key
+        or (rj.get("idempotency_key") or "").startswith(base_key + ":")
+    ]
+    done_family = sorted(
+        (rj for rj in family if rj.get("status") == "done"),
+        key=lambda rj: rj.get("created_at") or "",
+        reverse=True,
     )
 
-    if failed_count > 0:
-        idempotency_key = f"{base_key}:retry{failed_count}"
+    if engine_version == "unknown" and done_family:
+        # Never force a rebuild because /health hiccuped: reuse the finished raw.
+        idempotency_key = done_family[0]["idempotency_key"]
     else:
-        idempotency_key = base_key
+        # The engine is part of the key: same content + new engine = a new (free) job.
+        engine_key = f"{base_key}:e{engine_version}"
+        failed_count = sum(
+            1
+            for rj in family
+            if rj.get("status") == "failed"
+            and (
+                (rj.get("idempotency_key") or "") == engine_key
+                or (rj.get("idempotency_key") or "").startswith(engine_key + ":retry")
+            )
+        )
+        idempotency_key = f"{engine_key}:retry{failed_count}" if failed_count else engine_key
 
     job, created = create_job(
         session_token=session_token,
@@ -469,7 +518,7 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
         kind="raw_render",
         credits=0,
         cost_usd=0.005,
-        input={"timeline": timeline, "inputs": inputs},
+        input={"timeline": timeline, "inputs": inputs, "engine_version": engine_version},
         idempotency_key=idempotency_key,
         return_created=True,
     )
@@ -485,6 +534,7 @@ async def post_raw_render(request: Request, idea_id: str) -> JSONResponse:
             "render_s": job_out.get("render_s", 0.0),
             "scene_marks_ms": job_out.get("scene_marks_ms", []),
             "timeline_hash": t_hash,
+            "engine_version": (job.get("input") or {}).get("engine_version") or engine_version,
         }
         for attempt in range(2):
             fresh_edit = edit if attempt == 0 else get_or_create_edit(session_token, idea_id)

@@ -1,0 +1,40 @@
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 7 warnings
+tests/test_nueve_nodos.py: 11 warnings
+  C:\Users\gabri\AppData\Local\Temp\claude\wt\h8-03\app\tools\brand_brain\models.py:148: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain.py::test_brand_brain_upsert_existing_section
+  C:\Users\gabri\AppData\Local\Temp\claude\wt\h8-03\app\tools\brand_brain\models.py:130: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    new_section.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain.py::test_brand_brain_upsert_existing_section
+  C:\Users\gabri\AppData\Local\Temp\claude\wt\h8-03\app\tools\brand_brain\models.py:135: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain_endpoints.py::test_get_brand_brain_endpoint_returns_404_when_not_found
+  C:\Users\gabri\AppData\Local\Temp\claude\wt\h8-03\tests\test_brain_endpoints.py:39: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().timestamp(),
+
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+  C:\Python312_Neural\Lib\site-packages\proto\message.py:389: DeprecationWarning: The argument `including_default_value_fields` has been removed from
+                  Protobuf 5.x. Please use `always_print_fields_with_no_presence` instead.
+                  
+    warnings.warn(
+
+tests/test_editing_e2_13_anim.py::TestE2_13AnimatedOverlayTemplates::test_template_background_transparent[lower_third.html]
+  C:\Python312_Neural\Lib\unittest\mock.py:2217: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    def __init__(self, name, parent):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[stat-fields0]
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[lower_third-fields3]
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+5 failed, 1315 passed, 15 skipped, 2 deselected, 906 warnings in 663.12s (0:11:03)

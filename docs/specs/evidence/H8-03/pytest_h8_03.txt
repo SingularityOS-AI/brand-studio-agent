@@ -1,0 +1,7 @@
+tests/test_h8_03_raw_engine.py::test_same_content_same_engine_is_reused PASSED [ 16%]
+tests/test_h8_03_raw_engine.py::test_same_content_new_engine_creates_new_job PASSED [ 33%]
+tests/test_h8_03_raw_engine.py::test_rebuilt_raw_is_fresh_and_reused_on_its_own_engine PASSED [ 50%]
+tests/test_h8_03_raw_engine.py::test_unknown_engine_reuses_and_never_stales PASSED [ 66%]
+tests/test_h8_03_raw_engine.py::test_raw_without_recorded_engine_is_not_stale PASSED [ 83%]
+tests/test_h8_03_raw_engine.py::test_dressing_stays_fresh_across_raw_rebuild PASSED [100%]
+======================= 6 passed, 4 warnings in 12.21s ========================
