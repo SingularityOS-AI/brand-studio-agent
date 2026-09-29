@@ -1210,8 +1210,10 @@ def build_ir_stage2(
         ev["emphasis"] = emp_list
         CaptionEvent.model_validate(ev)
 
-    # Get caption_y from timeline or use default
-    caption_y = timeline.get("settings", {}).get("caption_y", CAPTION_Y_DEFAULT)
+    # Use exactly the caption_y stage 1 put in layout (from `settings`, clamped)
+    caption_y = clamp_caption_y(
+        (ir_stage1.get("layout") or {}).get("caption_y", (settings or {}).get("caption_y", CAPTION_Y_DEFAULT))
+    )
 
     # Define position boxes for collision resolution
     position_boxes = {
@@ -1232,7 +1234,7 @@ def build_ir_stage2(
         OverlayCue.model_validate(ov)
 
     # Update layout with caption_y
-    layout_dict = ir_stage1["layout"] if "layout" in ir_stage1 else {"caption_y": CAPTION_Y_DEFAULT}
+    layout_dict = ir_stage1["layout"] if "layout" in ir_stage1 else {"caption_y": caption_y}
     if "caption_y" not in layout_dict:
         layout_dict["caption_y"] = caption_y
 
