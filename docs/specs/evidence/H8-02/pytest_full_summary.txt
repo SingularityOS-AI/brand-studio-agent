@@ -1,0 +1,7 @@
+            assert response.status_code == 200, f"Request {i} failed: {response.json()}"
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[stat-fields0]
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[list-fields2]
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+5 failed, 1318 passed, 15 skipped, 2 deselected, 914 warnings in 686.20s (0:11:26)

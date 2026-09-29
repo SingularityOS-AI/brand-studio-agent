@@ -373,7 +373,32 @@ async def generate_brand_soul_handler(request: Request, body: SoulGenerateReques
         max_requests_per_minute=settings.soul_generate_rate_limit_per_minute
     )
 
-    # 3. Deduct credits (generation costs 20 credits)
+    from app.tools.brand_soul.generator import (
+        generate_brand_soul,
+        IncompleteBrainError,
+        CitationValidationError,
+        SoulGenerationError,
+        _check_cache,
+        validate_citations_in_html,
+    )
+
+    # 3. A valid cached document is served for free unless the founder asked to regenerate
+    if not body.regenerate:
+        try:
+            from app.tools.brand_brain.store import get_brand_brain
+
+            brain = get_brand_brain(session_token)
+            cached_html = _check_cache(brain, session_token) if brain else None
+            if cached_html and validate_citations_in_html(cached_html, brain)[0]:
+                return JSONResponse(content={
+                    "html": cached_html,
+                    "cache_status": "cached",
+                    "credits_remaining": session["credits"],
+                })
+        except Exception as e:  # noqa: BLE001 - a cache peek failure degrades to a paid generation
+            print(f"[WARN] Soul cache peek failed: {e}")
+
+    # 4. Deduct credits (a fresh generation costs 20 credits)
     try:
         remaining = guard.deduct_credits(session_token, amount=20)
     except HTTPException as e:
@@ -388,40 +413,62 @@ async def generate_brand_soul_handler(request: Request, body: SoulGenerateReques
             )
         raise
 
-    # 4. Generate document
-    from app.tools.brand_soul.generator import (
-        generate_brand_soul,
-        IncompleteBrainError,
-        CitationValidationError,
-        SoulGenerationError
-    )
+    def _refund_soul() -> int:
+        """Give the 20 credits back after a failed generation; returns the balance."""
+        import time
 
+        try:
+            refunded = guard.refund_credits(
+                session_token, 20, source=f"refund:soul:{int(time.time())}"
+            )
+        except Exception as refund_err:  # noqa: BLE001 - never mask the original failure
+            print(f"[ERROR] Soul refund failed: {refund_err}")
+            refunded = None
+        return refunded if isinstance(refunded, int) else remaining
+
+    # 5. Generate document
     try:
-        html, cache_status = generate_brand_soul(session_token)
+        html, cache_status = generate_brand_soul(session_token, force=body.regenerate)
     except IncompleteBrainError as e:
         return JSONResponse(
             status_code=400,
-            content={"error": f"Brand brain incomplete: {str(e)}"}
+            content={
+                "error": f"Brand brain incomplete: {str(e)}",
+                "credits_remaining": _refund_soul(),
+            }
         )
     except CitationValidationError as e:
         # Critical: LLM invented citations - don't show the document
         return JSONResponse(
             status_code=500,
-            content={"error": f"Citation validation failed: {str(e)}. Document not shown."}
+            content={
+                "error": f"Citation validation failed: {str(e)}. Document not shown.",
+                "credits_remaining": _refund_soul(),
+            }
         )
     except SoulGenerationError as e:
         return JSONResponse(
             status_code=500,
-            content={"error": f"Generation failed: {str(e)}"}
+            content={
+                "error": f"Generation failed: {str(e)}",
+                "credits_remaining": _refund_soul(),
+            }
         )
     except Exception as e:
         print(f"[ERROR] Soul generation error: {e}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Internal generation error: {str(e)}"}
+            content={
+                "error": f"Internal generation error: {str(e)}",
+                "credits_remaining": _refund_soul(),
+            }
         )
 
-    # 4. Return success
+    if cache_status == "cached":
+        # Cache became valid between the peek and the charge: nothing was generated, so nothing is owed
+        remaining = _refund_soul()
+
+    # 6. Return success
     return JSONResponse(content={
         "html": html,
         "cache_status": cache_status,

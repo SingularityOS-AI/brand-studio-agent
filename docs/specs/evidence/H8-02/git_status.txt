@@ -1,0 +1,4 @@
+ M app/main.py
+ M app/tools/brand_soul/generator.py
+?? docs/specs/evidence/H8-02/
+?? tests/test_h8_02_soul_regenerate.py
