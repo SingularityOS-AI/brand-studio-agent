@@ -11,6 +11,7 @@ Supabase rows) — file:line and evidence are in each piece.
 | H8-03 | Raw cut reused across engine versions → a blank motion graphic from an old engine can never be rebuilt | P0 | `app/editing/router.py`, `app/editing/timeline.py` |
 | H8-04 | Async jobs (render, assets) stay `queued` forever in the audit trail; panel doesn't refresh after in-step actions; credits never recorded | P0 (visible in the demo) | `app/agent/*`, `app/editing/dispatch.py`, `app/audiovisual/worker.py`, `app/static/production_panel.js` |
 | H8-05 | E2-10/E2-11 UI never shipped: no Overlays list/switch, no Clean/Standard/Bold selector, no Overlays track | P1 | `app/static/editing.js` |
+| H8-06 | `/api/agent-token` (every mic press) and `/api/catalog/validate-demand` charge before the upstream call and never refund; 2 Spanish error strings | P1 money | `app/main.py` (those 2 handlers only — H8-02 edits another handler in the same file) |
 
 Merge order: any. Rebase on `main` if GitHub says behind. After H8-01/H8-03 merge no Cloud Run
 redeploy is needed (backend only, Render.com auto-deploys).
