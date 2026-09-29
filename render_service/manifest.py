@@ -498,6 +498,14 @@ class RenderRequest(BaseModel):
         return self
 
 
+class SceneFallback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene_n: int
+    used: Literal["face", "image"]
+    reason: str
+
+
 class RenderOk(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -508,6 +516,7 @@ class RenderOk(BaseModel):
     render_s: float = Field(ge=0.0)
     scene_marks_ms: list[int]
     converted: list[str] = Field(default_factory=list)
+    scene_fallbacks: list[SceneFallback] = Field(default_factory=list)
 
 
 class RenderError(BaseModel):

@@ -1,0 +1,2 @@
+$ ruff check render_service/manifest.py render_service/version.py app/editing/router.py tests/test_h7_01_render_ok.py
+All checks passed!
