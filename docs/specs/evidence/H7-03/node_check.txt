@@ -1,0 +1,2 @@
+$ node --check app/static/editing.js  (file not modified)
+exit=0

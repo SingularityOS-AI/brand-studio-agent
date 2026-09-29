@@ -180,8 +180,12 @@ def _state(
     script: dict[str, Any],
     jobs: list[dict[str, Any]],
     edit: dict[str, Any],
+    engine_version: str | None = None,
 ) -> dict[str, Any]:
-    """Builds current editing state dictionary."""
+    """Builds current editing state dictionary.
+
+    `engine_version` is the value the caller already read (GET awaits the live read);
+    None falls back to the no-I/O cached peek."""
     build_res = build_timeline(script, jobs, edit.get("settings"), edit["version"])
     timeline = build_res["timeline"]
     captions_words = build_res["captions_words"]
@@ -301,17 +305,19 @@ def _state(
         if isinstance(inp_data, dict) and inp_data.get("storage_path")
     }
 
-    # Render price (P1) for display: a best-effort peek at the cached engine_version
-    # (no I/O). The authoritative price at charge time is computed in
-    # post_final_render with a live-or-cached read via get_engine_version(). Always
-    # emitted (even before an IR exists): with no previous done render it's just
-    # RENDER_CREDITS, no IR needed.
+    # Render price (P1) for display. The GET handler awaits get_engine_version() (the
+    # same live-or-cached read the charge in post_final_render uses) and passes it in,
+    # so label and charge agree. Other callers fall back to the no-I/O cached peek,
+    # which is "unknown" (never free) when cold. Always emitted (even before an IR
+    # exists): with no previous done render it's just RENDER_CREDITS, no IR needed.
+    if engine_version is None:
+        engine_version = get_cached_engine_version()
     content_hash_for_price = None
     if ir is not None:
         raw_storage_path_for_price = edit_raw.get("storage_path") or ""
         content_hash_for_price = _render_content_hash(ir, raw_storage_path_for_price)
     render_price, render_price_kind = _render_pricing(
-        edit_render, content_hash_for_price, get_cached_engine_version()
+        edit_render, content_hash_for_price, engine_version
     )
 
     return {
@@ -327,6 +333,8 @@ def _state(
         "render": render_dict,
         "render_price": render_price,
         "render_price_kind": render_price_kind,
+        "engine_version": engine_version,
+        "last_render_engine_version": edit_render.get("engine_version"),
         "dressing": {
             "source": dressing_data.get("source") if dressing_scenes else None,
             "fresh": dressing_fresh,
@@ -347,7 +355,10 @@ async def get_editing_state(request: Request, idea_id: str) -> JSONResponse:
     except EditingError as e:
         return JSONResponse(status_code=e.status_code, content=e.content)
 
-    state = _state(session_token, idea_id, script, jobs, edit)
+    # Same read the charge uses (5-min cache, default 2.0 s timeout); "unknown" on
+    # failure, and "unknown" is never priced as free.
+    engine_version = await get_engine_version()
+    state = _state(session_token, idea_id, script, jobs, edit, engine_version=engine_version)
     state.pop("_inputs", None)
     state.pop("_sfx_inputs", None)
     return JSONResponse(status_code=200, content=state)
