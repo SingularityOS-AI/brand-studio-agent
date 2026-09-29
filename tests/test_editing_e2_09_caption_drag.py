@@ -15,10 +15,6 @@ from app.editing.router import router
 from render_service.manifest import CAPTION_Y_MAX, CAPTION_Y_MIN, clamp_caption_y
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EVIDENCE_DIR = REPO_ROOT / "docs" / "specs" / "evidence" / "E2-09"
-
-# Create evidence directory if it doesn't exist
-EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 
 NODE_AVAILABLE = os.environ.get("CHROME_PATH") or os.environ.get("PATH", "").find("chrom") >= 0
 
@@ -377,9 +373,9 @@ def test_ir_layout_caption_y_clamps_invalid_setting():
 # ---------------------------------------------------------------------------
 
 
-def test_evidence_caption_drag_constants():
+def test_evidence_caption_drag_constants(evidence_dir_for):
     """Save caption drag range constants as evidence."""
-    evidence_path = EVIDENCE_DIR / "caption_y_constants.txt"
+    evidence_path = evidence_dir_for("E2-09") / "caption_y_constants.txt"
 
     content = f"""CAPTION_Y_MIN: {CAPTION_Y_MIN}
 CAPTION_Y_MAX: {CAPTION_Y_MAX}
@@ -392,9 +388,9 @@ Arrow increment: 20px
     evidence_path.write_text(content)
 
 
-def test_evidence_caption_preset_positions():
+def test_evidence_caption_preset_positions(evidence_dir_for):
     """Save preset caption positions as evidence."""
-    evidence_path = EVIDENCE_DIR / "preset_positions.txt"
+    evidence_path = evidence_dir_for("E2-09") / "preset_positions.txt"
 
     presets = {
         "Top": 520,
@@ -409,7 +405,7 @@ def test_evidence_caption_preset_positions():
     evidence_path.write_text("\n".join(lines))
 
 
-def test_evidence_javascript_files_exist():
+def test_evidence_javascript_files_exist(evidence_dir_for):
     """Verify JavaScript files exist and are readable."""
     preview_js = REPO_ROOT / "app" / "static" / "editing_preview.js"
     editing_js = REPO_ROOT / "app" / "static" / "editing.js"
@@ -426,7 +422,7 @@ def test_evidence_javascript_files_exist():
     assert len(editing_content) > 0, f"{editing_js} is empty"
 
     # Count important functions
-    evidence_path = EVIDENCE_DIR / "javascript_summary.txt"
+    evidence_path = evidence_dir_for("E2-09") / "javascript_summary.txt"
     summary = f"""editing_preview.js:
   - Functions defined: {preview_content.count('function ')}
   - setupCaptionDrag exists: {'setupCaptionDrag' in preview_content}

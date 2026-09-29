@@ -11,7 +11,7 @@ See test_no_real_secrets_in_tests.py for the safety lock that verifies this.
 """
 import os
 import socket
-import sys
+from pathlib import Path
 from unittest.mock import patch
 
 # ============================================================================
@@ -174,9 +174,9 @@ socket.getaddrinfo = _create_blocked_getaddrinfo(_original_getaddrinfo)
 # ============================================================================
 # NOW we can import from app (after all secrets are neutralized)
 # ============================================================================
-import pytest
-from tests.jwt_helpers import create_test_jwt
-from app.auth.supabase_auth import supabase_auth
+import pytest  # noqa: E402 - must follow the env/network lock above
+from tests.jwt_helpers import create_test_jwt  # noqa: E402
+from app.auth.supabase_auth import supabase_auth  # noqa: E402
 
 
 # Configure the singleton auth instance for testing.
@@ -343,3 +343,29 @@ def network_lock_active():
     - unittest.mock.patch for direct socket calls
     """
     yield
+
+
+# ============================================================================
+# Evidence directories: a test proves behaviour, it never rewrites tracked files
+# ============================================================================
+_EVIDENCE_ROOT = Path(__file__).resolve().parent.parent / "docs" / "specs" / "evidence"
+
+
+@pytest.fixture
+def evidence_dir_for(tmp_path):
+    """Return ``f(piece_id) -> Path`` for the directory a test writes evidence to.
+
+    Default: a throwaway dir under ``tmp_path`` (the suite leaves the tree clean).
+    With ``WRITE_EVIDENCE=1`` it is ``docs/specs/evidence/<piece_id>/`` on purpose:
+    ``WRITE_EVIDENCE=1 python -m pytest ...``.
+    """
+
+    def _resolve(piece_id: str) -> Path:
+        if os.environ.get("WRITE_EVIDENCE") == "1":
+            target = _EVIDENCE_ROOT / piece_id
+        else:
+            target = tmp_path / "evidence" / piece_id
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    return _resolve

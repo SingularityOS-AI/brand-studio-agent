@@ -1,0 +1,154 @@
+=== node tests/agent_actions.test.js
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+ok - registers the 5 F-04 Script actions (later pieces may add more)
+ok - registers the 5 F-04 Audiovisual actions (later pieces may add more)
+ok - get() returns null for an unregistered id
+ok - execute() on an unknown id fails without touching fetch
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+[Credits] 88 of 500 (17.6%)
+ok - execute() returns ok:true for script.iterate_scene
+ok - creates the agent_actions row first, for the voice source
+ok - calls the exact same endpoint + body the button calls (handleScriptRegenerate)
+ok - sends X-Agent-Action-Id matching the row just created
+ok - currentActionId is cleared after a successful run
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+ok - a thrown run() comes back as {ok:false, error}
+ok - currentActionId is cleared even when run() throws
+[Columns] Resizable columns initialized
+[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+[Audio] Sample rate: 24kHz
+[Processor] AudioWorklet for PCM16 conversion
+[Auth] Google OAuth enabled
+ok - a button-sourced execute() never calls POST /api/agent/actions
+ok - the free edit_scene_text action still runs and succeeds
+
+All checks passed.
+exit code: 0
+=== node tests/agent_announce.test.js
+ok - onJobFinished creates formatted announcement for scene 5 AI video
+ok - buildStepSummary includes pending announcements
+ok - addAnnouncement prevents duplicate announcements
+ok - clearPendingAnnouncements empties the queue
+ok - Production Panel detects job transition from running to done
+
+All F-10 proactive announcement checks passed.
+exit code: 0
+=== node tests/agent_audiovisual.test.js
+ok - AUDIOVISUAL_TOOL_SCHEMAS contains all 6 tools
+ok - toolsForStep("audiovisual") returns global + audiovisual tools
+ok - av_read_scene action returns scene status and asset type
+ok - av_read_scene action returns error for invalid scene number
+ok - Action registry looks up av_read_scene action
+ok - Action registry looks up av_set_scene_type action
+ok - Action registry looks up av_estimate action
+ok - Action registry looks up av_generate_all action with exact estimate total cost
+ok - Action registry looks up av_regenerate_asset with per-unit cost
+ok - Action registry looks up av_open_recording action
+ok - av_regenerate_asset passes instruction parameter to run handler
+ok - av_generate_all returns immediately with queued status
+
+All F-08 audiovisual checks passed.
+exit code: 0
+=== node tests/agent_catalog.test.js
+--- RUNNING F-09 CATALOG & SOUL HARNESS TESTS ---
+✓ Test 1 Passed: Public API exports for F-09 present
+✓ Test 2 Passed: CATALOG_TOOL_SCHEMAS contains all 8 required tools
+✓ Test 3 Passed: SOUL_TOOL_SCHEMAS contains soul_generate and soul_regenerate
+✓ Test 4 Passed: findIdeaInCatalog handles position, unique title, ambiguous, and not found cases
+✓ Test 5 Passed: All Brand Soul and Catalog actions registered in BrandStudioActions with correct costs
+ALL F-09 NODE HARNESS TESTS PASSED CLEANLY! 🎉
+exit code: 0
+=== node tests/agent_editing.test.js
+ok - EDIT_ACTION_SCHEMAS contains all 14 editing tools
+ok - toolsForStep("editing") returns global + editing tools
+ok - edit_build_raw is registered and calls run("build_raw")
+ok - edit_auto_edit passes style parameter
+ok - edit_scene_visual calls toggle_face for "face"
+ok - edit_scene_visual calls toggle_face(false) for "broll"
+ok - edit_scene_visual calls reset_face for "reset"
+ok - edit_trim applies start_ms and end_ms adjustments
+ok - edit_music calls mute_music with inverted value
+ok - edit_sfx calls toggle_sfx with value
+ok - edit_fix_caption calls fix_caption with word and text
+ok - edit_caption_position maps position to correct Y values
+ok - edit_overlay_delete calls delete_overlay
+ok - edit_overlays calls overlays_enabled
+ok - edit_post_copy calls gen_metadata
+ok - edit_share_link calls copy_share_link
+ok - edit_try_another_take costs 2 credits and needs confirmation
+ok - edit_try_another_take calls redress_scene
+ok - edit_render uses dynamic cost from state.render_price
+ok - edit_render calls render
+
+All tests passed!
+exit code: 0
+=== node tests/agent_script.test.js
+ok - VALID_SCRIPT_PHASES contains 6 phases
+ok - PHASE_TO_SCENE_INDEX maps phases to 0-based indices
+ok - validateSceneN returns correct error for scene 13 in a 6-scene script
+ok - validateSceneN returns ok for valid scene
+ok - script.phase_review action is registered
+ok - scriptPhaseReview returns hook phase text and failing rules
+ok - scriptPhaseReview returns point_1 phase with failing rules
+ok - scriptPhaseReview returns global failing rules for phase with no specific issues
+ok - scriptPhaseReview returns invalid for unknown phase
+ok - script.generate action costs 6 credits (F-07)
+ok - script.iterate_scene action costs 2 credits
+ok - script.lock action costs 0 credits but needs confirm
+ok - getScriptStepTools includes script_generate schema
+ok - getScriptStepTools includes script_phase_review schema
+ok - getScriptStepTools includes script_iterate_scene schema
+ok - getScriptStepTools includes script_edit_text schema
+ok - getScriptStepTools includes script_lock schema
+ok - getScriptStepTools includes script_explain_audit schema
+
+All checks passed.
+exit code: 0
+=== node tests/agent_step.test.js
+F-05 Agent Step Tests
+
+? Module exports required functions
+? STEP_ORDER contains expected steps
+? GLOBAL_TOOL_NAMES contains expected tools
+? buildStepSummary returns <= 1200 chars
+? toolsForStep returns array
+? Global tools present
+? getUnlockedSteps returns brain initially
+? getUnlockedSteps includes catalog after brainComplete
+[Agentic Mode] Sent session.update for step: brain Agentic: false
+? sendSessionUpdate OFF mode sends one tool
+[Agentic Mode] Sent session.update for step: brain Agentic: true
+? sendSessionUpdate ON mode includes global tools
+
+10 passed, 0 failed
+exit code: 0
+=== node tests/confirm_engine.test.js
+ok - propose stores a pending proposal with a token and the 45s default TTL
+ok - confirm happy path: explicit confirmation word runs the pending proposal once
+ok - a bare "yes" is not an explicit confirmation -- only the full "yes do it" phrase is
+ok - accepts Spanish confirmation words, case/accent-insensitive
+ok - "confirm" with nothing pending does nothing
+ok - "no, wait, confirm" cancels instead of running
+ok - a plain cancel word drops the proposal
+ok - expired proposal cannot be confirmed
+ok - restatement then correction: a new proposal replaces the pending one
+ok - a long unrelated utterance containing "confirm" does not count as explicit confirmation
+ok - an unrelated utterance drops the proposal instead of leaving it pending
+ok - cancel() clears a pending proposal directly
+ok - browser export path: loading the script as a page script attaches window.createConfirmationEngine
+ok - integration via agent_harness: no execution allowed without a matching, unexpired confirmation
+
+All checks passed. (14 tests)
+exit code: 0

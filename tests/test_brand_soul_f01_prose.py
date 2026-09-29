@@ -15,7 +15,6 @@ mocked throughout.
 import html as html_module
 import json
 import re
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -34,7 +33,6 @@ from app.tools.brand_soul.template import get_etapa_context
 
 CHAPTER_HEADINGS = [heading for _, heading in CHAPTERS]
 
-EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "docs" / "specs" / "evidence" / "F-01"
 
 # Field keys that must NEVER show up literally in the visible document -
 # their presence means the fallback (or the LLM) fell back to a "key: value"
@@ -455,7 +453,7 @@ def _extract_transcript() -> str:
 
 
 def test_health_check_brand_soul_path_end_to_end(
-    in_memory_brand_brain_store, monkeypatch
+    in_memory_brand_brain_store, monkeypatch, evidence_dir_for
 ):
     """
     Walks: POST /api/brain/extract -> GET /api/soul (404) -> POST
@@ -518,12 +516,12 @@ def test_health_check_brand_soul_path_end_to_end(
     results.append(("POST /api/soul/generate (regenerate)", regenerate_response.status_code))
     assert regenerate_response.status_code == 200, regenerate_response.text
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    evidence_dir = evidence_dir_for("F-01")
 
     table_lines = ["| Step | Status code |", "|---|---|"]
     table_lines += [f"| {step} | {code} |" for step, code in results]
-    (EVIDENCE_DIR / "health_check.md").write_text("\n".join(table_lines) + "\n", encoding="utf-8")
-    (EVIDENCE_DIR / "generated_sample.html").write_text(generated_html, encoding="utf-8")
-    (EVIDENCE_DIR / "extract_response.json").write_text(
+    (evidence_dir / "health_check.md").write_text("\n".join(table_lines) + "\n", encoding="utf-8")
+    (evidence_dir / "generated_sample.html").write_text(generated_html, encoding="utf-8")
+    (evidence_dir / "extract_response.json").write_text(
         json.dumps(extract_response.json(), indent=2, ensure_ascii=False), encoding="utf-8"
     )

@@ -26,7 +26,6 @@ from render_service.text_fit import fit_card_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PREVIEW_JS = REPO_ROOT / "app" / "static" / "editing_preview.js"
-EVIDENCE_DIR = REPO_ROOT / "docs" / "specs" / "evidence" / "E2-04"
 
 NODE_AVAILABLE = shutil.which("node") is not None
 CHROMIUM_AVAILABLE = chromium_path() is not None
@@ -77,7 +76,7 @@ def run_node_fit_card_text(cases: list[tuple[str, str, int, int]]) -> list[dict]
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     return json.loads(proc.stdout.strip())
 
@@ -253,7 +252,7 @@ CARD_STAT_70_CHAR_TEXT = (
 
 
 @pytest.mark.skipif(not CHROMIUM_AVAILABLE, reason="Chromium not available")
-def test_card_stat_70_chars_no_clip_top_bottom_20px(tmp_path):
+def test_card_stat_70_chars_no_clip_top_bottom_20px(tmp_path, evidence_dir_for):
     """Renders the real card PNG (Chromium) for a 70-char card_stat and measures it.
 
     No text pixel may appear in the box's top/bottom 20px (the old fixed-size bug B1:
@@ -286,9 +285,9 @@ def test_card_stat_70_chars_no_clip_top_bottom_20px(tmp_path):
     top_max = max_rgb_in_band(width, rgba, 0, CLIP_BAND_PX)
     bottom_max = max_rgb_in_band(width, rgba, height - CLIP_BAND_PX, height)
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    (EVIDENCE_DIR / "card_stat_70_chars.png").write_bytes(data)
-    (EVIDENCE_DIR / "card_stat_70_chars_measurement.txt").write_text(
+    evidence_dir = evidence_dir_for("E2-04")
+    (evidence_dir / "card_stat_70_chars.png").write_bytes(data)
+    (evidence_dir / "card_stat_70_chars_measurement.txt").write_text(
         f"box: {ov.w}x{ov.h}\n"
         f"text ({len(CARD_STAT_70_CHAR_TEXT)} chars): {CARD_STAT_70_CHAR_TEXT!r}\n"
         f"top {CLIP_BAND_PX}px max R/G/B: {top_max}\n"
@@ -355,7 +354,7 @@ CAP_DIGIT_CASES: list[tuple[str, int, int]] = [
 @pytest.mark.skipif(not CHROMIUM_AVAILABLE, reason="Chromium not available")
 @pytest.mark.parametrize("font", ["Inter", "Montserrat"])
 @pytest.mark.parametrize("text,box_w,box_h", CAP_DIGIT_CASES)
-def test_caps_and_digits_no_clip_in_brand_fonts(tmp_path, font, text, box_w, box_h):
+def test_caps_and_digits_no_clip_in_brand_fonts(tmp_path, font, text, box_w, box_h, evidence_dir_for):
     """Bold capitals/digits are wider than lowercase; both brand fonts must still fit.
 
     Regression guard for the flat K=0.58 width bug: with capitals/digits at their
@@ -385,9 +384,9 @@ def test_caps_and_digits_no_clip_in_brand_fonts(tmp_path, font, text, box_w, box
     top_max = max_rgb_in_band(width, rgba, 0, CLIP_BAND_PX)
     bottom_max = max_rgb_in_band(width, rgba, height - CLIP_BAND_PX, height)
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    evidence_dir = evidence_dir_for("E2-04")
     safe_text = "".join(c if c.isalnum() else "_" for c in text)[:40]
-    (EVIDENCE_DIR / f"caps_digits_{font}_{safe_text}.png").write_bytes(out_png.read_bytes())
+    (evidence_dir / f"caps_digits_{font}_{safe_text}.png").write_bytes(out_png.read_bytes())
 
     assert top_max < NO_TEXT_MAX_RGB, f"top {CLIP_BAND_PX}px has text-like pixels (max={top_max})"
     assert bottom_max < NO_TEXT_MAX_RGB, f"bottom {CLIP_BAND_PX}px has text-like pixels (max={bottom_max})"
@@ -395,7 +394,7 @@ def test_caps_and_digits_no_clip_in_brand_fonts(tmp_path, font, text, box_w, box
 
 @pytest.mark.skipif(FFMPEG_EXE is None, reason="ffmpeg is not installed")
 @pytest.mark.skipif(not CHROMIUM_AVAILABLE, reason="Chromium not available")
-def test_offline_e2e_mp4_card_stat_70_chars_no_clip(tmp_path):
+def test_offline_e2e_mp4_card_stat_70_chars_no_clip(tmp_path, evidence_dir_for):
     """Full offline render (real ffmpeg + real Chromium card) with a 70-char card_stat.
 
     Extracts the overlay's midpoint frame from the final MP4 and measures the card
@@ -503,9 +502,9 @@ def test_offline_e2e_mp4_card_stat_70_chars_no_clip(tmp_path):
         f"got {tuple(bottom_rgb)}"
     )
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    (EVIDENCE_DIR / "mp4_frame_card_crop.png").write_bytes(data)
-    (EVIDENCE_DIR / "mp4_frame_measurement.txt").write_text(
+    evidence_dir = evidence_dir_for("E2-04")
+    (evidence_dir / "mp4_frame_card_crop.png").write_bytes(data)
+    (evidence_dir / "mp4_frame_measurement.txt").write_text(
         f"crop box: {width}x{height} at ({ov.x},{ov.y}), midpoint {midpoint_s}s\n"
         f"top {CLIP_BAND_PX}px max R/G/B: {top_max}\n"
         f"bottom {CLIP_BAND_PX}px max R/G/B: {bottom_max}\n"

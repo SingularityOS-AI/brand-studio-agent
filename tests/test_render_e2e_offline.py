@@ -65,7 +65,7 @@ def synthetic_media(tmp_path_factory):
 
     return media
 
-def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
+def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path, evidence_dir_for):
     """
     Test rendering an MP4 end-to-end completely offline, utilizing synthetic media.
     Mocks upload/download IO, but exercises timeline, dressing, and IR generation.
@@ -305,8 +305,7 @@ def test_render_e2e_offline_mp4(synthetic_media, monkeypatch, tmp_path):
         times.append(expected_duration / 2.0)
 
     times_str = [str(t) for t in times]
-    sheet_out = Path("docs/specs/evidence/E2-01/sheet.png")
-    sheet_out.parent.mkdir(parents=True, exist_ok=True)
+    sheet_out = evidence_dir_for("E2-01") / "sheet.png"
 
     subprocess.run([
         "python", "scripts/render_contact_sheet.py",
