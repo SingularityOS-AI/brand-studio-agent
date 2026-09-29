@@ -47,7 +47,7 @@ def get_cached_engine_version() -> str:
     return "unknown"
 
 
-async def get_engine_version() -> str:
+async def get_engine_version(timeout_s: float = 2.0) -> str:
     """Reads engine_version from the render service /health, cached for 5 minutes.
 
     Returns "unknown" when the render service is unreachable, misconfigured, or
@@ -63,7 +63,7 @@ async def get_engine_version() -> str:
         return "unknown"
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
+        async with httpx.AsyncClient(timeout=timeout_s) as http_client:
             resp = await http_client.get(f"{url.rstrip('/')}/health")
         if resp.status_code == 200:
             version = resp.json().get("engine_version")

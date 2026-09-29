@@ -1,0 +1,2 @@
+$ ruff check app/editing/router.py app/editing/dispatch.py tests/test_h7_03_price_label.py
+All checks passed!

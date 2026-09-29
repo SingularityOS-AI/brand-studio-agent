@@ -1,0 +1,51 @@
+                            "Convert item %s failed: %s", item.input_id, redact(str(e))
+                            "Convert item %s failed: %s", item.input_id, redact(str(e))
+                    code="ffmpeg_failed",
+                    code="ffmpeg_failed",
+                    ok=False, code="fetch_failed", retryable=True, detail=redact(str(e))
+                    ok=False, code="fetch_failed", retryable=True, detail=redact(str(e))
+                    ok=False, code="fetch_failed", retryable=True, detail=redact(str(e))
+                    ok=False, code="fetch_failed", retryable=True, detail=redact(str(e))
+                    ok=False, code="ffmpeg_failed", retryable=False, detail=redact(str(e))
+                    ok=False, code="ffmpeg_failed", retryable=False, detail=redact(str(e))
+            assert response.status_code == 200, f"Request {i} failed: {response.json()}"
+            f"node tests/agent_actions.test.js failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+            raise RenderServiceError("fetch_failed", True, f"HTTP error: {e}") from e
+            raise RenderServiceError("fetch_failed", True, f"HTTP error: {e}") from e
+            raise RenderServiceError("fetch_failed", True, f"HTTP request failed: {e}") from e
+            raise RenderServiceError("fetch_failed", True, f"HTTP request failed: {e}") from e
+        assert res.returncode == 0, f"Node execution failed: {res.stderr}"
+        assert res.returncode == 0, f"Node execution failed: {res.stderr}"
+19 failed, 1187 passed, 32 skipped, 1 xfailed, 17 warnings, 10 errors in 20.91s
+E         2 check(s) failed.
+E        +  where 1 = CompletedProcess(args=['/opt/node22/bin/node', '/home/user/brand-studio-agent/tests/agent_actions.test.js'], returncod...T /api/agent/actions\nok - the free edit_scene_text action still runs and succeeds\n", stderr='\n2 check(s) failed.\n').returncode
+E       AssertionError: node tests/agent_actions.test.js failed:
+ERROR test_frontend_auth.py
+ERROR tests/test_agent_f11.py
+ERROR tests/test_editing_e2_04_card_fit.py
+ERROR tests/test_editing_e2_06_caption_y.py
+ERROR tests/test_editing_p83_preview.py
+ERROR tests/test_editing_p85_ir2.py
+ERROR tests/test_render_service_p80_ass.py
+ERROR tests/test_render_service_p86_dress.py
+ERROR tests/test_render_service_p90b_overlays.py
+ERROR tests/test_render_service_p92_rebote.py
+FAILED tests/test_actions_f04.py::test_actions_js_registers_the_ten_pieces_actions
+FAILED tests/test_actions_f04.py::test_agent_actions_node_harness_passes - As...
+FAILED tests/test_editing_e2_03_empty_scene.py::test_resolve_raw_render_forwards_scene_fallbacks
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_face_warning
+FAILED tests/test_editing_e2_03_empty_scene.py::test_state_exposes_scene_fallbacks_and_image_warning
+FAILED tests/test_editing_e2_13_anim.py::TestE2_13AnimatedOverlayRendering::test_animated_kinds_constant_defined
+FAILED tests/test_editing_e2_13_anim.py::TestE2_13AnimatedOverlayRendering::test_kind_to_template_mapping
+FAILED tests/test_editing_e2_13_anim.py::TestE2_13AnimatedOverlayRendering::test_render_animated_overlay_png_frames_exists
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_endpoints_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_editing_js_router_ops_contract
+FAILED tests/test_editing_p82c_editing_js.py::test_node_load_and_expose_edit_actions
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_network_lock.py::test_network_lock_blocks_async_httpx_client_to_external_host
+FAILED tests/test_network_lock.py::test_network_lock_blocks_sync_httpx_to_external_host
+FAILED tests/test_render_service_p73_app.py::test_happy_path_raw_render - pyd...
+FAILED tests/test_render_service_p75_container.py::test_app_converter_replaces_local_inputs_path
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+FAILED tests/test_scripts_pieza43.py::test_manual_patch_during_in_flight_regeneration_not_lost
