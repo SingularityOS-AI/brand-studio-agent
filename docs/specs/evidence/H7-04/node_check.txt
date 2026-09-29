@@ -1,0 +1,5 @@
+$ node --check app/static/production_panel.js
+exit=0
+$ ruff check tests/test_h7_04_panel.py
+All checks passed!
+exit=0

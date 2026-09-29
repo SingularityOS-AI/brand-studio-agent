@@ -1,0 +1,38 @@
+$ python -m pytest -q -m "not e2e" -p no:cacheprovider
+==================================== ERRORS ====================================
+___________________ ERROR collecting tests/test_agent_f11.py ___________________
+ImportError while importing test module '/home/user/brand-studio-agent/tests/test_agent_f11.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_agent_f11.py:17: in <module>
+    from app.models import Script, ScriptVersion, AgentAction, UserCredit
+E   ModuleNotFoundError: No module named 'app.models'
+=============================== warnings summary ===============================
+../../../tmp/claude-0/venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /tmp/claude-0/venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+render_service/manifest.py:154
+  /home/user/brand-studio-agent/render_service/manifest.py:154: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+render_service/manifest.py:335
+  /home/user/brand-studio-agent/render_service/manifest.py:335: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+render_service/manifest.py:437
+  /home/user/brand-studio-agent/render_service/manifest.py:437: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+tests/test_editing_e2_03_empty_scene.py:113
+tests/test_editing_e2_03_empty_scene.py:123
+tests/test_editing_e2_03_empty_scene.py:218
+tests/test_editing_e2_03_empty_scene.py:249
+tests/test_editing_e2_03_empty_scene.py:288
+tests/test_editing_e2_03_empty_scene.py:333
+tests/test_render_e2e_offline.py:18
+tests/test_render_service_e2_02_seek.py:17
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/test_agent_f11.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 skipped, 1 deselected, 12 warnings, 1 error in 2.13s

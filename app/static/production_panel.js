@@ -16,7 +16,12 @@
   'use strict';
 
   var POLL_MS = 5000;
+  var AUTH_RETRY_MS = 1000;
+  var AUTH_RETRY_MAX = 120;
+  var UNAVAILABLE_TEXT = 'Activity log unavailable right now.';
   var pollTimer = null;
+  var authRetryTimer = null;
+  var authRetryCount = 0;
   var lastActions = [];
   var styleInjected = false;
 
@@ -242,9 +247,47 @@
     });
   }
 
+  // The founder is signed in once app.js's showMainApp() has revealed
+  // #Main-App (it runs only after the Supabase session and JWT exist). Until
+  // then authenticatedFetch would throw "Not authenticated", so the panel
+  // simply waits; the existing step-change refresh() calls in app.js and the
+  // bounded retry below pick it up as soon as the session is ready.
+  function authReady(bs) {
+    if (!bs || typeof bs.authenticatedFetch !== 'function') return false;
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return true;
+    var mainApp = document.getElementById('Main-App');
+    if (!mainApp) return true;
+    var display = mainApp.style ? mainApp.style.display : '';
+    return display !== 'none';
+  }
+
+  function scheduleAuthRetry() {
+    if (authRetryTimer || authRetryCount >= AUTH_RETRY_MAX) return;
+    authRetryTimer = setTimeout(function () {
+      authRetryTimer = null;
+      authRetryCount += 1;
+      refresh();
+    }, AUTH_RETRY_MS);
+  }
+
+  function showUnavailable() {
+    var elements = panelEls();
+    if (!elements.jobs) return;
+    while (elements.jobs.firstChild) {
+      elements.jobs.removeChild(elements.jobs.firstChild);
+    }
+    elements.jobs.style.display = 'none';
+    if (elements.empty) elements.empty.style.display = 'flex';
+    if (elements.subtext) elements.subtext.textContent = UNAVAILABLE_TEXT;
+  }
+
   function refresh(ideaIdArg) {
     var bs = brandStudio();
-    if (!bs || typeof bs.authenticatedFetch !== 'function') return Promise.resolve();
+    if (!authReady(bs)) {
+      scheduleAuthRetry();
+      return Promise.resolve();
+    }
+    authRetryCount = 0;
 
     var ideaId = ideaIdArg;
     if (!ideaId && typeof bs.getCurrentScriptIdeaId === 'function') {
@@ -256,10 +299,15 @@
 
     return bs.authenticatedFetch(url)
       .then(function (res) {
-        if (!res || !res.ok) return null;
+        if (!res || !res.ok) return { unavailable: true };
         return res.json();
       })
       .then(function (data) {
+        if (data && data.unavailable) {
+          lastActions = [];
+          showUnavailable();
+          return;
+        }
         var newActions = (data && data.actions) || [];
         checkJobCompletions(lastActions, newActions);
         lastActions = newActions;
@@ -267,6 +315,12 @@
         if (hasActiveJobs(lastActions)) schedulePoll();
       })
       .catch(function (err) {
+        // Session not ready yet (or just ended): stay quiet, retry later.
+        if (err && err.message === 'Not authenticated') {
+          scheduleAuthRetry();
+          return;
+        }
+        showUnavailable();
         console.warn('[ProductionPanel] Failed to refresh actions:', err);
       });
   }
