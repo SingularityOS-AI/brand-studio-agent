@@ -6,6 +6,7 @@ Coding agents start here. Rules: `/AGENTS.md`. Deadline: **2026-09-30 11:00 VET 
 |---|---|---|---|---|
 | E.2 | Editing polish after the first real video | `E2/spec.md` | `E2/plan.md` | `E2/pieces/` (13) |
 | F | Agentic Mode: Brandy runs the pipeline by voice | `F/spec.md` | `F/plan.md` | `F/pieces/` (11) |
+| H7 | Hardening before the fresh-account production run | `H7/README.md` | `H7/README.md` | `H7/pieces/` (6) |
 
 Evidence for every piece: `evidence/<piece-id>/` (literal outputs only, no verdicts).
 
