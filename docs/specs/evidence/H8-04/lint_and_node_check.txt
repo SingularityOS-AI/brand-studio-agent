@@ -1,0 +1,6 @@
+$ ruff check <touched .py>
+All checks passed!
+exit=0
+$ node --check <touched .js>
+production_panel.js exit=0
+app.js exit=0

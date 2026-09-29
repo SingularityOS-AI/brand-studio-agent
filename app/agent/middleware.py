@@ -12,6 +12,7 @@ Every failure here is logged and swallowed.
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -39,6 +40,10 @@ _STEP_BY_PREFIX = (
 )
 
 _AUDITED_METHODS = ("POST", "PATCH", "DELETE")
+
+# Job-creating responses are tiny JSON ({"job": {...}}); anything bigger is not
+# worth buffering just to read a job id.
+_MAX_BODY_BYTES = 256 * 1024
 
 
 def _is_audited_path(path: str) -> bool:
@@ -95,6 +100,35 @@ def _status_for(response_status: int) -> str:
     return "failed"
 
 
+def _read_job_info(body: bytes) -> tuple[str | None, int | None]:
+    """(job id, charged credits) from a JSON response body; (None, None) if absent.
+
+    Credits are only reported for a job this request actually created and
+    priced (`created` is not False and job.credits is a positive int).
+    """
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    job = data.get("job")
+    if not isinstance(job, dict):
+        return None, None
+    raw_id = job.get("id")
+    job_id = str(raw_id) if raw_id else None
+    credits = job.get("credits")
+    if (
+        not job_id
+        or data.get("created") is False
+        or isinstance(credits, bool)
+        or not isinstance(credits, int)
+        or credits <= 0
+    ):
+        credits = None
+    return job_id, credits
+
+
 class AgentActionsAuditMiddleware(BaseHTTPMiddleware):
     """Writes an agent_actions row for every audited pipeline request."""
 
@@ -108,13 +142,57 @@ class AgentActionsAuditMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
 
+        job_id: str | None = None
+        credits: int | None = None
+        if should_audit and 200 <= response.status_code < 300:
+            try:
+                response, body = await self._peek_json_body(response)
+                if body is not None:
+                    job_id, credits = _read_job_info(body)
+            except Exception:
+                logger.exception("[agent_actions] could not read the response body")
+
         if should_audit:
             try:
-                self._record(request, response, action_header, path)
+                self._record(request, response, action_header, path, job_id, credits)
             except Exception:
                 logger.exception("[agent_actions] audit trail write failed")
 
         return response
+
+    @staticmethod
+    async def _peek_json_body(response: Response) -> tuple[Response, bytes | None]:
+        """Read a small JSON body without changing what the client receives.
+
+        Returns the response to send (rebuilt from the buffered chunks when the
+        body iterator had to be consumed) and the body bytes, or None when the
+        response is not a small JSON body (then it is returned untouched).
+        """
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return response, None
+        declared = response.headers.get("content-length")
+        if declared is not None and (not declared.isdigit() or int(declared) > _MAX_BODY_BYTES):
+            return response, None
+        iterator = getattr(response, "body_iterator", None)
+        if iterator is None:
+            body = getattr(response, "body", None)
+            return response, body if isinstance(body, bytes) else None
+
+        chunks: list[bytes] = []
+        try:
+            async for chunk in iterator:
+                chunks.append(chunk if isinstance(chunk, bytes) else str(chunk).encode("utf-8"))
+        finally:
+            body = b"".join(chunks)
+            rebuilt = Response(
+                content=body,
+                status_code=response.status_code,
+                background=getattr(response, "background", None),
+            )
+            # Keep every original header (incl. repeated Set-Cookie) as-is.
+            rebuilt.raw_headers = list(response.raw_headers)
+        return rebuilt, body
 
     def _record(
         self,
@@ -122,6 +200,8 @@ class AgentActionsAuditMiddleware(BaseHTTPMiddleware):
         response: Response,
         action_header: str | None,
         path: str,
+        job_id: str | None = None,
+        credits: int | None = None,
     ) -> None:
         session_token = _resolve_session_token(request)
         if session_token is None:
@@ -129,12 +209,17 @@ class AgentActionsAuditMiddleware(BaseHTTPMiddleware):
 
         status_value = _status_for(response.status_code)
         error = None if status_value != "failed" else f"HTTP {response.status_code}"
+        extra: dict[str, object] = {}
+        if job_id:
+            extra["result_ref"] = job_id
+        if credits is not None:
+            extra["credits"] = credits
 
         if action_header:
             updated = update_action(
                 action_header,
                 session_token,
-                {"status": status_value, "error": error},
+                {"status": status_value, "error": error, **extra},
             )
             if updated is not None:
                 return
@@ -148,6 +233,8 @@ class AgentActionsAuditMiddleware(BaseHTTPMiddleware):
             source="button",
             action=f"{request.method} {_route_template(request)}",
             idea_id=_extract_idea_id(request),
+            credits=credits,
             status=status_value,
             error=error,
+            result_ref=job_id,
         )

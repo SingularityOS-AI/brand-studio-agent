@@ -1,0 +1,509 @@
+..F.....................................s............................... [  5%]
+........................................................................ [ 10%]
+........................................................................ [ 16%]
+........................................................................ [ 21%]
+........................................................................ [ 26%]
+...........s............................................................ [ 32%]
+........................................................................ [ 37%]
+........................................................................ [ 42%]
+........................................................................ [ 48%]
+........................................................................ [ 53%]
+........................................................................ [ 59%]
+........................................................................ [ 64%]
+.......................................................sssssssssF...F... [ 69%]
+........................................................................ [ 75%]
+...........................................................F.FF......... [ 80%]
+........................F............................................... [ 85%]
+........................................................................ [ 91%]
+........................................................................ [ 96%]
+.........................ssss................                            [100%]
+================================== FAILURES ===================================
+___________________ test_agent_actions_node_harness_passes ____________________
+
+    def test_agent_actions_node_harness_passes():
+        """Runs tests/agent_actions.test.js, which loads the real actions.js +
+        app.js with fetch mocked and asserts the exact HTTP calls (endpoint,
+        body, X-Agent-Action-Id header) for script.iterate_scene, plus the
+        registry shape and the thrown-run / currentActionId-clearing contract."""
+        res = subprocess.run(
+            [_node_bin(), str(NODE_TEST)],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+>       assert res.returncode == 0, (
+            f"node tests/agent_actions.test.js failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+        )
+E       AssertionError: node tests/agent_actions.test.js failed:
+E         STDOUT:
+E         [Columns] Resizable columns initialized
+E         [Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+E         [Audio] Sample rate: 24kHz
+E         [Processor] AudioWorklet for PCM16 conversion
+E         [Auth] Google OAuth enabled
+E         ok - registers the 5 F-04 Script actions (later pieces may add more)
+E         ok - registers the 5 F-04 Audiovisual actions (later pieces may add more)
+E         ok - get() returns null for an unregistered id
+E         ok - execute() on an unknown id fails without touching fetch
+E         [Columns] Resizable columns initialized
+E         [Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+E         [Audio] Sample rate: 24kHz
+E         [Processor] AudioWorklet for PCM16 conversion
+E         [Auth] Google OAuth enabled
+E         ok - execute() returns ok:true for script.iterate_scene
+E         ok - creates the agent_actions row first, for the voice source
+E         ok - calls the exact same endpoint + body the button calls (handleScriptRegenerate)
+E         FAIL - sends X-Agent-Action-Id matching the row just created
+E         AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+E         + actual - expected
+E         
+E         + undefined
+E         - 'action-row-1'
+E         
+E             at C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:189:12
+E             at check (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:123:5)
+E             at testIterateSceneMatchesButtonPathAndSendsHeader (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:188:3)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+E             at async main (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:299:3)
+E         ok - currentActionId is cleared after a successful run
+E         [Columns] Resizable columns initialized
+E         [Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+E         [Audio] Sample rate: 24kHz
+E         [Processor] AudioWorklet for PCM16 conversion
+E         [Auth] Google OAuth enabled
+E         FAIL - a thrown run() comes back as {ok:false, error}
+E         AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+E         + actual - expected
+E         
+E         + 'document.dispatchEvent is not a function'
+E         - 'Cannot change a locked scene'
+E         
+E             at C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:221:12
+E             at check (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:123:5)
+E             at testThrownRunStillClearsCurrentActionId (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:219:3)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+E             at async main (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:300:3)
+E         ok - currentActionId is cleared even when run() throws
+E         [Columns] Resizable columns initialized
+E         [Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API
+E         [Audio] Sample rate: 24kHz
+E         [Processor] AudioWorklet for PCM16 conversion
+E         [Auth] Google OAuth enabled
+E         ok - a button-sourced execute() never calls POST /api/agent/actions
+E         ok - the free edit_scene_text action still runs and succeeds
+E         
+E         STDERR:
+E         [BrandStudioActions] Failed to create audit row: TypeError: document.dispatchEvent is not a function
+E             at Object.authenticatedFetch (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:115:3), <anonymous>:36:69)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+E             at async createVoiceActionRow (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:114:3), <anonymous>:71:24)
+E             at async Object.execute (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:114:3), <anonymous>:113:21)
+E             at async testIterateSceneMatchesButtonPathAndSendsHeader (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:154:19)
+E             at async main (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:299:3)
+E         Scene regenerate error: TypeError: document.dispatchEvent is not a function
+E             at authenticatedFetch (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:115:3), <anonymous>:36:69)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+E             at async Object.handleScriptRegenerate (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:115:3), <anonymous>:6475:24)
+E             at async Object.execute (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:114:3), <anonymous>:118:22)
+E             at async testIterateSceneMatchesButtonPathAndSendsHeader (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:154:19)
+E             at async main (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:299:3)
+E         [BrandStudioActions] Failed to create audit row: TypeError: document.dispatchEvent is not a function
+E             at Object.authenticatedFetch (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:115:3), <anonymous>:36:69)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+E             at async createVoiceActionRow (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:114:3), <anonymous>:71:24)
+E             at async Object.execute (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:114:3), <anonymous>:113:21)
+E             at async testThrownRunStillClearsCurrentActionId (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:213:19)
+E             at async main (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:300:3)
+E         Scene edit error: TypeError: document.dispatchEvent is not a function
+E             at authenticatedFetch (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:115:3), <anonymous>:36:69)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+E             at async Object.handleScriptSceneEdit (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:115:3), <anonymous>:6437:24)
+E             at async Object.execute (eval at loadApp (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:114:3), <anonymous>:118:22)
+E             at async testButtonSourceSkipsTheAuditRowCreateCall (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:241:19)
+E             at async main (C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\agent_actions.test.js:301:3)
+E         
+E         2 check(s) failed.
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['C:\\Program Files\\nodejs\\node.EXE', 'C:\\Users\\gabri\\Desktop\\SINGULARITYOS\\_PROYECTOS_SU...FICAR\\hackaton lablab assemly IA voice agent\\_wt_H8-04\\tests\\agent_actions.test.js:301:3)\n\n2 check(s) failed.\n').returncode
+
+tests\test_actions_f04.py:50: AssertionError
+_____________________ test_normal_request_pass_and_deduct _____________________
+
+client_with_auth = <starlette.testclient.TestClient object at 0x0000027855C6AD80>
+
+    def test_normal_request_pass_and_deduct(client_with_auth):
+        """
+        Path 1: Normal request passes rate limit and deducts budget.
+        Should receive token and remaining credits.
+        """
+        response = client_with_auth.get("/api/token")
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert "credits_remaining" in data
+        # Credits should be less than initial 250 after deduct
+>       assert 0 <= data["credits_remaining"] <= 249
+E       assert 499 <= 249
+
+tests\test_guard_jwt.py:111: AssertionError
+______________________ test_budget_exhausted_returns_402 ______________________
+
+client_with_auth = <starlette.testclient.TestClient object at 0x0000027855C62B70>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000027855C69070>
+
+    def test_budget_exhausted_returns_402(client_with_auth, monkeypatch):
+        """
+        Path 3: Session exhausting budget gets 402 with configurable payment URL.
+        Exhaust all credits and verify payment required response.
+    
+        Rate limit (default 30/min) is neutralized here so this test actually
+        reaches 402 instead of hitting 429 first and silently skipping the
+        assertion it's named for — a session's budget can legitimately outlast
+        a minute of requests in real use.
+        """
+        monkeypatch.setattr(guard, "check_rate_limit", lambda *a, **k: None)
+    
+        # Clear any existing sessions to start fresh
+        guard._sessions.clear()
+    
+        # Make requests until budget is exhausted (250 credits)
+        for i in range(250):
+            response = client_with_auth.get("/api/token")
+            if response.status_code == 402:
+                break
+            assert response.status_code == 200, f"Request {i} failed: {response.json()}"
+    
+        # The session now has 0 credits: the very next call must 402.
+        response = client_with_auth.get("/api/token")
+>       assert response.status_code == 402
+E       assert 200 == 402
+E        +  where 200 = <Response [200 OK]>.status_code
+
+tests\test_guard_jwt.py:189: AssertionError
+______________ test_template_seek_render_non_blank[stat-fields0] ______________
+
+template_name = 'stat', fields = {'value': '40%', 'headline': 'Growth in 2026'}
+tmp_path = WindowsPath('C:/Users/gabri/AppData/Local/Temp/pytest-of-Gabriel/pytest-353/test_template_seek_render_non_0')
+
+    @pytest.mark.parametrize("template_name,fields", TEMPLATES_TO_TEST)
+    def test_template_seek_render_non_blank(
+        template_name: str, fields: dict, tmp_path: Path
+    ):
+        """
+        Each template rendered for 6s:
+        - Frame at 3.0s is NOT near-uniform (luma std-dev > 8).
+        - Frame at 3.0s differs from frame at 0.0s.
+        """
+        html_content = build_html(template_name, fields, duration_s=6.0)
+        html_file = tmp_path / f"{template_name}.html"
+        html_file.write_text(html_content, encoding="utf-8")
+    
+        out_mp4 = tmp_path / f"{template_name}.mp4"
+        workdir = tmp_path / f"work_{template_name}"
+    
+        t0 = time.perf_counter()
+        res = convert_html(html_file, out_mp4, duration_s=6.0, workdir=workdir)
+        wall_s = time.perf_counter() - t0
+    
+        assert res.exists() and res.stat().st_size > 0
+>       assert wall_s < 60.0
+E       assert 69.87863929999912 < 60.0
+
+tests\test_render_service_e2_02_seek.py:92: AssertionError
+______________ test_template_seek_render_non_blank[list-fields2] ______________
+
+template_name = 'list'
+fields = {'headline': 'Key Milestones', 'items': ['1. Discover', '2. Automate', '3. Scale']}
+tmp_path = WindowsPath('C:/Users/gabri/AppData/Local/Temp/pytest-of-Gabriel/pytest-353/test_template_seek_render_non_2')
+
+    @pytest.mark.parametrize("template_name,fields", TEMPLATES_TO_TEST)
+    def test_template_seek_render_non_blank(
+        template_name: str, fields: dict, tmp_path: Path
+    ):
+        """
+        Each template rendered for 6s:
+        - Frame at 3.0s is NOT near-uniform (luma std-dev > 8).
+        - Frame at 3.0s differs from frame at 0.0s.
+        """
+        html_content = build_html(template_name, fields, duration_s=6.0)
+        html_file = tmp_path / f"{template_name}.html"
+        html_file.write_text(html_content, encoding="utf-8")
+    
+        out_mp4 = tmp_path / f"{template_name}.mp4"
+        workdir = tmp_path / f"work_{template_name}"
+    
+        t0 = time.perf_counter()
+        res = convert_html(html_file, out_mp4, duration_s=6.0, workdir=workdir)
+        wall_s = time.perf_counter() - t0
+    
+        assert res.exists() and res.stat().st_size > 0
+>       assert wall_s < 60.0
+E       assert 73.50776820000101 < 60.0
+
+tests\test_render_service_e2_02_seek.py:92: AssertionError
+__________ test_template_seek_render_non_blank[lower_third-fields3] ___________
+
+template_name = 'lower_third'
+fields = {'headline': 'Gabriel Bustos', 'subline': 'Chief Technology Officer'}
+tmp_path = WindowsPath('C:/Users/gabri/AppData/Local/Temp/pytest-of-Gabriel/pytest-353/test_template_seek_render_non_3')
+
+    @pytest.mark.parametrize("template_name,fields", TEMPLATES_TO_TEST)
+    def test_template_seek_render_non_blank(
+        template_name: str, fields: dict, tmp_path: Path
+    ):
+        """
+        Each template rendered for 6s:
+        - Frame at 3.0s is NOT near-uniform (luma std-dev > 8).
+        - Frame at 3.0s differs from frame at 0.0s.
+        """
+        html_content = build_html(template_name, fields, duration_s=6.0)
+        html_file = tmp_path / f"{template_name}.html"
+        html_file.write_text(html_content, encoding="utf-8")
+    
+        out_mp4 = tmp_path / f"{template_name}.mp4"
+        workdir = tmp_path / f"work_{template_name}"
+    
+        t0 = time.perf_counter()
+        res = convert_html(html_file, out_mp4, duration_s=6.0, workdir=workdir)
+        wall_s = time.perf_counter() - t0
+    
+        assert res.exists() and res.stat().st_size > 0
+>       assert wall_s < 60.0
+E       assert 60.54392440000083 < 60.0
+
+tests\test_render_service_e2_02_seek.py:92: AssertionError
+________________________ test_fonts_and_sources_hashes ________________________
+
+    def test_fonts_and_sources_hashes():
+        fonts_dir = REPO_ROOT / "render_service" / "fonts"
+        sources_md = fonts_dir / "SOURCES.md"
+        assert fonts_dir.is_dir(), "render_service/fonts directory missing"
+        assert sources_md.is_file(), "render_service/fonts/SOURCES.md missing"
+    
+        sources_content = sources_md.read_text(encoding="utf-8")
+    
+        from render_service.manifest import FONT_ALLOWLIST
+    
+        ttf_files = list(fonts_dir.glob("*.ttf")) + list(fonts_dir.glob("*.otf"))
+        for family in FONT_ALLOWLIST:
+            clean_family = family.replace(" ", "")
+            matching = [
+                f
+                for f in ttf_files
+                if family.lower() in f.name.lower()
+                or clean_family.lower() in f.name.lower()
+            ]
+            assert (
+                len(matching) > 0
+            ), f"No TTF font file found for allowlist family '{family}'"
+    
+        file_blocks = sources_content.split("- **File:**")
+        for block in file_blocks[1:]:
+            filename_match = re.search(r"`([^`]+)`", block)
+            sha_match = re.search(r"SHA256:\*\* `([0-9a-fA-F]{64})`", block)
+            if filename_match and sha_match:
+                filename = filename_match.group(1)
+                expected_sha = sha_match.group(1).lower()
+                file_path = fonts_dir / filename
+                assert (
+                    file_path.is_file()
+                ), f"File `{filename}` listed in SOURCES.md does not exist"
+                actual_sha = hashlib.sha256(file_path.read_bytes()).hexdigest().lower()
+>               assert (
+                    actual_sha == expected_sha
+                ), f"SHA256 mismatch for {filename}: expected {expected_sha}, got {actual_sha}"
+E               AssertionError: SHA256 mismatch for Inter-OFL.txt: expected 5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57, got f14f2b95a38f4f20cad4d27f7710593f37534c046641be0348da7c28365f4e39
+E               assert 'f14f2b95a38f...a7c28365f4e39' == '5b9321a4298c...35d988fd58c57'
+E                 
+E                 - 5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57
+E                 + f14f2b95a38f4f20cad4d27f7710593f37534c046641be0348da7c28365f4e39
+
+tests\test_render_service_p75_container.py:96: AssertionError
+============================== warnings summary ===============================
+render_service\manifest.py:154
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\render_service\manifest.py:154: UserWarning: Field name "schema" in "Timeline" shadows an attribute in parent "BaseModel"
+    class Timeline(BaseModel):
+
+render_service\manifest.py:335
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\render_service\manifest.py:335: UserWarning: Field name "schema" in "RenderIR" shadows an attribute in parent "BaseModel"
+    class RenderIR(BaseModel):
+
+render_service\manifest.py:437
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\render_service\manifest.py:437: UserWarning: Field name "schema" in "RenderRequest" shadows an attribute in parent "BaseModel"
+    class RenderRequest(BaseModel):
+
+..\..\..\..\..\..\..\Python312_Neural\Lib\site-packages\fastapi\testclient.py:1
+  C:\Python312_Neural\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests\test_editing_e2_03_empty_scene.py:113
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_editing_e2_03_empty_scene.py:113: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests\test_editing_e2_03_empty_scene.py:123
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_editing_e2_03_empty_scene.py:123: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests\test_editing_e2_03_empty_scene.py:218
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_editing_e2_03_empty_scene.py:218: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests\test_editing_e2_03_empty_scene.py:249
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_editing_e2_03_empty_scene.py:249: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests\test_editing_e2_03_empty_scene.py:288
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_editing_e2_03_empty_scene.py:288: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests\test_editing_e2_03_empty_scene.py:333
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_editing_e2_03_empty_scene.py:333: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.render
+
+tests\test_render_e2e_offline.py:18
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_render_e2e_offline.py:18: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.render,
+
+tests\test_render_service_e2_02_seek.py:17
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_render_service_e2_02_seek.py:17: PytestUnknownMarkWarning: Unknown pytest.mark.render - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.render,
+
+tests/test_agent_f02_audit.py: 16 warnings
+tests/test_audiovisual_p50.py: 2 warnings
+tests/test_audiovisual_p50b_rebote.py: 3 warnings
+tests/test_audiovisual_p51.py: 6 warnings
+tests/test_audiovisual_p52.py: 1 warning
+tests/test_audiovisual_p55.py: 10 warnings
+tests/test_audiovisual_p56.py: 4 warnings
+tests/test_audiovisual_p57.py: 7 warnings
+tests/test_audiovisual_p60.py: 7 warnings
+tests/test_audiovisual_p64.py: 3 warnings
+tests/test_audiovisual_p66.py: 3 warnings
+tests/test_auth.py: 1 warning
+tests/test_brain_endpoints.py: 1 warning
+tests/test_brand_soul_f01_prose.py: 1 warning
+tests/test_editing_e2_11_styles.py: 7 warnings
+tests/test_guard_jwt.py: 4 warnings
+tests/test_h7_06_fresh_user.py: 1 warning
+tests/test_h8_04_audit_async.py: 4 warnings
+tests/test_soul_rate_limit.py: 1 warning
+tests/test_voice_reserve.py: 7 warnings
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\jwt_helpers.py:36: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "exp": (datetime.utcnow() + timedelta(hours=expires_in_hours)).timestamp(),
+
+tests/test_audiovisual_p52.py::test_music_empty_library_lyria_disabled_no_music_zero_charge
+  C:\Python312_Neural\Lib\site-packages\google\cloud\aiplatform\models.py:52: FutureWarning: Support for google-cloud-storage < 3.0.0 will be removed in a future version of google-cloud-aiplatform. Please upgrade to google-cloud-storage >= 3.0.0.
+    from google.cloud.aiplatform.utils import gcs_utils
+
+tests/test_auth.py::TestSupabaseAuth::test_create_valid_jwt_token_hs256
+  C:\Python312_Neural\Lib\site-packages\_pytest\python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_auth.py::TestSupabaseAuth::test_create_valid_jwt_token_hs256 returned <class 'str'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+tests/test_auth.py::TestSupabaseAuth::test_verify_invalid_signature
+  C:\Python312_Neural\Lib\site-packages\jwt\api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 12 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+tests/test_brain.py: 16 warnings
+tests/test_brand_soul_f01_prose.py: 133 warnings
+tests/test_convert_wiring.py: 37 warnings
+tests/test_nueve_nodos.py: 13 warnings
+tests/test_scripting.py: 9 warnings
+tests/test_scripts_pieza39.py: 2 warnings
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 93 warnings
+tests/test_soul_credit_cost.py: 9 warnings
+tests/test_soul_rate_limit.py: 9 warnings
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:38: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 16 warnings
+tests/test_brand_soul_f01_prose.py: 133 warnings
+tests/test_convert_wiring.py: 37 warnings
+tests/test_nueve_nodos.py: 13 warnings
+tests/test_scripting.py: 9 warnings
+tests/test_scripts_pieza39.py: 2 warnings
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 93 warnings
+tests/test_soul_credit_cost.py: 9 warnings
+tests/test_soul_rate_limit.py: 9 warnings
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:39: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 8 warnings
+tests/test_brand_soul_f01_prose.py: 15 warnings
+tests/test_convert_wiring.py: 3 warnings
+tests/test_nueve_nodos.py: 15 warnings
+tests/test_scripting.py: 1 warning
+tests/test_scripts_pieza39.py: 1 warning
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 13 warnings
+tests/test_soul_credit_cost.py: 1 warning
+tests/test_soul_rate_limit.py: 1 warning
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 8 warnings
+tests/test_brand_soul_f01_prose.py: 15 warnings
+tests/test_convert_wiring.py: 3 warnings
+tests/test_nueve_nodos.py: 15 warnings
+tests/test_scripting.py: 1 warning
+tests/test_scripts_pieza39.py: 1 warning
+tests/test_scripts_pieza43.py: 1 warning
+tests/test_scripts_pieza45.py: 3 warnings
+tests/test_scripts_pieza48.py: 2 warnings
+tests/test_soul.py: 13 warnings
+tests/test_soul_credit_cost.py: 1 warning
+tests/test_soul_rate_limit.py: 1 warning
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:91: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+tests/test_brain.py: 7 warnings
+tests/test_nueve_nodos.py: 11 warnings
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:148: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain.py::test_brand_brain_upsert_existing_section
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:130: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    new_section.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain.py::test_brand_brain_upsert_existing_section
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\app\tools\brand_brain\models.py:135: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.updated_at = datetime.utcnow().isoformat()
+
+tests/test_brain_endpoints.py::test_get_brand_brain_endpoint_returns_404_when_not_found
+  C:\Users\gabri\Desktop\SINGULARITYOS\_PROYECTOS_SUELTOS_SIN_CLASIFICAR\hackaton lablab assemly IA voice agent\_wt_H8-04\tests\test_brain_endpoints.py:39: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().timestamp(),
+
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+tests/test_demand.py::test_ground_web_search_uses_google_search_tool_dict
+  C:\Python312_Neural\Lib\site-packages\proto\message.py:389: DeprecationWarning: The argument `including_default_value_fields` has been removed from
+                  Protobuf 5.x. Please use `always_print_fields_with_no_presence` instead.
+                  
+    warnings.warn(
+
+tests/test_editing_e2_13_anim.py::TestE2_13AnimatedOverlayTemplates::test_template_uses_gsap[keyword_highlight.html]
+  C:\Python312_Neural\Lib\unittest\mock.py:2217: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    def __init__(self, name, parent):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_actions_f04.py::test_agent_actions_node_harness_passes - As...
+FAILED tests/test_guard_jwt.py::test_normal_request_pass_and_deduct - assert ...
+FAILED tests/test_guard_jwt.py::test_budget_exhausted_returns_402 - assert 20...
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[stat-fields0]
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[list-fields2]
+FAILED tests/test_render_service_e2_02_seek.py::test_template_seek_render_non_blank[lower_third-fields3]
+FAILED tests/test_render_service_p75_container.py::test_fonts_and_sources_hashes
+7 failed, 1319 passed, 15 skipped, 2 deselected, 910 warnings in 857.94s (0:14:17)
+exit=1
