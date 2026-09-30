@@ -22,7 +22,7 @@
   const EXTRACT_BRAND_BRAIN_TOOL = {
     type: 'function',
     name: 'extract_brand_brain',
-    description: 'Save what the founder has told you so far to the brand brain and show it on screen. Call it as soon as ANY section has useful data, even if the section is not closed: send confirmed=false (status "propuesto") for data still open, and call again with confirmed=true (plus the literal citation) only after an explicit yes. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed, content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
+    description: 'Save brand facts the founder just said and show them on screen. Call it EVERY time the founder states a concrete fact (name, clients, price, stage, goal) with confirmed=false, and call it again with confirmed=true and their literal words right after an explicit yes. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
     parameters: {
       type: 'object',
       properties: {
@@ -61,6 +61,10 @@
       required: ['sections']
     }
   };
+
+  // Front-loaded (voice prompts: long prompts dilute attention) so the model
+  // actually saves the interview instead of just saying it "noted" something.
+  const BRAIN_TOOL_RULE = 'FIRST RULE: every time the founder says a concrete fact about their business, call the tool extract_brand_brain in that same turn, with confirmed=false. When they say an explicit yes to your summary, call it again with confirmed=true. Saying "I noted it" without calling the tool saves nothing.';
 
   // Global tools available in every step
   const GLOBAL_TOOL_NAMES = ['get_status', 'get_balance', 'go_to_step'];
@@ -361,14 +365,14 @@
     if (agenticOn) {
       // Agentic mode ON: step-scoped prompt + tools
       const summary = buildStepSummary(step, ctx);
-      systemPrompt = basePrompt + '\n\n=== AGENTIC MODE CONTEXT ===\n' +
+      systemPrompt = (step === 'brain' ? BRAIN_TOOL_RULE + '\n\n' : '') + basePrompt + '\n\n=== AGENTIC MODE CONTEXT ===\n' +
         'You are in STEP: ' + step + '. Summary: ' + summary + '\n\n' +
         'Only use the tools listed. If asked about another step, give its status ' +
         'and what must happen first; never act on it.';
       tools = toolsForStep(step);
     } else {
       // Agentic mode OFF: legacy prompt (Brand Soul interview only)
-      systemPrompt = basePrompt;
+      systemPrompt = (step === 'brain' ? BRAIN_TOOL_RULE + '\n\n' : '') + basePrompt;
       // Only extract_brand_brain tool in legacy mode (existing behavior)
       tools = [
         EXTRACT_BRAND_BRAIN_TOOL
@@ -377,14 +381,15 @@
 
     const payload = {
       type: 'session.update',
-      session: {
+      session: Object.assign({}, ctx.extraSession || {}, {
         system_prompt: systemPrompt,
         tools: tools
-      }
+      })
     };
 
     ws.send(JSON.stringify(payload));
-    console.log('[Agentic Mode] Sent session.update for step:', step, 'Agentic:', agenticOn);
+    console.log('[Agentic Mode] Sent session.update for step:', step, 'Agentic:', agenticOn,
+      'tools:', tools.map(function (t) { return t.name; }).join(','));
   }
 
   // Stub handlers for F-06 to fill in

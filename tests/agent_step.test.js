@@ -68,7 +68,8 @@ test('Agentic ON on brain step registers extract_brand_brain (fills the Brand So
   agent.sendSessionUpdate(true, 'brain', { basePrompt: 'BRANDY INTERVIEW PROMPT' }, mockWs);
   const names = sent[0].session.tools.map(t => t.name);
   assert(names.includes('extract_brand_brain'), 'extract_brand_brain missing in agentic brain step');
-  assert(sent[0].session.system_prompt.startsWith('BRANDY INTERVIEW PROMPT'), 'basePrompt not propagated');
+  assert(sent[0].session.system_prompt.includes('BRANDY INTERVIEW PROMPT'), 'basePrompt not propagated');
+  assert(sent[0].session.system_prompt.startsWith('FIRST RULE'), 'tool rule must be front-loaded');
 });
 test('extract_brand_brain is not offered outside the brain step', () => {
   const names = agent.toolsForStep('catalog').map(t => t.name);

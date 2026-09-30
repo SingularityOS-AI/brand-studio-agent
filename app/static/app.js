@@ -115,8 +115,8 @@
   // defaults"). Se reutiliza aqui y en el patron adaptativo, nunca se copia a mano.
   const TURN_DETECTION_BASELINE = {
     vad_threshold: 0.5,
-    min_silence: 1400,
-    max_silence: 4000,
+    min_silence: 2000,   // was 1400: the agent took the turn during the founder's thinking pauses
+    max_silence: 5500,
     interrupt_response: true
   };
   let waitingForAnswer = false;
@@ -171,7 +171,7 @@
   // Default voice and prompts (can be customized)
   const baseSystemPrompt = `You are Brandy, the Brand Studio Agent. You help entrepreneurs and businesses discover their brand identity through targeted questions about their business.
 
-Speak naturally in short, clear sentences. Be direct and helpful. Keep responses concise - no more than 2-3 sentences unless more detail is needed.
+VOICE STYLE (most important): this is a spoken interview. Every reply is ONE short sentence, 15 words or fewer, and ends with ONE question. Never repeat back what the founder said. No summaries, no lists, no compliments, no filler like "I understand" or "Great". Only when you ask the founder to confirm a section, use two short sentences. If the founder pauses or says "um", wait; do not talk over them. No markdown, no exclamation marks.
 
 Your goal is to gather information across NINE brand sections. The model is an octagon, not a list — if the founder drops data about section 08 while discussing section 03, note it in section 08. Data said once is never lost by being "out of turn."
 
@@ -248,9 +248,9 @@ CRITICAL RULES (CEO-mandated):
 
 No gamification. No points, badges, streaks, or celebrations. Be direct and expert.
 
-Always respond in English. Keep your responses conversational and engaging.`;
+Always respond in English. Keep it short and direct.`;
 
-  const defaultGreeting = "Hello! I'm Brandy, your Brand Studio Agent. I'll help you discover your brand identity through conversation. Tell me what you do and who you do it for.";
+  const defaultGreeting = "Hi, I'm Brandy. Tell me what you do and who you do it for.";
   const voice = "alba"; // AssemblyAI voice: alba, anna, charles, estelle, eve, george, giovanni, jane, jean, juergen, lola, mary, michael, paul, rafael, vera
 
   // Build dynamic system prompt with memory context
@@ -516,7 +516,11 @@ Always respond in English. Keep your responses conversational and engaging.`;
       audioContext = new AudioContextClass({ sampleRate: RATE });
 
       // 2. Get microphone stream
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        // Per the Voice Agent docs: echo cancellation on, browser noise suppression
+        // off (the server already runs Voice Focus; stacking both eats real speech).
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true }
+      });
 
       // Check again after getUserMedia - critical race window
       if (myGeneration !== sessionGeneration) {
@@ -671,7 +675,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
               {
                 type: 'function',
                 name: 'extract_brand_brain',
-                description: 'Save what the founder has told you so far and show it on screen. Call it as soon as ANY section has useful data: confirmed=false (proposed) while open, confirmed=true only after an explicit yes. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed, content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
+                description: 'Save brand facts the founder just said and show them on screen. Call it EVERY time the founder states a concrete fact (name, clients, price, stage, goal) with confirmed=false, and call it again with confirmed=true and their literal words right after an explicit yes. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
                 parameters: {
                   type: 'object',
                   properties: {
@@ -716,7 +720,16 @@ Always respond in English. Keep your responses conversational and engaging.`;
         // F-05: use BrandStudioAgent.sendSessionUpdate when available so the AI
         // receives the correct tool scope for the current step and agentic mode.
         if (window.BrandStudioAgent && typeof BrandStudioAgent.sendSessionUpdate === 'function') {
-          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', { basePrompt: buildSystemPrompt() }, ws);
+          // Agentic mode used to send ONLY prompt+tools here, so the greeting, the voice and
+          // the turn detection were never applied (factory defaults cut the founder off).
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', {
+            basePrompt: dynamicPrompt,
+            extraSession: {
+              greeting: sessionUpdatePayload.session.greeting,
+              input: sessionUpdatePayload.session.input,
+              output: sessionUpdatePayload.session.output
+            }
+          }, ws);
         } else {
           ws.send(JSON.stringify(sessionUpdatePayload));
         }
@@ -821,7 +834,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         // fundador piensa en voz alta. Si termino en "?" damos mas tiempo de silencio.
         if (/\?\s*$/.test(msg.text || '')) {
           waitingForAnswer = true;
-          sendTurnDetectionUpdate({ ...TURN_DETECTION_BASELINE, min_silence: 2200, max_silence: 6000 });
+          sendTurnDetectionUpdate({ ...TURN_DETECTION_BASELINE, min_silence: 2600, max_silence: 7000 });
         }
         break;
 
