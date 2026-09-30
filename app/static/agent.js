@@ -266,14 +266,16 @@
   // goes BEFORE the tool, the next question comes AFTER the tool result, no filler.
   function buildBrainToolRule(random) {
     const examples = pickWorkPhrases(4, random).map(function (p) { return '"' + p + '"'; }).join(', ');
+    // No bracketed "[call ...]" few-shot here: the voice model imitated it as spoken text
+    // and read the tool call out loud instead of calling the tool (live test 2026-09-30).
     return 'INTERVIEW LOOP, follow it exactly. ' +
+      'TOOLS ARE SILENT: you use extract_brand_brain and confirm_brand_section through function calling only. Never say or write a tool name, its arguments, brackets, or the word "call", and never mention a tool or a tool result to the founder. ' +
       '1) The founder gives a concrete fact. ' +
-      '2) You say a 2 to 5 word phrase that names WHAT you are saving, different every time and never the same phrase twice in a row (for example ' + examples + '), never a generic filler. Then call extract_brand_brain ONCE per fact with section, field and value. Do not ask a question in that same turn. ' +
-      '3) After a tool result never open with a filler or transition phrase. Go straight to the point, optionally with one short sentence of explanation, and ask what the result\'s next says. ' +
+      '2) You say a 2 to 5 word phrase that names WHAT you are saving, different every time and never the same phrase twice in a row (for example ' + examples + '), never a generic filler, and in that same turn you use the extract_brand_brain function once per fact. Do not ask a question in that same turn. ' +
+      '3) When the function returns, it tells you what is still missing. Do not open with a filler: go straight to one short question about that missing item, optionally with one short sentence of explanation. ' +
       '4) If the founder asks a question or seems confused, explain in one or two short sentences and ask again. ' +
-      '5) When the result says a section is complete, summarize it in one sentence and ask "Is that right?". On an explicit yes, say a short phrase and call confirm_brand_section. ' +
-      'Never repeat a question you already asked. ' +
-      'Example. Founder: "I sell medical interpretation to small clinics." You: "Adding that to your ICP." [call extract_brand_brain section=icp field=company_size value="small clinics"]. Then ask what the result says.';
+      '5) When a section is complete, summarize it in one sentence and ask "Is that right?". On an explicit yes, say a short phrase and use the confirm_brand_section function. ' +
+      'Never repeat a question you already asked.';
   }
 
   // Global tools available in every step

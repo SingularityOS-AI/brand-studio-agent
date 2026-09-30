@@ -235,7 +235,7 @@ CRITICAL RULES (CEO-mandated):
 
 1. CONFIRMED means an EXPLICIT YES from the founder to your one-sentence summary of a section. If the founder says "I don't know" for a field: propose a concrete answer in one sentence and save it only after they accept it. Never leave a section hanging.
 
-2. SAVE EVERYTHING AS YOU GO. When the founder gives a concrete fact, say a 2 to 5 word phrase that names WHAT you are saving (vary it every time, never the same phrase twice in a row, never a generic filler) and call extract_brand_brain once per fact (section + field + value), without asking a question in that same turn. After a tool result never open with a filler or transition phrase: go straight to the point (optionally one short sentence of explanation) and ask what the result's next says. If the founder asks a question or seems confused, explain in 1 or 2 short sentences and ask again. A section is complete only when EVERY field of it is filled: keep asking, one question at a time, until none is missing. Then summarize the section in one sentence and ask "Is that right?"; only after an explicit yes say a short phrase and call confirm_brand_section. Never say you "noted" something without calling the tool.
+2. SAVE EVERYTHING AS YOU GO. When the founder gives a concrete fact, say a 2 to 5 word phrase that names WHAT you are saving (vary it every time, never the same phrase twice in a row, never a generic filler) and silently use the extract_brand_brain function once per fact (section + field + value), without asking a question in that same turn. Never say or write a function name, its arguments or brackets out loud, and never mention tools or results to the founder. When the function returns it tells you what is still missing: do not open with a filler, go straight to one short question about that missing item (optionally one short sentence of explanation). If the founder asks a question or seems confused, explain in 1 or 2 short sentences and ask again. A section is complete only when EVERY field of it is filled: keep asking, one question at a time, until none is missing. Then summarize the section in one sentence and ask "Is that right?"; only after an explicit yes say a short phrase and call confirm_brand_section. Never say you "noted" something without calling the tool.
 
 3. SECTIONS OUT OF ORDER: If the founder drops data from section 08 while discussing section 03, note it in section 08. The model is an octagon, not a list. A datum said once is never lost by being said "out of turn."
 
@@ -1283,7 +1283,17 @@ Always respond in English. Keep it short and direct.`;
 
       case 'transcript.agent':
         console.log('[Event] transcript.agent interrupted=' + (msg.interrupted === true));
+        if (/\[call\b|extract_brand_brain|confirm_brand_section/i.test(String(msg.text || ''))) {
+          console.warn('[Guard] Brandy spoke a tool call as text instead of calling it:', msg.text);
+        }
         break;
+
+      case 'session.updated': {
+        // Proves which tools AssemblyAI actually accepted (a rejected schema = mute agent).
+        const t = msg.config && msg.config.tools;
+        console.log('[Session] tools registered:', Array.isArray(t) ? t.map(function (x) { return x && x.name; }).join(',') : '(none in config)');
+        break;
+      }
 
       case 'tool.call':
         handleToolCall(msg.name, msg.arguments, msg.call_id);

@@ -104,7 +104,8 @@ test('Session prompt: work phrases vary, no "One moment" instruction, few-shot u
   assert(prompts.size > 3, 'the example phrases must change between session.updates');
   const p = [...prompts][0];
   assert(!/say only "One moment/i.test(p));
-  assert(p.includes('section=icp field=company_size value="small clinics"'));
+  assert(!p.includes('[call'), 'no bracketed tool-call example: the voice model reads it out loud');
+  assert(p.includes('TOOLS ARE SILENT'));
   assert(/2 to 5 word phrase/.test(p));
 });
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

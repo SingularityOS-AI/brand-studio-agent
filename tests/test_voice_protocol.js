@@ -665,7 +665,8 @@ const sleepTick = () => new Promise((r) => setImmediate(r));
     assert.ok(rule.startsWith('INTERVIEW LOOP'));
     assert.ok(!/say only "One moment/i.test(rule));
     assert.ok(!/One moment/.test(rule), 'the rule must not even mention the old filler (priming)');
-    assert.ok(/section=icp field=company_size value="small clinics"/.test(rule));
+    assert.ok(rule.indexOf('[call') === -1, 'no bracketed tool-call example: the voice model reads it out loud');
+    assert.ok(/TOOLS ARE SILENT/.test(rule));
     // 4 distinct example phrases from the pool, and they vary between calls
     const exampleList = rule.slice(rule.indexOf('(for example ') + 13, rule.indexOf('), never a generic filler'));
     const used = agent.BRAIN_WORK_PHRASES.filter((p) => exampleList.indexOf('"' + p + '"') !== -1);
