@@ -1074,6 +1074,9 @@ Always respond in English. Keep it short and direct.`;
 
   function resetVoiceProtocol() {
     protocolEpoch++;
+    if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+    founderBuffer.length = 0;
+    steeringQueue.length = 0;
     if (speechStopTimer) { clearTimeout(speechStopTimer); speechStopTimer = null; }
     if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
     pendingToolResults.forEach(function (it) { if (it.timer) clearTimeout(it.timer); });
@@ -1255,6 +1258,7 @@ Always respond in English. Keep it short and direct.`;
         if (/\?\s*$/.test(said) || CLARIFY_RE.test(said)) {
           emitActivity({ id: 'clarify-' + (++clarifySeq), kind: 'clarifying', state: 'done', text: 'Clarifying your question' });
         }
+        queueFounderAnswer(said);
         break;
       }
 
@@ -1283,6 +1287,7 @@ Always respond in English. Keep it short and direct.`;
 
       case 'transcript.agent':
         console.log('[Event] transcript.agent interrupted=' + (msg.interrupted === true));
+        if (msg.text) lastAgentWords = String(msg.text);
         if (/\[call\b|extract_brand_brain|confirm_brand_section/i.test(String(msg.text || ''))) {
           console.warn('[Guard] Brandy spoke a tool call as text instead of calling it:', msg.text);
         }
@@ -1306,6 +1311,7 @@ Always respond in English. Keep it short and direct.`;
         setOrb('Listening...');
         if (msg.status === 'interrupted') dropInterruptedCalls();
         else flushIfIdle();
+        flushSteering();
         break;
 
       case 'session.error':
@@ -1533,7 +1539,7 @@ Always respond in English. Keep it short and direct.`;
       return refuse('Section "' + label + '" is already confirmed and locked.', 'a field from another section',
         { next: nextStepInstruction(field.section) });
     }
-    const citation = lastFounderWords();
+    const citation = (args.__citation && String(args.__citation).trim()) || lastFounderWords();
     if (!citation) return refuse('No founder words to cite yet. Ask the founder first.', 'the founder to say something first');
 
     getBrainFacts(field.section)[field.key] = value;
@@ -1569,7 +1575,7 @@ Always respond in English. Keep it short and direct.`;
     if (missing.length) {
       return refuse('Section "' + label + '" is not complete yet. Ask ONE short question about: ' + missing[0].ask + '.', missing[0].ask);
     }
-    const yes = lastFounderWords();
+    const yes = (args.__citation && String(args.__citation).trim()) || lastFounderWords();
     if (!yes || !AFFIRMATIVE_RE.test(yes)) {
       return refuse('The founder has not said an explicit yes. Summarize the section in ONE short sentence and ask "Is that right?", then wait.',
         'an explicit yes to the summary of "' + label + '"');
@@ -1638,6 +1644,98 @@ Always respond in English. Keep it short and direct.`;
       enqueueToolResult(callId, payload);
     }).catch(function (e) { console.error('[Tool] chain error', e); });
     return toolChain;
+  }
+  // ---- Auto-extraction (safety net; the voice model often says it saves but never
+  // calls its tool). After each founder answer, a separate LLM call proposes field
+  // values; they are saved through the SAME runSaveFact / runConfirmSection path
+  // (literal citation = the founder's answer; confirm only on an explicit yes with
+  // every field filled). Brandy is then steered with a system message (no reply).
+  const AUTO_DEBOUNCE_MS = 1200;
+  const CONFIRM_ASK_RE = /is that right|does that sound right|is that correct|shall i lock|confirm/i;
+  let lastAgentWords = '';
+  let questionForTurn = '';
+  const founderBuffer = [];
+  let autoTimer = null;
+  let autoSeq = 0;
+  const steeringQueue = [];
+
+  function queueFounderAnswer(text) {
+    const t = String(text || '').trim();
+    if (!t) return;
+    try { if (typeof currentOpenView === 'string' && currentOpenView !== 'brain') return; } catch (e) {}
+    if (!founderBuffer.length) questionForTurn = lastAgentWords;
+    founderBuffer.push(t);
+    if (autoTimer) clearTimeout(autoTimer);
+    const epoch = protocolEpoch;
+    autoTimer = setTimeout(function () {
+      autoTimer = null;
+      if (epoch === protocolEpoch) runAutoExtract();
+    }, AUTO_DEBOUNCE_MS);
+  }
+
+  function steer(text) {
+    steeringQueue.push(text);
+    if (lastEvent === 'reply.done' || lastEvent === null) flushSteering();
+  }
+  function flushSteering() {
+    while (steeringQueue.length) {
+      const content = steeringQueue.shift();
+      if (sendWs({ type: 'conversation.message', role: 'system', content: content })) {
+        console.log('[Auto] steering sent:', content);
+      }
+    }
+  }
+
+  async function runAutoExtract() {
+    const answer = founderBuffer.join(' ').trim();
+    founderBuffer.length = 0;
+    const question = questionForTurn;
+    if (!answer || answer.split(/\s+/).length < 2 && !AFFIRMATIVE_RE.test(answer)) return;
+    const epoch = protocolEpoch;
+    const rowId = 'auto-' + (++autoSeq);
+
+    // An explicit yes to a section summary -> try to lock that section.
+    if (AFFIRMATIVE_RE.test(answer) && CONFIRM_ASK_RE.test(question) && lastTouchedSection && !isSectionConfirmed(lastTouchedSection)) {
+      const res = runConfirmSection({ section: lastTouchedSection, __citation: answer });
+      if (res._activity) emitActivity(Object.assign({ id: rowId + '-confirm' }, res._activity));
+      steer(res.success ? ('Saved: section confirmed. ' + res.next) : ('Not locked yet. ' + (res.error || '')));
+      return;
+    }
+
+    const fields = brainFieldTable().map(function (f) {
+      const facts = getBrainFacts(f.section);
+      return { alias: f.alias, ask: f.ask, filled: !!(facts[f.key] && String(facts[f.key]).trim()) };
+    });
+    const context = fullTranscript.slice(-8).map(function (t) { return t.speaker + ': ' + t.text; }).join(String.fromCharCode(10));
+    emitActivity({ id: rowId, kind: 'working', state: 'active', text: 'Acting: reading your answer for brand facts' });
+    let updates = [];
+    try {
+      const response = await authenticatedFetch('/api/brain/auto-extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: question, answer: answer, context: context, fields: fields })
+      });
+      if (response.ok) updates = ((await response.json()) || {}).updates || [];
+    } catch (e) {
+      console.warn('[Auto] extract failed', e);
+    }
+    if (epoch !== protocolEpoch) return;
+    if (!updates.length) {
+      emitActivity({ id: rowId, kind: 'info', state: 'done', text: 'No new brand fact in that answer' });
+      return;
+    }
+    const saved = [];
+    updates.forEach(function (u) {
+      const res = runSaveFact({ field: u.field, value: u.value, __citation: answer });
+      if (res && res.success) saved.push(res);
+      if (res && res._activity) emitActivity(Object.assign({ id: rowId + '-' + u.field }, res._activity));
+    });
+    emitActivity({ id: rowId, kind: 'saved', state: 'done', text: 'Captured ' + saved.length + ' fact' + (saved.length === 1 ? '' : 's') + ' from your answer' });
+    if (saved.length) {
+      const last = saved[saved.length - 1];
+      steer('Already saved from the last answer of the founder: ' + saved.map(function (r) { return r.saved; }).join(', ') +
+        '. Do not ask about these again. ' + last.next);
+    }
   }
   // === VOICE PROTOCOL END ===
 

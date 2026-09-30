@@ -2803,6 +2803,37 @@ async def lock_catalog_endpoint(request: Request):
         return JSONResponse(status_code=503, content={"error": str(e)})
 
 
+class AutoExtractRequest(BaseModel):
+    question: str = ""
+    answer: str
+    context: str = ""
+    fields: list[dict] = []
+
+
+@app.post("/api/brain/auto-extract", response_class=JSONResponse)
+async def auto_extract_brand_facts(request: Request, body: AutoExtractRequest):
+    """
+    Voice-interview safety net: proposes field values from ONE founder answer with a
+    separate LLM call, because the voice agent often says it is saving without calling
+    its tool. Proposes only; the client persists through /api/brain/extract (citation
+    and explicit-yes invariants unchanged). Free (no credits), rate limited, JWT required.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authorization header")
+    supabase_auth.get_user_id(authorization)
+    guard.check_rate_limit(request.client.host, max_requests_per_minute=60)
+
+    from app.tools.brand_brain.auto_extract import auto_extract
+    updates = await auto_extract(
+        question=body.question[:2000],
+        answer=body.answer[:2000],
+        context=body.context[:4000],
+        fields=body.fields[:60],
+    )
+    return JSONResponse(content={"updates": updates})
+
+
 @app.post("/api/brain/extract", response_class=JSONResponse)
 async def extract_brand_brain_handler(request: Request, body: ExtractBrandBrainRequest):
     """
