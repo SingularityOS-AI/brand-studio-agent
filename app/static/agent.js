@@ -16,6 +16,52 @@
   // Step order and dependencies (mirrors pipeline rail in app.js)
   const STEP_ORDER = ['brain', 'catalog', 'script', 'audiovisual', 'editing'];
 
+  // extract_brand_brain: the only tool that fills the Brand Soul screen. It must be
+  // registered in BOTH legacy and agentic mode (in agentic mode it was missing, so
+  // Brandy could never save anything during the interview).
+  const EXTRACT_BRAND_BRAIN_TOOL = {
+    type: 'function',
+    name: 'extract_brand_brain',
+    description: 'Save what the founder has told you so far to the brand brain and show it on screen. Call it as soon as ANY section has useful data, even if the section is not closed: send confirmed=false (status "propuesto") for data still open, and call again with confirmed=true (plus the literal citation) only after an explicit yes. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed, content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
+    parameters: {
+      type: 'object',
+      properties: {
+        sections: {
+          type: 'array',
+          description: 'Extracted brand sections, each with id, citation_text, citation_source, confirmed, and content dict',
+          items: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'Section id (one of: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet)'
+              },
+              citation_text: {
+                type: 'string',
+                description: 'Exact literal words from the founder that support this section'
+              },
+              citation_source: {
+                type: 'string',
+                enum: ['usuario', 'analisis_publico'],
+                description: 'Source: "usuario" for founder voice transcript, "analisis_publico" for public analysis'
+              },
+              confirmed: {
+                type: 'boolean',
+                description: 'true ONLY after the founder explicitly says yes; false while the data is still a proposal'
+              },
+              content: {
+                type: 'object',
+                description: 'Section content dict with fields specific to each section type'
+              }
+            },
+            required: ['id', 'citation_text', 'citation_source', 'confirmed', 'content']
+          }
+        }
+      },
+      required: ['sections']
+    }
+  };
+
   // Global tools available in every step
   const GLOBAL_TOOL_NAMES = ['get_status', 'get_balance', 'go_to_step'];
 
@@ -259,6 +305,7 @@
     } else if (step === 'catalog') {
       tools.push.apply(tools, CATALOG_TOOL_SCHEMAS);
     } else if (step === 'brain') {
+      tools.push(EXTRACT_BRAND_BRAIN_TOOL);
       tools.push.apply(tools, SOUL_TOOL_SCHEMAS);
     } else if (step === 'audiovisual') {
       tools.push.apply(tools, AUDIOVISUAL_TOOL_SCHEMAS);
@@ -324,48 +371,7 @@
       systemPrompt = basePrompt;
       // Only extract_brand_brain tool in legacy mode (existing behavior)
       tools = [
-        {
-          type: 'function',
-          name: 'extract_brand_brain',
-          description: 'Extract nine brand sections from our conversation to backend. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed (true only after explicit yes), content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
-          parameters: {
-            type: 'object',
-            properties: {
-              sections: {
-                type: 'array',
-                description: 'Extracted brand sections, each with id, citation_text, citation_source, confirmed, and content dict',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: {
-                      type: 'string',
-                      description: 'Section id (one of: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet)'
-                    },
-                    citation_text: {
-                      type: 'string',
-                      description: 'Exact literal words from the founder that support this section'
-                    },
-                    citation_source: {
-                      type: 'string',
-                      enum: ['usuario', 'analisis_publico'],
-                      description: 'Source: "usuario" for founder voice transcript, "analisis_publico" for public analysis'
-                    },
-                    confirmed: {
-                      type: 'boolean',
-                      description: 'true only after founder explicitly says yes'
-                    },
-                    content: {
-                      type: 'object',
-                      description: 'Section content dict with fields specific to each section type'
-                    }
-                  },
-                  required: ['id', 'citation_text', 'citation_source', 'confirmed', 'content']
-                }
-              }
-            },
-            required: ['sections']
-          }
-        }
+        EXTRACT_BRAND_BRAIN_TOOL
       ];
     }
 

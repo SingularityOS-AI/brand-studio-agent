@@ -102,7 +102,7 @@
         try { localStorage.setItem('agenticMode', agenticMode); } catch (e) {}
         // Notify agent mid-session if WS is open
         if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', {}, ws);
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', { basePrompt: buildSystemPrompt() }, ws);
         }
       });
     }
@@ -127,10 +127,18 @@
   let credits = initialSessionCredits; // Current credits balance (global)
 
   // Silence auto-suspend (AssemblyAI bills connected time, silence included)
-  const SILENCE_SUSPEND_MS = 45000;
+  const SILENCE_SUSPEND_MS = 90000;
   const SILENCE_CHECK_INTERVAL_MS = 5000;
   let lastVoiceActivityAt = 0;
   let silenceWatchdogTimer = null;
+  // True while the agent is thinking, running a tool or speaking: silence from
+  // the founder must not suspend the session in that window.
+  let agentBusy = false;
+  let agentBusySince = 0;
+  const AGENT_BUSY_MAX_MS = 120000; // safety cap: a lost reply.done must not keep billing forever
+  // Why the last session ended on its own ('auth' | 'silence' | null).
+  let sessionEndReason = null;
+  const SESSION_ENDED_MESSAGE = 'Session ended — tap the mic to reconnect';
 
   // Audio playback state
   let playT = 0;
@@ -234,7 +242,7 @@ CRITICAL RULES (CEO-mandated):
 
 1. CONFIRMED: true ONLY after an EXPLICIT YES from the founder. citation_text must have their exact literal words. If founder says "I don't know" and there's no way to extract it: propose a concrete angle, negotiate until there's agreement, THEN confirm with the citation of where they accepted your proposal. Never leave a section hanging.
 
-2. Call extract_brand_brain AFTER EACH SECTION CLOSED, not once at the end. This is what makes details appear on screen during conversation.
+2. Call extract_brand_brain AS SOON AS THERE IS ANY USEFUL DATA for a section, even if the section is not closed yet. Send it with confirmed=false (it shows on screen as "proposed") every time the founder gives a concrete fact (name, company, price, focus, audience, result...). When the founder gives an explicit yes, call it again for that section with confirmed=true and the literal citation. Never say you "noted" something without calling the tool: if you did not call it, it is not on screen and not saved. Call it during the conversation, never only at the end.
 
 3. SECTIONS OUT OF ORDER: If the founder drops data from section 08 while discussing section 03, note it in section 08. The model is an octagon, not a list. A datum said once is never lost by being said "out of turn."
 
@@ -420,8 +428,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
     stopSilenceWatchdog();
     markVoiceActivity();
     silenceWatchdogTimer = setInterval(async () => {
+      if ((agentBusy && (Date.now() - agentBusySince) < AGENT_BUSY_MAX_MS) || activeSources.length > 0) {
+        markVoiceActivity();
+        return;
+      }
       if (shouldSuspendForSilence(lastVoiceActivityAt, Date.now(), SILENCE_SUSPEND_MS)) {
         console.log('[Voice] Silence threshold exceeded, suspending session');
+        sessionEndReason = 'silence';
         await stopSession();
         if (orbState) orbState.textContent = 'Paused — tap the mic to continue';
       }
@@ -439,7 +452,13 @@ Always respond in English. Keep your responses conversational and engaging.`;
     // Capture generation for this session - prevents race conditions
     const myGeneration = ++sessionGeneration;
 
-    // Ensure we have API key before starting
+    // The AssemblyAI token is single-use and expires in 300 s: mint a fresh one
+    // for every session. Reusing the cached one after a disconnect makes
+    // AssemblyAI answer "Authentication failed" and closes the socket at once.
+    API_KEY = '';
+    apiKeyRequested = false;
+    sessionEndReason = null;
+    agentBusy = false;
     const key = await ensureApiKey();
     if (!key) {
       return;
@@ -548,9 +567,9 @@ Always respond in English. Keep your responses conversational and engaging.`;
       micSource = audioContext.createMediaStreamSource(mediaStream);
 
       // 4. Connect to AssemblyAI Voice Agent WebSocket
-      const token = await ensureApiKey();
+      // Same token minted at the top of startSession (one per session).
       const wsUrl = new URL('wss://agents.assemblyai.com/v1/ws');
-      wsUrl.searchParams.set('token', await ensureApiKey());
+      wsUrl.searchParams.set('token', key);
       ws = new WebSocket(wsUrl.toString());
 
       isReady = false;
@@ -652,7 +671,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
               {
                 type: 'function',
                 name: 'extract_brand_brain',
-                description: 'Extract nine brand sections from our conversation to backend. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed (true only after explicit yes), content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
+                description: 'Save what the founder has told you so far and show it on screen. Call it as soon as ANY section has useful data: confirmed=false (proposed) while open, confirmed=true only after an explicit yes. Return a JSON object with "sections" array. For EACH section: id, citation_text (literal user words), citation_source ("usuario"|"analisis_publico"), confirmed, content dict with section fields. Skip sections without user support. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
                 parameters: {
                   type: 'object',
                   properties: {
@@ -697,7 +716,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         // F-05: use BrandStudioAgent.sendSessionUpdate when available so the AI
         // receives the correct tool scope for the current step and agentic mode.
         if (window.BrandStudioAgent && typeof BrandStudioAgent.sendSessionUpdate === 'function') {
-          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', {}, ws);
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', { basePrompt: buildSystemPrompt() }, ws);
         } else {
           ws.send(JSON.stringify(sessionUpdatePayload));
         }
@@ -719,7 +738,12 @@ Always respond in English. Keep your responses conversational and engaging.`;
       ws.onclose = () => {
         if (myGeneration !== sessionGeneration) return; // Not the active session
         console.log('[WebSocket Closed]');
-        stopSession();
+        const endedBy = sessionEndReason;
+        // A close we did not cause (auth failure, network, server) must be
+        // visible in the orb instead of leaving a dead-looking UI.
+        stopSession().then(() => {
+          if (endedBy !== 'silence' && orbState) orbState.textContent = SESSION_ENDED_MESSAGE;
+        });
       };
 
     } catch (err) {
@@ -763,6 +787,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         appendUserMessage(msg.text);
         // Track turn for extraction
         fullTranscript.push({ speaker: 'user', text: msg.text });
+        agentBusy = true; agentBusySince = Date.now();
         if (orbState) orbState.textContent = 'Thinking...';
         // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): el fundador ya respondio,
         // vuelve a la linea base.
@@ -776,6 +801,7 @@ Always respond in English. Keep your responses conversational and engaging.`;
         break;
 
       case 'reply.started':
+        agentBusy = true; agentBusySince = Date.now();
         markVoiceActivity();
         if (orbState) orbState.textContent = 'Brandy speaking...';
         break;
@@ -800,11 +826,15 @@ Always respond in English. Keep your responses conversational and engaging.`;
         break;
 
       case 'tool.call':
+        agentBusy = true; agentBusySince = Date.now();
+        markVoiceActivity();
         // Agent invoked extract_brand_brain tool
         handleToolCall(msg.name, msg.arguments, msg.call_id);
         break;
 
       case 'reply.done':
+        agentBusy = false;
+        markVoiceActivity();
         if (msg.status === 'interrupted') {
           console.log('[Barge-in] Flushing audio');
           flushAudioPlayback();
@@ -814,6 +844,11 @@ Always respond in English. Keep your responses conversational and engaging.`;
 
       case 'session.error':
         console.error('[Agent Error]', msg.message);
+        agentBusy = false;
+        if (/auth/i.test(String(msg.message || ''))) {
+          sessionEndReason = 'auth';
+          if (orbState) orbState.textContent = SESSION_ENDED_MESSAGE;
+        }
         appendLogMessage('error', `Error: ${msg.message}`);
         break;
 
@@ -3085,7 +3120,7 @@ ${htmlContent}
     }
     // F-05: update agent scope on step change
     if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-      BrandStudioAgent.sendSessionUpdate(agenticMode, 'brain', {}, ws);
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'brain', { basePrompt: buildSystemPrompt() }, ws);
     }
   }
 
@@ -3106,7 +3141,7 @@ ${htmlContent}
     }
     // F-05: update agent scope on step change
     if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-      BrandStudioAgent.sendSessionUpdate(agenticMode, 'catalog', {}, ws);
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'catalog', { basePrompt: buildSystemPrompt() }, ws);
     }
   }
   function showBlockCView(ideaId) {
@@ -3143,7 +3178,7 @@ ${htmlContent}
     }
     // F-05: update agent scope on step change
     if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-      BrandStudioAgent.sendSessionUpdate(agenticMode, 'script', {}, ws);
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'script', { basePrompt: buildSystemPrompt() }, ws);
     }
   }
 
@@ -4959,7 +4994,7 @@ ${htmlContent}
       }
       // F-05: update agent scope on step change
       if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-        BrandStudioAgent.sendSessionUpdate(agenticMode, 'audiovisual', {}, ws);
+        BrandStudioAgent.sendSessionUpdate(agenticMode, 'audiovisual', { basePrompt: buildSystemPrompt() }, ws);
       }
     } finally {
       hideDocLoading();

@@ -1,5 +1,5 @@
 /**
- * F-05 — Agentic mode toggle + step-scoped Brandy
+ * F-05 ï¿½ Agentic mode toggle + step-scoped Brandy
  * Node harness test
  */
 'use strict';
@@ -61,6 +61,18 @@ test('sendSessionUpdate ON mode includes global tools', () => {
   const names = sent[0].session.tools.map(t => t.name);
   assert(names.includes('get_status'));
   assert(names.includes('propose_action'));
+});
+test('Agentic ON on brain step registers extract_brand_brain (fills the Brand Soul screen)', () => {
+  const sent = [];
+  const mockWs = { readyState: 1, send: d => sent.push(JSON.parse(d)) };
+  agent.sendSessionUpdate(true, 'brain', { basePrompt: 'BRANDY INTERVIEW PROMPT' }, mockWs);
+  const names = sent[0].session.tools.map(t => t.name);
+  assert(names.includes('extract_brand_brain'), 'extract_brand_brain missing in agentic brain step');
+  assert(sent[0].session.system_prompt.startsWith('BRANDY INTERVIEW PROMPT'), 'basePrompt not propagated');
+});
+test('extract_brand_brain is not offered outside the brain step', () => {
+  const names = agent.toolsForStep('catalog').map(t => t.name);
+  assert(!names.includes('extract_brand_brain'));
 });
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);

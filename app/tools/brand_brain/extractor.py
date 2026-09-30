@@ -376,6 +376,12 @@ def extract_and_persist(session_token: str,
     existing_section_ids = {s.id for s in brain.sections}
     for new_section in new_sections:
         if new_section.id in existing_section_ids:
+            # An interim "propuesto" update (agent saves data before the founder
+            # says yes) must never demote a section already confirmed with an
+            # explicit yes. Only a new confirmed=true replaces a confirmado.
+            previous = next(s for s in brain.sections if s.id == new_section.id)
+            if previous.status == "confirmado" and new_section.status != "confirmado":
+                continue
             # Replace existing section
             brain.sections = [s for s in brain.sections if s.id != new_section.id]
         brain.sections.append(new_section)
