@@ -32,8 +32,8 @@ test('toolsForStep returns array', () => {
   assert(Array.isArray(tools));
   assert(tools.length > 0);
 });
-test('Global tools present', () => {
-  const tools = agent.toolsForStep('brain');
+test('Global tools present (non-brain steps; brain step is interview-only)', () => {
+  const tools = agent.toolsForStep('catalog');
   const names = tools.map(t => t.name);
   assert(names.includes('get_status'));
   assert(names.includes('propose_action'));
@@ -51,13 +51,13 @@ test('sendSessionUpdate OFF mode sends one tool', () => {
   const mockWs = { readyState: 1, send: d => sent.push(JSON.parse(d)) };
   agent.sendSessionUpdate(false, 'brain', {}, mockWs);
   assert.strictEqual(sent.length, 1);
-  assert.strictEqual(sent[0].session.tools.length, 1);
+  assert.strictEqual(sent[0].session.tools.length, 2);
   assert.strictEqual(sent[0].session.tools[0].name, 'extract_brand_brain');
 });
 test('sendSessionUpdate ON mode includes global tools', () => {
   const sent = [];
   const mockWs = { readyState: 1, send: d => sent.push(JSON.parse(d)) };
-  agent.sendSessionUpdate(true, 'brain', { brainCount: 5, balance: 100 }, mockWs);
+  agent.sendSessionUpdate(true, 'catalog', { brainCount: 5, balance: 100 }, mockWs);
   const names = sent[0].session.tools.map(t => t.name);
   assert(names.includes('get_status'));
   assert(names.includes('propose_action'));
@@ -67,9 +67,10 @@ test('Agentic ON on brain step registers extract_brand_brain (fills the Brand So
   const mockWs = { readyState: 1, send: d => sent.push(JSON.parse(d)) };
   agent.sendSessionUpdate(true, 'brain', { basePrompt: 'BRANDY INTERVIEW PROMPT' }, mockWs);
   const names = sent[0].session.tools.map(t => t.name);
-  assert(names.includes('extract_brand_brain'), 'extract_brand_brain missing in agentic brain step');
+  assert(names.includes('extract_brand_brain') && names.includes('confirm_brand_section'), 'interview tools missing in agentic brain step');
+  assert.strictEqual(names.length, 2, 'brain step must expose only the interview tools');
   assert(sent[0].session.system_prompt.includes('BRANDY INTERVIEW PROMPT'), 'basePrompt not propagated');
-  assert(sent[0].session.system_prompt.startsWith('FIRST RULE'), 'tool rule must be front-loaded');
+  assert(sent[0].session.system_prompt.startsWith('INTERVIEW LOOP'), 'tool rule must be front-loaded');
 });
 test('extract_brand_brain is not offered outside the brain step', () => {
   const names = agent.toolsForStep('catalog').map(t => t.name);

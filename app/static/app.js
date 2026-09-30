@@ -240,9 +240,9 @@ THE 9 SECTIONS (in spec order — governs the document, not the conversation):
 
 CRITICAL RULES (CEO-mandated):
 
-1. CONFIRMED: true ONLY after an EXPLICIT YES from the founder. citation_text must have their exact literal words. If founder says "I don't know" and there's no way to extract it: propose a concrete angle, negotiate until there's agreement, THEN confirm with the citation of where they accepted your proposal. Never leave a section hanging.
+1. CONFIRMED means an EXPLICIT YES from the founder to your one-sentence summary of a section. If the founder says "I don't know" for a field: propose a concrete answer in one sentence and save it only after they accept it. Never leave a section hanging.
 
-2. Call extract_brand_brain AS SOON AS THERE IS ANY USEFUL DATA for a section, even if the section is not closed yet. Send it with confirmed=false (it shows on screen as "proposed") every time the founder gives a concrete fact (name, company, price, focus, audience, result...). When the founder gives an explicit yes, call it again for that section with confirmed=true and the literal citation. Never say you "noted" something without calling the tool: if you did not call it, it is not on screen and not saved. Call it during the conversation, never only at the end.
+2. SAVE EVERYTHING AS YOU GO. Every concrete fact the founder says goes into ONE field with extract_brand_brain (field + short value). Before the tool say only "One moment." After the tool, ask exactly what its result tells you. A section is complete only when EVERY field of it is filled: keep asking, one short question at a time, until none is missing. Then summarize the section in one sentence, ask "Is that right?", and only after an explicit yes call confirm_brand_section. Never say you "noted" something without calling the tool.
 
 3. SECTIONS OUT OF ORDER: If the founder drops data from section 08 while discussing section 03, note it in section 08. The model is an octagon, not a list. A datum said once is never lost by being said "out of turn."
 
@@ -461,6 +461,7 @@ Always respond in English. Keep it short and direct.`;
     agentBusy = false;
     agentReplying = false;
     pendingToolResults.length = 0;
+    toolChain = Promise.resolve();
     const key = await ensureApiKey();
     if (!key) {
       return;
@@ -792,6 +793,7 @@ Always respond in English. Keep it short and direct.`;
         break;
 
       case 'input.speech.started':
+        agentReplying = true;   // a new turn is in flight: hold tool results
         markVoiceActivity();
         if (orbState) orbState.textContent = 'You\'re speaking...';
         break;
@@ -806,16 +808,18 @@ Always respond in English. Keep it short and direct.`;
         if (orbState) orbState.textContent = 'Thinking...';
         // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): el fundador ya respondio,
         // vuelve a la linea base.
-        if (waitingForAnswer) {
-          waitingForAnswer = false;
-          sendTurnDetectionUpdate(TURN_DETECTION_BASELINE);
-        }
+        waitingForAnswer = false;
         break;
 
       case 'input.speech.stopped':
+        lastSpeechStoppedAt = performance.now();
+        firstAudioLogged = false;
         break;
 
       case 'reply.started':
+        if (lastSpeechStoppedAt) {
+          console.log('[Latency] founder stopped -> reply.started:', Math.round(performance.now() - lastSpeechStoppedAt), 'ms');
+        }
         agentReplying = true;
         agentBusy = true; agentBusySince = Date.now();
         markVoiceActivity();
@@ -823,6 +827,10 @@ Always respond in English. Keep it short and direct.`;
         break;
 
       case 'reply.audio':
+        if (lastSpeechStoppedAt && !firstAudioLogged) {
+          firstAudioLogged = true;
+          console.log('[Latency] founder stopped -> first audio:', Math.round(performance.now() - lastSpeechStoppedAt), 'ms');
+        }
         // Play audio chunk from AssemblyAI
         playAudioChunk(msg.data);
         break;
@@ -837,7 +845,6 @@ Always respond in English. Keep it short and direct.`;
         // fundador piensa en voz alta. Si termino en "?" damos mas tiempo de silencio.
         if (/\?\s*$/.test(msg.text || '')) {
           waitingForAnswer = true;
-          sendTurnDetectionUpdate({ ...TURN_DETECTION_BASELINE, min_silence: 2600, max_silence: 7000 });
         }
         break;
 
@@ -850,7 +857,11 @@ Always respond in English. Keep it short and direct.`;
 
       case 'reply.done':
         agentReplying = false;
-        flushToolResults();
+        if (msg.status === 'interrupted') {
+          pendingToolResults.length = 0;   // docs: drop stale results after a barge-in
+        } else {
+          flushToolResults();
+        }
         agentBusy = false;
         markVoiceActivity();
         if (msg.status === 'interrupted') {
@@ -935,6 +946,10 @@ Always respond in English. Keep it short and direct.`;
     stopSilenceWatchdog();
 
     if (ws) {
+      try {
+        // Without session.end the server holds the session 30 s (billable).
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'session.end' }));
+      } catch (e) {}
       try { ws.close(); } catch(e){}
       ws = null;
     }
@@ -1015,105 +1030,217 @@ Always respond in English. Keep it short and direct.`;
     streamContainer.appendChild(p);
   }
 
-  // Handle tool calls (extract_brand_brain)
+  // ===========================================================================
+  // Brand interview tools: extract_brand_brain (one field per call) and
+  // confirm_brand_section. Protocol per the AssemblyAI tools docs:
+  //  - Brandy says "One moment." BEFORE the tool (prompted), so she never goes silent.
+  //  - tool.result is sent only when reply.done is the latest event, never while a
+  //    turn is in flight (reply.started / input.speech.started), and is dropped if
+  //    that reply was interrupted.
+  //  - The result carries the instruction for the NEXT question, so the reply that
+  //    follows a tool result is useful instead of a repeat of the old question.
+  // ===========================================================================
+  const SECTION_LABELS = {
+    diagnostico: 'Where you stand', brand_journey: 'Brand Journey', charco: 'The pond',
+    icp: 'The ICP', contrarian: 'Contrarian stance', asociaciones: 'Associations',
+    identidad: 'Identity map', oferta: 'The offer', lead_magnet: 'The lead magnet'
+  };
+  // A section can only be confirmed when EVERY one of its fields has been said
+  // (missingFields), not just the backend's required (lock) ones.
+  const AFFIRMATIVE_RE = /\b(yes|yeah|yep|yup|correct|exactly|right|sure|absolutely|that works|sounds (good|right|well)|let'?s do it|go ahead|perfect)\b/i;
+
+  let lastSpeechStoppedAt = 0;
+  let firstAudioLogged = false;
+  let agentReplying = false;      // a turn is in flight (reply started / founder speaking)
+  const pendingToolResults = [];
+  let toolChain = Promise.resolve();
+  const brainFacts = {};          // section -> { backendKey: value }
+
+  function brainFieldTable() {
+    return (window.BrandStudioAgent && window.BrandStudioAgent.BRAIN_FIELDS) || [];
+  }
+  function brainSectionOrder() {
+    return (window.BrandStudioAgent && window.BrandStudioAgent.BRAIN_SECTION_ORDER) || Object.keys(SECTION_LABELS);
+  }
+
+  function getBrainFacts(section) {
+    if (!brainFacts[section]) {
+      const known = cachedBrain && cachedBrain.sections && cachedBrain.sections.find(function (x) { return x.id === section; });
+      const seed = {};
+      if (known && known.content && typeof known.content === 'object') {
+        Object.keys(known.content).forEach(function (k) {
+          const v = known.content[k];
+          if (v !== null && v !== undefined && String(v).trim() !== '') seed[k] = v;
+        });
+      }
+      brainFacts[section] = seed;
+    }
+    return brainFacts[section];
+  }
+
+  function isSectionConfirmed(section) {
+    const known = cachedBrain && cachedBrain.sections && cachedBrain.sections.find(function (x) { return x.id === section; });
+    return !!(known && known.status === 'confirmado');
+  }
+
+  function missingFields(section) {
+    const facts = getBrainFacts(section);
+    return brainFieldTable().filter(function (f) {
+      return f.section === section && !(facts[f.key] && String(facts[f.key]).trim());
+    });
+  }
+
+  function sectionTotal(section) {
+    return brainFieldTable().filter(function (f) { return f.section === section; }).length;
+  }
+
+  function overallProgress() {
+    const total = brainFieldTable().length;
+    let filled = 0;
+    brainSectionOrder().forEach(function (sec) { filled += sectionTotal(sec) - missingFields(sec).length; });
+    return filled + ' of ' + total + ' fields';
+  }
+
+  // What Brandy must do next. Goes back inside the tool result.
+  function nextStepInstruction(touchedSection) {
+    const order = brainSectionOrder();
+    const candidates = [touchedSection].concat(order.filter(function (x) { return x !== touchedSection; }));
+    for (let i = 0; i < candidates.length; i++) {
+      const sec = candidates[i];
+      if (!sec) continue;
+      const missing = missingFields(sec);
+      if (missing.length) {
+        return 'Ask ONE short question about: ' + missing[0].ask + ' (section "' + SECTION_LABELS[sec] + '"). Do not repeat earlier questions.';
+      }
+      if (!isSectionConfirmed(sec)) {
+        return 'Section "' + SECTION_LABELS[sec] + '" is complete. Summarize it in ONE short sentence and ask "Is that right?". Do not call confirm_brand_section until the founder says an explicit yes.';
+      }
+    }
+    return 'All 9 sections are confirmed. Tell the founder in one sentence that the interview is finished and they can generate their Brand Soul.';
+  }
+
+  function lastFounderWords() {
+    const lastUser = fullTranscript.filter(function (t) { return t.speaker === 'user'; }).slice(-1)[0];
+    return lastUser && lastUser.text ? lastUser.text.trim() : '';
+  }
+
+  // Sends one section to the backend (whole accumulated content) and refreshes the screen.
+  async function persistBrainSection(section, citation, confirmed) {
+    const transcriptText = fullTranscript.map(function (t) { return t.speaker + ': ' + t.text; }).join('\n');
+    const response = await authenticatedFetch('/api/brain/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcript: transcriptText,
+        turn_count: Math.ceil(fullTranscript.length / 2),
+        tool_result: {
+          sections: [{
+            id: section,
+            citation_text: citation,
+            citation_source: 'usuario',
+            confirmed: confirmed,
+            content: Object.assign({}, getBrainFacts(section))
+          }]
+        }
+      })
+    });
+    if (!response.ok) throw new Error('Extraction failed: ' + response.status);
+    const result = await response.json();
+    if (result.skipped_sections && result.skipped_sections.length > 0) {
+      console.warn('[Extraction] secciones descartadas', result.skipped_sections);
+    }
+    if (result.brand_brain && result.brand_brain.sections) {
+      cachedBrain = result.brand_brain;
+      if (result.missing_sections) missingSections = result.missing_sections;
+      appendExtractedSections(result.brand_brain.sections);
+      updateBrandSoulButton(result.brand_brain.sections);
+      updateCatalogButton(result.brand_brain.sections);
+    }
+    return result;
+  }
+
+  async function runSaveFact(args) {
+    const alias = String(args.field || '');
+    const field = brainFieldTable().find(function (f) { return f.alias === alias; });
+    if (!field) return { success: false, error: 'Unknown field "' + alias + '". Use one of the listed fields.' };
+    const value = String(args.value || '').trim();
+    if (!value) return { success: false, error: 'Empty value. Ask the founder again for: ' + field.ask };
+    if (isSectionConfirmed(field.section)) {
+      return { success: false, error: 'Section "' + SECTION_LABELS[field.section] + '" is already confirmed and locked.', next: nextStepInstruction(field.section) };
+    }
+    const citation = lastFounderWords();
+    if (!citation) return { success: false, error: 'No founder words to cite yet. Ask the founder first.' };
+
+    getBrainFacts(field.section)[field.key] = value;
+    await persistBrainSection(field.section, citation, false);
+
+    return {
+      success: true,
+      saved: alias,
+      section_progress: (sectionTotal(field.section) - missingFields(field.section).length) + ' of ' + sectionTotal(field.section) + ' fields in "' + SECTION_LABELS[field.section] + '"',
+      interview_progress: overallProgress(),
+      next: nextStepInstruction(field.section)
+    };
+  }
+
+  async function runConfirmSection(args) {
+    const section = String(args.section || '');
+    if (!SECTION_LABELS[section]) return { success: false, error: 'Unknown section "' + section + '".' };
+    if (isSectionConfirmed(section)) return { success: true, note: 'Already confirmed.', next: nextStepInstruction(section) };
+    const missing = missingFields(section);
+    if (missing.length) {
+      return { success: false, error: 'Section "' + SECTION_LABELS[section] + '" is not complete yet. Ask ONE short question about: ' + missing[0].ask + '.' };
+    }
+    const yes = lastFounderWords();
+    if (!yes || !AFFIRMATIVE_RE.test(yes)) {
+      return { success: false, error: 'The founder has not said an explicit yes. Summarize the section in ONE short sentence and ask "Is that right?", then wait.' };
+    }
+    await persistBrainSection(section, yes, true);
+    return {
+      success: true,
+      confirmed: section,
+      interview_progress: overallProgress(),
+      next: nextStepInstruction(section)
+    };
+  }
+
+  // Handle tool calls. EVERY call gets an answer, otherwise the agent waits forever.
   async function handleToolCall(toolName, args, callId) {
     markVoiceActivity();
     console.log('[Tool Call]', toolName, args);
+    const t0 = Date.now();
+    if (orbState) orbState.textContent = 'Saving...';
 
-    if (toolName !== 'extract_brand_brain') {
-      // Every tool.call MUST be answered or the agent waits forever and goes silent.
-      // The other agentic tools are not wired to this handler yet.
-      sendToolResult(callId, { success: false, error: 'This tool is not available right now. Continue the interview.' });
-      return;
-    }
-
-    if (toolName === 'extract_brand_brain') {
+    // Serialized: several tool calls in one turn must not overwrite each other.
+    toolChain = toolChain.then(async function () {
+      let payload;
       try {
-        // Build transcript from stored messages
-        const transcriptText = fullTranscript.map(t => `${t.speaker}: ${t.text}`).join('\n');
-        const turnCount = Math.ceil(fullTranscript.length / 2); // Agent + user pairs
-
-        // Flat voice-friendly call {section, fact, confirmed} -> backend format.
-        // Old nested format {sections:[...]} is still accepted as-is.
-        let flat = null;
-        if (args && args.section) {
-          flat = buildToolResultFromFlatCall(args);
-          if (flat.error) {
-            sendToolResult(callId, { success: false, error: flat.error });
-            return;
-          }
-        }
-        const tool_result = flat ? flat.tool_result : (args || {
-          sections: []
-        });
-
-        console.log('[Tool Call] Sending tool_result to backend:', tool_result);
-
-        // Call backend extraction endpoint
-        const response = await authenticatedFetch('/api/brain/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            transcript: transcriptText,
-            turn_count: turnCount,
-            tool_result: tool_result
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`Extraction failed: ${response.status}`);
-        }
-
-        const result = await response.json();
-        console.log('[Extraction Result]', result);
-
-        // Diagnostico para nosotros, nunca para el fundador (vetada la gamificacion
-        // y el ruido en pantalla): las secciones descartadas van a consola, no a la UI.
-        if (result.skipped_sections && result.skipped_sections.length > 0) {
-          console.warn('[Extraction] secciones descartadas', result.skipped_sections);
-        }
-
-        // Send tool.result back to agent
-        // Compact on purpose: the agent reads this before its next reply, so a
-        // whole brand_brain here only makes it slower.
-        sendToolResult(callId, {
-          success: true,
-          saved: flat ? flat.saved_status : undefined,
-          missing_sections: result.missing_sections
-        });
-
-        // Update UI with extracted sections
-        if (result.brand_brain && result.brand_brain.sections) {
-          // Save missing_sections for prompt injection
-          if (result.missing_sections) {
-            missingSections = result.missing_sections;
-          }
-
-          appendExtractedSections(result.brand_brain.sections);
-          updateBrandSoulButton(result.brand_brain.sections);
-          updateCatalogButton(result.brand_brain.sections);
-
-          // Refresh cached brain after successful extraction
-          await loadBrandBrain();
-        }
-
+        if (toolName === 'extract_brand_brain') payload = await runSaveFact(args || {});
+        else if (toolName === 'confirm_brand_section') payload = await runConfirmSection(args || {});
+        else payload = { success: false, error: 'This tool is not available right now. Continue the interview.' };
       } catch (error) {
         console.error('[Tool Call Error]', error);
-        // Send error back to agent
-        sendToolResult(callId, { success: false, error: error.message });
+        payload = { success: false, error: error.message };
       }
-    }
+      console.log('[Latency] tool.call handled in', Date.now() - t0, 'ms', payload);
+      sendToolResult(callId, payload);
+    });
+    return toolChain;
   }
 
-  // Interactive tools: the docs say tool.result goes out AFTER reply.done, never
-  // while the agent is still talking. Results produced mid-reply are queued.
-  let agentReplying = false;
-  const pendingToolResults = [];
-
+  // tool.result goes out only when no turn is in flight.
   function sendToolResult(callId, payload) {
     if (!callId) return;
-    pendingToolResults.push({ callId: callId, payload: payload });
-    if (!agentReplying) flushToolResults();
+    const item = { callId: callId, payload: payload, at: Date.now() };
+    pendingToolResults.push(item);
+    if (!agentReplying) {
+      flushToolResults();
+    } else {
+      // Safety net: never let a lost reply.done leave the agent waiting forever.
+      setTimeout(function () {
+        if (pendingToolResults.indexOf(item) !== -1) flushToolResults();
+      }, 8000);
+    }
   }
 
   function flushToolResults() {
@@ -1124,63 +1251,12 @@ Always respond in English. Keep it short and direct.`;
         ws.send(JSON.stringify({
           type: 'tool.result',
           call_id: item.callId,
-          result: JSON.stringify(item.payload)
+          result: JSON.stringify(item.payload),
+          is_error: item.payload && item.payload.success === false
         }));
+        console.log('[Latency] tool.result sent', Date.now() - item.at, 'ms after it was ready');
       }
     }
-  }
-
-  // Canonical primary field per section (the backend keeps only these keys).
-  const PRIMARY_FIELD = {
-    diagnostico: 'sintoma_diagnostico',
-    brand_journey: 'resultado_deseado',
-    charco: 'problema',
-    icp: 'quien_decide',
-    contrarian: 'creencia_comun',
-    asociaciones: 'deseadas',
-    identidad: 'voz',
-    oferta: 'resultado_sonado',
-    lead_magnet: 'problema_A'
-  };
-  const sectionFacts = {};
-  const AFFIRMATIVE_RE = /\b(yes|yeah|yep|yup|correct|exactly|right|sure|absolutely|that works|sounds (good|right|well)|let'?s do it|go ahead|perfect)\b/i;
-
-  // Turns the flat voice call {section, fact, confirmed} into the backend format.
-  // The citation is the founder's own last utterance (literal by construction) and
-  // "confirmed" is only kept when that utterance is an explicit yes.
-  function buildToolResultFromFlatCall(args) {
-    const id = String(args.section || '');
-    const field = PRIMARY_FIELD[id];
-    if (!field) return { error: 'Unknown section: ' + id };
-    const fact = String(args.fact || '').trim();
-    const lastUser = fullTranscript.filter(t => t.speaker === 'user').slice(-1)[0];
-    const citation = lastUser && lastUser.text ? lastUser.text.trim() : '';
-    if (!citation) return { error: 'No founder words to cite yet. Ask the founder first.' };
-
-    let confirmed = args.confirmed === true;
-    let note;
-    if (confirmed && !AFFIRMATIVE_RE.test(citation)) {
-      confirmed = false;
-      note = 'proposed';
-    }
-    if (!sectionFacts[id]) {
-      const known = cachedBrain && cachedBrain.sections && cachedBrain.sections.find(s => s.id === id);
-      sectionFacts[id] = known && known.content && known.content[field] ? [String(known.content[field])] : [];
-    }
-    if (fact && !sectionFacts[id].includes(fact)) sectionFacts[id].push(fact);
-
-    return {
-      saved_status: id + ': ' + (confirmed ? 'confirmed' : 'proposed (ask for an explicit yes to confirm)') + (note ? '' : ''),
-      tool_result: {
-        sections: [{
-          id: id,
-          citation_text: citation,
-          citation_source: 'usuario',
-          confirmed: confirmed,
-          content: { [field]: sectionFacts[id].join('; ') }
-        }]
-      }
-    };
   }
 
   function appendExtractedSections(sections) {

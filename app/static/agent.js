@@ -16,38 +16,106 @@
   // Step order and dependencies (mirrors pipeline rail in app.js)
   const STEP_ORDER = ['brain', 'catalog', 'script', 'audiovisual', 'editing'];
 
-  // extract_brand_brain: the only tool that fills the Brand Soul screen. It must be
-  // registered in BOTH legacy and agentic mode (in agentic mode it was missing, so
-  // Brandy could never save anything during the interview).
+  // ---------------------------------------------------------------------------
+  // Brand Soul interview: 9 sections, 43 fields. The interview is only finished
+  // when EVERY field of EVERY section has been said by the founder.
+  // [section, backend key, English alias, what to ask about]
+  // ---------------------------------------------------------------------------
+  const BRAIN_FIELDS = [
+    ['diagnostico', 'etapa', 'stage', 'their stage: not started, invisible pro, stuck creator, not monetizing, or authority'],
+    ['diagnostico', 'nivel_ramiro', 'ramiro_level', 'their level from 1 (invisible) to 6 (transcendence)'],
+    ['diagnostico', 'sintoma_diagnostico', 'symptom', 'an observable symptom that shows where they are stuck'],
+    ['diagnostico', 'habilidad_a_desbloquear', 'skill_to_unlock', 'the one skill they most need to unlock'],
+    ['diagnostico', 'prohibicion', 'prohibition', 'what they must avoid doing right now'],
+    ['diagnostico', 'postura', 'stance', 'expert, student or hypothesis: how they position themselves'],
+    ['diagnostico', 'justificacion_postura', 'stance_reason', 'the proof behind that position'],
+    ['brand_journey', 'resultado_deseado', 'desired_result', 'the goal that justifies the sacrifice'],
+    ['brand_journey', 'de_que_ser_conocido', 'known_for', 'the exact reputation they need'],
+    ['brand_journey', 'que_hacer', 'must_do', 'what they have to DO'],
+    ['brand_journey', 'que_aprender', 'must_learn', 'what they have to LEARN'],
+    ['charco', 'problema', 'problem', 'the problem their prospect suffers every day'],
+    ['charco', 'nivel', 'level', 'pond, lake or ocean: how big the audience of that problem is'],
+    ['charco', 'logro_que_lo_respalda', 'proof_achievement', 'the achievement that backs them on this problem'],
+    ['charco', 'costo_de_no_resolverlo', 'cost_of_inaction', 'what it costs the prospect not to solve it'],
+    ['charco', 'intentos_fallidos', 'failed_attempts', 'what the prospect already tried and why it failed'],
+    ['icp', 'quien_decide', 'decision_maker', 'the exact job title of the person who signs'],
+    ['icp', 'tamano_empresa', 'company_size', 'company size: revenue or headcount'],
+    ['icp', 'disparador_de_urgencia', 'urgency_trigger', 'the event that makes them buy now'],
+    ['icp', 'poder_adquisitivo', 'budget', 'their real budget'],
+    ['icp', 'comite_de_compra', 'buying_committee', 'who else must say yes'],
+    ['icp', 'a_quien_le_rinde_cuentas', 'reports_to', 'who the buyer answers to'],
+    ['contrarian', 'creencia_comun', 'common_belief', 'the belief in their industry they disagree with'],
+    ['contrarian', 'postura_opuesta', 'opposite_stance', 'their opposite belief'],
+    ['contrarian', 'prueba', 'proof', 'evidence for their opposite belief'],
+    ['contrarian', 'por_que_no_es_provocacion', 'why_not_provocation', 'why it is a helpful belief and not cheap provocation'],
+    ['asociaciones', 'deseadas', 'desired', 'associations they want linked to them'],
+    ['asociaciones', 'prohibidas', 'forbidden', 'people or reputations they refuse to be linked to'],
+    ['identidad', 'voz', 'voice', 'three to five words for their tone'],
+    ['identidad', 'colores', 'colors', 'two to four brand colors'],
+    ['identidad', 'tipografias', 'fonts', 'one or two typefaces'],
+    ['identidad', 'narrativa_de_origen', 'origin_story', 'their personal origin story'],
+    ['oferta', 'resultado_sonado', 'dream_result', 'the result their client dreams of'],
+    ['oferta', 'probabilidad_percibida', 'perceived_probability', 'proof it works: cases, testimonials, guarantees'],
+    ['oferta', 'retraso', 'delay', 'time until the first benefit'],
+    ['oferta', 'esfuerzo', 'effort', 'the work left to the client'],
+    ['oferta', 'componentes', 'components', 'the specific deliverables, for example 3 emails a week for 90 days'],
+    ['oferta', 'garantia', 'guarantee', 'their guarantee, conditional or unconditional'],
+    ['lead_magnet', 'tipo', 'type', 'revealing diagnosis, sample, or first step'],
+    ['lead_magnet', 'problema_A', 'problem_a', 'the problem it solves for free'],
+    ['lead_magnet', 'problema_B_que_revela', 'problem_b', 'the deeper problem it reveals, linked to the paid offer'],
+    ['lead_magnet', 'formato', 'format', 'PDF, tool, video or session'],
+    ['lead_magnet', 'captura', 'capture', 'how contact data is collected'],
+  ].map(function (r) {
+    return { section: r[0], key: r[1], alias: r[0] + '.' + r[2], ask: r[3] };
+  });
+  const BRAIN_SECTION_ORDER = ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet'];
+
+  // Tool 1: save ONE field. Flat schema with an enum (voice LLMs fail on nested arrays).
   const EXTRACT_BRAND_BRAIN_TOOL = {
     type: 'function',
     name: 'extract_brand_brain',
-    description: 'Save one brand fact the founder just said and show it on screen. Call it EVERY time the founder states a concrete fact (name, clients, price, stage, goal) with confirmed=false, and call it again with confirmed=true right after an explicit yes. Do not call it for small talk or questions.',
+    description: 'Save ONE fact the founder just said into one brand field and show it on screen. Call it for every concrete fact, one call per field. Say only "One moment." before calling. Do not call it for small talk or questions.',
+    parameters: {
+      type: 'object',
+      properties: {
+        field: {
+          type: 'string',
+          description: 'Which brand field the fact belongs to (section.field).',
+          enum: BRAIN_FIELDS.map(function (f) { return f.alias; })
+        },
+        value: {
+          type: 'string',
+          description: 'The fact in a short phrase, using the founder own words.',
+          examples: ['Medical interpreter for small clinics', 'Practice managers at family clinics', 'Earn 10,000 dollars per month']
+        }
+      },
+      required: ['field', 'value']
+    }
+  };
+
+  // Tool 2: lock a whole section after an explicit yes (checked again in code).
+  const CONFIRM_BRAND_SECTION_TOOL = {
+    type: 'function',
+    name: 'confirm_brand_section',
+    description: 'Lock one brand section after the founder said an explicit yes to your one-sentence summary of it. Say only "One moment." before calling. Never call it without a yes.',
     parameters: {
       type: 'object',
       properties: {
         section: {
           type: 'string',
-          description: 'Which brand section the fact belongs to.',
-          enum: ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet']
-        },
-        fact: {
-          type: 'string',
-          description: 'The fact in a short phrase, using the founder own words.',
-          examples: ['Medical interpreter for small clinics', 'Charges 75 dollars per hour', 'No clients yet']
-        },
-        confirmed: {
-          type: 'boolean',
-          description: 'true only right after the founder said an explicit yes to this section; otherwise false.'
+          description: 'The section the founder just confirmed.',
+          enum: BRAIN_SECTION_ORDER
         }
       },
-      required: ['section', 'fact', 'confirmed']
+      required: ['section']
     }
   };
+  const BRAIN_INTERVIEW_TOOLS = [EXTRACT_BRAND_BRAIN_TOOL, CONFIRM_BRAND_SECTION_TOOL];
 
-  // Front-loaded (voice prompts: long prompts dilute attention) so the model
-  // actually saves the interview instead of just saying it "noted" something.
-  const BRAIN_TOOL_RULE = 'FIRST RULE: every time the founder says a concrete fact about their business, call the tool extract_brand_brain in that same turn, with confirmed=false. When they say an explicit yes to your summary, call it again with confirmed=true. Saying "I noted it" without calling the tool saves nothing. Example. Founder: "I sell medical interpretation to small clinics." You: [call extract_brand_brain section=icp fact="small clinics" confirmed=false] then say "Who signs the contract there?" When in doubt, call the tool.';
+  // Front-loaded (voice prompts: long prompts dilute attention). The loop below is
+  // what keeps Brandy from going silent or repeating a question: she speaks BEFORE
+  // the tool ("One moment."), and asks the next question AFTER the tool result.
+  const BRAIN_TOOL_RULE = 'INTERVIEW LOOP, follow it exactly. 1) The founder answers. 2) You say only "One moment." and call extract_brand_brain once per fact, one field per call. Never ask a question in that same turn. 3) The tool result tells you what to ask next: ask exactly that, one short question. 4) When the result says a section is complete, summarize it in one sentence and ask "Is that right?". On an explicit yes, say only "One moment." and call confirm_brand_section. Never repeat a question you already asked. Example. Founder: "I sell medical interpretation to small clinics." You: "One moment." [call extract_brand_brain field=icp.company_size value="small clinics"]. Then ask what the result says.';
 
   // Global tools available in every step
   const GLOBAL_TOOL_NAMES = ['get_status', 'get_balance', 'go_to_step'];
@@ -277,6 +345,11 @@
    * @returns {Array} Array of tool definitions
    */
   function toolsForStep(step) {
+    // Brain step = the voice interview. The other agentic tools are not wired to
+    // tool.call yet (each unanswered call froze the agent), so only the two
+    // interview tools are offered here.
+    if (step === 'brain') return BRAIN_INTERVIEW_TOOLS.slice();
+
     const tools = GLOBAL_TOOLS.slice(); // Copy global tools
 
     // Add step-specific tools from registry
@@ -292,7 +365,6 @@
     } else if (step === 'catalog') {
       tools.push.apply(tools, CATALOG_TOOL_SCHEMAS);
     } else if (step === 'brain') {
-      tools.push(EXTRACT_BRAND_BRAIN_TOOL);
       tools.push.apply(tools, SOUL_TOOL_SCHEMAS);
     } else if (step === 'audiovisual') {
       tools.push.apply(tools, AUDIOVISUAL_TOOL_SCHEMAS);
@@ -357,9 +429,7 @@
       // Agentic mode OFF: legacy prompt (Brand Soul interview only)
       systemPrompt = (step === 'brain' ? BRAIN_TOOL_RULE + '\n\n' : '') + basePrompt;
       // Only extract_brand_brain tool in legacy mode (existing behavior)
-      tools = [
-        EXTRACT_BRAND_BRAIN_TOOL
-      ];
+      tools = BRAIN_INTERVIEW_TOOLS.slice();
     }
 
     const payload = {
@@ -1146,6 +1216,9 @@
     findIdeaInCatalog: findIdeaInCatalog,
     CATALOG_TOOL_SCHEMAS: CATALOG_TOOL_SCHEMAS,
     SOUL_TOOL_SCHEMAS: SOUL_TOOL_SCHEMAS,
+    BRAIN_FIELDS: BRAIN_FIELDS,
+    BRAIN_SECTION_ORDER: BRAIN_SECTION_ORDER,
+    BRAIN_INTERVIEW_TOOLS: BRAIN_INTERVIEW_TOOLS,
     // F-11 Editing tools
     EDIT_ACTION_SCHEMAS: EDIT_ACTION_SCHEMAS,
     // F-10 Proactive announcements

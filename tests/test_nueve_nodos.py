@@ -436,7 +436,7 @@ def test_brand_brain_constructs_when_no_existing_brain(
     # Import inside test to avoid circular import issues
     from app.tools.brand_brain.extractor import extract_and_persist
 
-    # Must be >= 100 characters or validate_extraction_input raises ExtractionError
+    # Must be >= 30 characters or validate_extraction_input raises ExtractionError
     # The citation_text below appears LITERALLY in this transcript
     transcript = (
         "En esta conversación con el fundador de la empresa, discutimos el estado actual "

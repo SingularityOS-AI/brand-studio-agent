@@ -31,8 +31,8 @@ def validate_extraction_input(transcript: str, turn_count: int = None) -> None:
     Raises:
         ExtractionError: If validation fails
     """
-    if not transcript or len(transcript.strip()) < 100:
-        raise ExtractionError("transcript must be at least 100 characters")
+    if not transcript or len(transcript.strip()) < 30:
+        raise ExtractionError("transcript must be at least 30 characters")
 
     # turn_count validation removed per CEO decision: no turn limit
     # Sections are validated by content and citation, not turn count
