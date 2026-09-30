@@ -2,6 +2,16 @@
 
 What changed, when, and why. Newest first. Commit hashes point to `main`.
 
+## 2026-09-29 — Block H8 (production-test patches) and presentation cleanup
+
+- **H8-01** The caption no-collision pass now reads the real caption position, so overlays actually move out of the caption band.
+- **H8-02** Brand Soul "Regenerate" really regenerates instead of serving the cached document, and the 20 credits are refunded if anything fails after charging.
+- **H8-03** A raw cut is no longer reused across render-engine versions, so a blank scene from an old engine can be rebuilt.
+- **H8-04** Background jobs (render, assets) leave the `queued` state in the audit trail and the production panel refreshes after in-step actions.
+- **H8-05** The Editing UI now has the Overlays list, the Clean / Standard / Bold selector and the Overlays track.
+- **H8-06** The voice token and the demand research refund their charge when the upstream call fails.
+- **Cleanup** The README and `docs/ARCHITECTURE.md` were rewritten to describe what runs today. Local tooling and private notes (batch launchers, debug scripts, a UI mockup, an internal analysis page, a stale quick-start) were removed from the repository and added to `.gitignore`.
+
 ## 2026-09-29 — Block H7: hardening before the first-account production run
 
 - **H7-01** Raw cuts no longer fail after upload: the render response contract carries the scene fallback list again, and the empty-scene warning reaches the editing state. Render engine `2026.09.29`.

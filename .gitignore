@@ -114,3 +114,17 @@ QA_RESEARCH_BUTTONS.md
 *.lnk
 temp_render/
 output/
+
+# 2026-09-29 — final cleanup: local tooling and private notes never ship.
+# The repo keeps the product, its tests, its docs and two small ops scripts.
+/agent_mockup/
+/tools/
+/ANALISIS_*.html
+/QUICK_START.md
+/HANDOFF*.md
+/check_auth.py
+/verify_apis.py
+/demo_demand.py
+/test_frontend_auth.py
+/assemblyai_voice_wrapper.py
+/scripts/webhook_manual_check.py
