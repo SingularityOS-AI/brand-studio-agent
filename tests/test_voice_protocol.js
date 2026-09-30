@@ -664,10 +664,10 @@ const sleepTick = () => new Promise((r) => setImmediate(r));
     const rule = agent.buildBrainToolRule();
     assert.ok(rule.startsWith('INTERVIEW LOOP'));
     assert.ok(!/say only "One moment/i.test(rule));
-    assert.ok(/never "One moment"/.test(rule));
+    assert.ok(!/One moment/.test(rule), 'the rule must not even mention the old filler (priming)');
     assert.ok(/section=icp field=company_size value="small clinics"/.test(rule));
     // 4 distinct example phrases from the pool, and they vary between calls
-    const exampleList = rule.slice(rule.indexOf('(for example ') + 13, rule.indexOf('), never "One moment"'));
+    const exampleList = rule.slice(rule.indexOf('(for example ') + 13, rule.indexOf('), never a generic filler'));
     const used = agent.BRAIN_WORK_PHRASES.filter((p) => exampleList.indexOf('"' + p + '"') !== -1);
     assert.strictEqual(used.length, 4);
     assert.ok(agent.BRAIN_WORK_PHRASES.length >= 12);

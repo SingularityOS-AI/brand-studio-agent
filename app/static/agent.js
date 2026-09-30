@@ -268,7 +268,7 @@
     const examples = pickWorkPhrases(4, random).map(function (p) { return '"' + p + '"'; }).join(', ');
     return 'INTERVIEW LOOP, follow it exactly. ' +
       '1) The founder gives a concrete fact. ' +
-      '2) You say a 2 to 5 word phrase that names WHAT you are saving, different every time and never the same phrase twice in a row (for example ' + examples + '), never "One moment". Then call extract_brand_brain ONCE per fact with section, field and value. Do not ask a question in that same turn. ' +
+      '2) You say a 2 to 5 word phrase that names WHAT you are saving, different every time and never the same phrase twice in a row (for example ' + examples + '), never a generic filler. Then call extract_brand_brain ONCE per fact with section, field and value. Do not ask a question in that same turn. ' +
       '3) After a tool result never open with a filler or transition phrase. Go straight to the point, optionally with one short sentence of explanation, and ask what the result\'s next says. ' +
       '4) If the founder asks a question or seems confused, explain in one or two short sentences and ask again. ' +
       '5) When the result says a section is complete, summarize it in one sentence and ask "Is that right?". On an explicit yes, say a short phrase and call confirm_brand_section. ' +
