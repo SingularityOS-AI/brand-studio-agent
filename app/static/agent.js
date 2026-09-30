@@ -66,22 +66,152 @@
     ['lead_magnet', 'formato', 'format', 'PDF, tool, video or session'],
     ['lead_magnet', 'captura', 'capture', 'how contact data is collected'],
   ].map(function (r) {
-    return { section: r[0], key: r[1], alias: r[0] + '.' + r[2], ask: r[3] };
+    return { section: r[0], key: r[1], name: r[2], alias: r[0] + '.' + r[2], ask: r[3] };
   });
   const BRAIN_SECTION_ORDER = ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet'];
 
-  // Tool 1: save ONE field. Flat schema with an enum (voice LLMs fail on nested arrays).
+  // English labels, same wording the founder sees on screen. The model may say any
+  // of these (or the id) when it names a section, so the resolvers accept both.
+  const BRAIN_SECTION_LABELS = {
+    diagnostico: 'Where you stand', brand_journey: 'Brand Journey', charco: 'The pond',
+    icp: 'The ICP', contrarian: 'Contrarian stance', asociaciones: 'Associations',
+    identidad: 'Identity map', oferta: 'The offer', lead_magnet: 'The lead magnet'
+  };
+
+  // ---------------------------------------------------------------------------
+  // Resolvers. The tool schemas carry NO enum: AssemblyAI validates tool arguments
+  // server-side and rejects a value outside the enum before the tool ever runs
+  // (invisible to the client, the agent just goes mute). So the schema accepts any
+  // string and WE resolve it here; an unresolved value becomes a readable error.
+  // ---------------------------------------------------------------------------
+  function normText(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .toLowerCase().replace(/[_\-.]+/g, ' ').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function normKey(s) { return normText(s).replace(/ /g, '_'); }
+
+  const SECTION_LOOKUP = (function () {
+    const m = {};
+    BRAIN_SECTION_ORDER.forEach(function (id) {
+      const label = normText(BRAIN_SECTION_LABELS[id]);
+      m[normText(id)] = id;
+      m[label] = id;
+      m[label.replace(/^the /, '')] = id;
+    });
+    m['desired and forbidden associations'] = 'asociaciones';
+    return m;
+  })();
+
+  /** Section id from an id, an English label, or a close variant. null if unknown. */
+  function resolveBrainSection(input) {
+    const s = normText(input);
+    if (!s) return null;
+    if (SECTION_LOOKUP[s]) return SECTION_LOOKUP[s];
+    if (/^0?[1-9]$/.test(s)) return BRAIN_SECTION_ORDER[parseInt(s, 10) - 1];
+    // "section 04 the icp" / "diagnostico where you stand": exactly one section named inside.
+    const padded = ' ' + s + ' ';
+    const hit = {};
+    Object.keys(SECTION_LOOKUP).forEach(function (k) {
+      if (k.length >= 3 && padded.indexOf(' ' + k + ' ') !== -1) hit[SECTION_LOOKUP[k]] = true;
+    });
+    const ids = Object.keys(hit);
+    return ids.length === 1 ? ids[0] : null;
+  }
+
+  const FIELD_STOPWORDS = {};
+  ('the a an of to in on for and or is are their they them what who how with that this it its by at as be ' +
+   'must do does my your field value about').split(' ').forEach(function (w) { FIELD_STOPWORDS[w] = 1; });
+  function fieldTokens(text) {
+    return normText(text).split(' ').filter(function (t) {
+      return t.length > 1 && !FIELD_STOPWORDS[t];
+    }).map(function (t) { return (t.length > 3 && /s$/.test(t) && !/ss$/.test(t)) ? t.slice(0, -1) : t; });
+  }
+
+  function matchBrainField(sectionId, text) {
+    const pool = BRAIN_FIELDS.filter(function (f) { return !sectionId || f.section === sectionId; });
+    const n = normKey(text);
+    if (!n) return null;
+    const passes = [
+      function (f) { return normKey(f.alias) === n; },   // icp.budget
+      function (f) { return normKey(f.name) === n; },    // budget
+      function (f) { return normKey(f.key) === n; }      // poder_adquisitivo
+    ];
+    for (let p = 0; p < passes.length; p++) {
+      const hits = pool.filter(passes[p]);
+      if (hits.length === 1) return hits[0];
+      if (hits.length > 1) return null;   // same name in two sections and no section given
+    }
+    // Best token overlap with the field name / backend key (weight 3) and its "ask" text (weight 1).
+    const want = fieldTokens(text);
+    if (!want.length) return null;
+    let best = null, bestScore = 0, tie = false;
+    pool.forEach(function (f) {
+      const primary = fieldTokens(f.name).concat(fieldTokens(f.key));
+      const secondary = fieldTokens(f.ask);
+      let score = 0;
+      want.forEach(function (t) {
+        if (primary.indexOf(t) !== -1) score += 3;
+        else if (secondary.indexOf(t) !== -1) score += 1;
+      });
+      if (score > bestScore) { best = f; bestScore = score; tie = false; }
+      else if (score === bestScore && score > 0) { tie = true; }
+    });
+    return (best && bestScore > 0 && !tie) ? best : null;
+  }
+
+  /**
+   * Field entry from a section + whatever the model wrote in `field`:
+   * `section.alias`, the alias suffix, the backend key, "section.field", or a close
+   * paraphrase. Unknown section is fine when the field is unique across all sections.
+   */
+  function resolveBrainField(sectionId, input) {
+    const raw = String(input === null || input === undefined ? '' : input).trim();
+    if (!raw) return null;
+    const secId = BRAIN_SECTION_ORDER.indexOf(sectionId) !== -1 ? sectionId : resolveBrainSection(sectionId);
+    const dot = raw.indexOf('.');
+    if (dot > 0) {
+      const dotSec = resolveBrainSection(raw.slice(0, dot));
+      if (dotSec) {
+        const viaDot = matchBrainField(dotSec, raw.slice(dot + 1));
+        if (viaDot) return viaDot;
+      }
+    }
+    return matchBrainField(secId, raw);
+  }
+
+  /** Short field names of one section, e.g. "stage, ramiro_level, symptom, ...". */
+  function brainFieldNames(sectionId) {
+    return BRAIN_FIELDS.filter(function (f) { return f.section === sectionId; })
+      .map(function (f) { return f.name; }).join(', ');
+  }
+
+  const SECTION_IDS_TEXT = BRAIN_SECTION_ORDER.map(function (id) {
+    return id + ' (' + BRAIN_SECTION_LABELS[id] + ')';
+  }).join(', ');
+  const FIELDS_BY_SECTION_TEXT = BRAIN_SECTION_ORDER.map(function (id) {
+    return id + ': ' + brainFieldNames(id);
+  }).join('; ');
+
+  // Tool 1: save ONE field. Flat string schema, NO enum (see resolvers above).
+  // interactive = the agent says a short phrase and emits tool.call in the same reply.
   const EXTRACT_BRAND_BRAIN_TOOL = {
     type: 'function',
     name: 'extract_brand_brain',
-    description: 'Save ONE fact the founder just said into one brand field and show it on screen. Call it for every concrete fact, one call per field. Say only "One moment." before calling. Do not call it for small talk or questions.',
+    description: 'Save ONE fact the founder just said into one brand field and show it on screen. Call it once per concrete fact. Do not call it for small talk or questions.',
+    execution_mode: 'interactive',
+    timeout_seconds: 20,
     parameters: {
       type: 'object',
       properties: {
+        section: {
+          type: 'string',
+          description: 'The brand section the fact belongs to. One of: ' + SECTION_IDS_TEXT + '.',
+          examples: ['diagnostico', 'icp', 'oferta']
+        },
         field: {
           type: 'string',
-          description: 'Which brand field the fact belongs to (section.field).',
-          enum: BRAIN_FIELDS.map(function (f) { return f.alias; })
+          description: 'The field inside that section, by its short name. Valid names by section: ' + FIELDS_BY_SECTION_TEXT + '.',
+          examples: ['stage', 'symptom', 'decision_maker', 'budget', 'voice', 'colors']
         },
         value: {
           type: 'string',
@@ -89,7 +219,7 @@
           examples: ['Medical interpreter for small clinics', 'Practice managers at family clinics', 'Earn 10,000 dollars per month']
         }
       },
-      required: ['field', 'value']
+      required: ['section', 'field', 'value']
     }
   };
 
@@ -97,14 +227,16 @@
   const CONFIRM_BRAND_SECTION_TOOL = {
     type: 'function',
     name: 'confirm_brand_section',
-    description: 'Lock one brand section after the founder said an explicit yes to your one-sentence summary of it. Say only "One moment." before calling. Never call it without a yes.',
+    description: 'Lock one brand section after the founder said an explicit yes to your one-sentence summary of it. Never call it without a yes.',
+    execution_mode: 'interactive',
+    timeout_seconds: 20,
     parameters: {
       type: 'object',
       properties: {
         section: {
           type: 'string',
-          description: 'The section the founder just confirmed.',
-          enum: BRAIN_SECTION_ORDER
+          description: 'The section the founder just confirmed. One of: ' + SECTION_IDS_TEXT + '.',
+          examples: ['diagnostico', 'icp']
         }
       },
       required: ['section']
@@ -112,10 +244,37 @@
   };
   const BRAIN_INTERVIEW_TOOLS = [EXTRACT_BRAND_BRAIN_TOOL, CONFIRM_BRAND_SECTION_TOOL];
 
-  // Front-loaded (voice prompts: long prompts dilute attention). The loop below is
-  // what keeps Brandy from going silent or repeating a question: she speaks BEFORE
-  // the tool ("One moment."), and asks the next question AFTER the tool result.
-  const BRAIN_TOOL_RULE = 'INTERVIEW LOOP, follow it exactly. 1) The founder answers. 2) You say only "One moment." and call extract_brand_brain once per fact, one field per call. Never ask a question in that same turn. 3) The tool result tells you what to ask next: ask exactly that, one short question. 4) When the result says a section is complete, summarize it in one sentence and ask "Is that right?". On an explicit yes, say only "One moment." and call confirm_brand_section. Never repeat a question you already asked. Example. Founder: "I sell medical interpretation to small clinics." You: "One moment." [call extract_brand_brain field=icp.company_size value="small clinics"]. Then ask what the result says.';
+  // Pool of example "work phrases". Each session.update draws 4 at random so Brandy
+  // does not fall into one fixed sentence (a fixed one becomes "One moment." x N).
+  const BRAIN_WORK_PHRASES = [
+    'Noting your stage.', 'Adding that to your ICP.', 'Saving your price.', 'Writing that down.',
+    'Putting that in your offer.', 'Capturing that.', 'Logging your goal.', 'Filing that under your pond.',
+    'Recording your answer.', 'Adding it to your brand map.', 'Saving that detail.', 'Got it, adding your colors.'
+  ];
+  function pickWorkPhrases(count, random) {
+    const rnd = typeof random === 'function' ? random : Math.random;
+    const pool = BRAIN_WORK_PHRASES.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      const t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+    }
+    return pool.slice(0, count);
+  }
+
+  // Front-loaded (voice prompts: long prompts dilute attention). The loop keeps Brandy
+  // from going silent or repeating a question: a short phrase naming WHAT she saves
+  // goes BEFORE the tool, the next question comes AFTER the tool result, no filler.
+  function buildBrainToolRule(random) {
+    const examples = pickWorkPhrases(4, random).map(function (p) { return '"' + p + '"'; }).join(', ');
+    return 'INTERVIEW LOOP, follow it exactly. ' +
+      '1) The founder gives a concrete fact. ' +
+      '2) You say a 2 to 5 word phrase that names WHAT you are saving, different every time and never the same phrase twice in a row (for example ' + examples + '), never "One moment". Then call extract_brand_brain ONCE per fact with section, field and value. Do not ask a question in that same turn. ' +
+      '3) After a tool result never open with a filler or transition phrase. Go straight to the point, optionally with one short sentence of explanation, and ask what the result\'s next says. ' +
+      '4) If the founder asks a question or seems confused, explain in one or two short sentences and ask again. ' +
+      '5) When the result says a section is complete, summarize it in one sentence and ask "Is that right?". On an explicit yes, say a short phrase and call confirm_brand_section. ' +
+      'Never repeat a question you already asked. ' +
+      'Example. Founder: "I sell medical interpretation to small clinics." You: "Adding that to your ICP." [call extract_brand_brain section=icp field=company_size value="small clinics"]. Then ask what the result says.';
+  }
 
   // Global tools available in every step
   const GLOBAL_TOOL_NAMES = ['get_status', 'get_balance', 'go_to_step'];
@@ -420,14 +579,14 @@
     if (agenticOn) {
       // Agentic mode ON: step-scoped prompt + tools
       const summary = buildStepSummary(step, ctx);
-      systemPrompt = (step === 'brain' ? BRAIN_TOOL_RULE + '\n\n' : '') + basePrompt + '\n\n=== AGENTIC MODE CONTEXT ===\n' +
+      systemPrompt = (step === 'brain' ? buildBrainToolRule() + '\n\n' : '') + basePrompt + '\n\n=== AGENTIC MODE CONTEXT ===\n' +
         'You are in STEP: ' + step + '. Summary: ' + summary + '\n\n' +
         'Only use the tools listed. If asked about another step, give its status ' +
         'and what must happen first; never act on it.';
       tools = toolsForStep(step);
     } else {
       // Agentic mode OFF: legacy prompt (Brand Soul interview only)
-      systemPrompt = (step === 'brain' ? BRAIN_TOOL_RULE + '\n\n' : '') + basePrompt;
+      systemPrompt = (step === 'brain' ? buildBrainToolRule() + '\n\n' : '') + basePrompt;
       // Only extract_brand_brain tool in legacy mode (existing behavior)
       tools = BRAIN_INTERVIEW_TOOLS.slice();
     }
@@ -1219,6 +1378,12 @@
     BRAIN_FIELDS: BRAIN_FIELDS,
     BRAIN_SECTION_ORDER: BRAIN_SECTION_ORDER,
     BRAIN_INTERVIEW_TOOLS: BRAIN_INTERVIEW_TOOLS,
+    BRAIN_SECTION_LABELS: BRAIN_SECTION_LABELS,
+    BRAIN_WORK_PHRASES: BRAIN_WORK_PHRASES,
+    buildBrainToolRule: buildBrainToolRule,
+    resolveBrainSection: resolveBrainSection,
+    resolveBrainField: resolveBrainField,
+    brainFieldNames: brainFieldNames,
     // F-11 Editing tools
     EDIT_ACTION_SCHEMAS: EDIT_ACTION_SCHEMAS,
     // F-10 Proactive announcements

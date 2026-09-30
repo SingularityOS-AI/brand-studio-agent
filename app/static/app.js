@@ -111,14 +111,7 @@
   // Session generation token to prevent race conditions between concurrent sessions
   let sessionGeneration = 0;
 
-  // Turn detection baseline (ver 06_VOICE_AGENT_API_DOCS.md "Turn detection: recommended
-  // defaults"). Se reutiliza aqui y en el patron adaptativo, nunca se copia a mano.
-  const TURN_DETECTION_BASELINE = {
-    vad_threshold: 0.5,
-    min_silence: 2000,   // was 1400: the agent took the turn during the founder's thinking pauses
-    max_silence: 5500,
-    interrupt_response: true
-  };
+  // Turn detection: see turnDetectionConfig() in the VOICE PROTOCOL block (adaptive by default).
   let waitingForAnswer = false;
 
   // Voice credits reservation
@@ -171,7 +164,7 @@
   // Default voice and prompts (can be customized)
   const baseSystemPrompt = `You are Brandy, the Brand Studio Agent. You help entrepreneurs and businesses discover their brand identity through targeted questions about their business.
 
-VOICE STYLE (most important): this is a spoken interview. Every reply is ONE short sentence, 15 words or fewer, and ends with ONE question. Never repeat back what the founder said. No summaries, no lists, no compliments, no filler like "I understand" or "Great". Only when you ask the founder to confirm a section, use two short sentences. If the founder pauses or says "um", wait; do not talk over them. No markdown, no exclamation marks.
+VOICE STYLE (most important): this is a spoken interview. Speak in 1 to 3 short sentences, 40 words max. You may briefly explain a concept or why a question matters, then ask ONE question. Never a paragraph, never a recap of everything the founder said, no filler like 'Great question'. If the founder pauses or says 'um', wait. No markdown, no exclamation marks.
 
 Your goal is to gather information across NINE brand sections. The model is an octagon, not a list — if the founder drops data about section 08 while discussing section 03, note it in section 08. Data said once is never lost by being "out of turn."
 
@@ -242,7 +235,7 @@ CRITICAL RULES (CEO-mandated):
 
 1. CONFIRMED means an EXPLICIT YES from the founder to your one-sentence summary of a section. If the founder says "I don't know" for a field: propose a concrete answer in one sentence and save it only after they accept it. Never leave a section hanging.
 
-2. SAVE EVERYTHING AS YOU GO. Every concrete fact the founder says goes into ONE field with extract_brand_brain (field + short value). Before the tool say only "One moment." After the tool, ask exactly what its result tells you. A section is complete only when EVERY field of it is filled: keep asking, one short question at a time, until none is missing. Then summarize the section in one sentence, ask "Is that right?", and only after an explicit yes call confirm_brand_section. Never say you "noted" something without calling the tool.
+2. SAVE EVERYTHING AS YOU GO. When the founder gives a concrete fact, say a 2 to 5 word phrase that names WHAT you are saving (vary it every time, never the same phrase twice in a row, never "One moment") and call extract_brand_brain once per fact (section + field + value), without asking a question in that same turn. After a tool result never open with a filler or transition phrase: go straight to the point (optionally one short sentence of explanation) and ask what the result's next says. If the founder asks a question or seems confused, explain in 1 or 2 short sentences and ask again. A section is complete only when EVERY field of it is filled: keep asking, one question at a time, until none is missing. Then summarize the section in one sentence and ask "Is that right?"; only after an explicit yes say a short phrase and call confirm_brand_section. Never say you "noted" something without calling the tool.
 
 3. SECTIONS OUT OF ORDER: If the founder drops data from section 08 while discussing section 03, note it in section 08. The model is an octagon, not a list. A datum said once is never lost by being said "out of turn."
 
@@ -459,9 +452,7 @@ Always respond in English. Keep it short and direct.`;
     apiKeyRequested = false;
     sessionEndReason = null;
     agentBusy = false;
-    agentReplying = false;
-    pendingToolResults.length = 0;
-    toolChain = Promise.resolve();
+    resetVoiceProtocol();
     const key = await ensureApiKey();
     if (!key) {
       return;
@@ -645,10 +636,7 @@ Always respond in English. Keep it short and direct.`;
         waitingForAnswer = false;
 
         // Determine if we should use greeting (skip on reconnection)
-        const hasBrainOrTranscript = (
-          (cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0) ||
-          fullTranscript.length > 0
-        );
+        const hasBrainOrTranscript = hasPriorContext();
 
         // Send session.update immediately
         const sessionUpdatePayload = {
@@ -659,7 +647,7 @@ Always respond in English. Keep it short and direct.`;
             greeting: hasBrainOrTranscript ? undefined : defaultGreeting,
             input: {
               format: { encoding: 'audio/pcm' },
-              turn_detection: TURN_DETECTION_BASELINE
+              turn_detection: turnDetectionConfig()
             },
             output: {
               voice: voice,
@@ -769,19 +757,11 @@ Always respond in English. Keep it short and direct.`;
     }
   }
 
-  // Manda solo el bloque turn_detection que cambia (patron adaptativo). turn_detection
-  // es mutable tras session.ready (06_VOICE_AGENT_API_DOCS.md). No repetir greeting
-  // ni system_prompt aqui.
-  function sendTurnDetectionUpdate(turnDetection) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-      type: 'session.update',
-      session: { input: { turn_detection: turnDetection } }
-    }));
-  }
-
   function handleAgentEvent(msg) {
     const type = msg.type;
+
+    // Voice protocol first: tool.result timing, stall watchdog, activity events, orb text.
+    try { protocolOnEvent(msg); } catch (e) { console.error('[Protocol] handler error', e); }
 
     switch (type) {
       case 'session.ready':
@@ -793,9 +773,7 @@ Always respond in English. Keep it short and direct.`;
         break;
 
       case 'input.speech.started':
-        agentReplying = true;   // a new turn is in flight: hold tool results
         markVoiceActivity();
-        if (orbState) orbState.textContent = 'You\'re speaking...';
         break;
 
       case 'transcript.user':
@@ -805,32 +783,19 @@ Always respond in English. Keep it short and direct.`;
         // Track turn for extraction
         fullTranscript.push({ speaker: 'user', text: msg.text });
         agentBusy = true; agentBusySince = Date.now();
-        if (orbState) orbState.textContent = 'Thinking...';
-        // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): el fundador ya respondio,
-        // vuelve a la linea base.
         waitingForAnswer = false;
         break;
 
       case 'input.speech.stopped':
-        lastSpeechStoppedAt = performance.now();
-        firstAudioLogged = false;
+        // Latency timing and the "Thinking" row live in protocolOnEvent.
         break;
 
       case 'reply.started':
-        if (lastSpeechStoppedAt) {
-          console.log('[Latency] founder stopped -> reply.started:', Math.round(performance.now() - lastSpeechStoppedAt), 'ms');
-        }
-        agentReplying = true;
         agentBusy = true; agentBusySince = Date.now();
         markVoiceActivity();
-        if (orbState) orbState.textContent = 'Brandy speaking...';
         break;
 
       case 'reply.audio':
-        if (lastSpeechStoppedAt && !firstAudioLogged) {
-          firstAudioLogged = true;
-          console.log('[Latency] founder stopped -> first audio:', Math.round(performance.now() - lastSpeechStoppedAt), 'ms');
-        }
         // Play audio chunk from AssemblyAI
         playAudioChunk(msg.data);
         break;
@@ -841,8 +806,6 @@ Always respond in English. Keep it short and direct.`;
         appendAgentMessage(msg.text);
         // Track turn for extraction
         fullTranscript.push({ speaker: 'agent', text: msg.text });
-        // Adaptive pattern (06_VOICE_AGENT_API_DOCS.md): Brandy entrevista, el
-        // fundador piensa en voz alta. Si termino en "?" damos mas tiempo de silencio.
         if (/\?\s*$/.test(msg.text || '')) {
           waitingForAnswer = true;
         }
@@ -851,24 +814,16 @@ Always respond in English. Keep it short and direct.`;
       case 'tool.call':
         agentBusy = true; agentBusySince = Date.now();
         markVoiceActivity();
-        // Agent invoked extract_brand_brain tool
-        handleToolCall(msg.name, msg.arguments, msg.call_id);
+        // The call itself is answered by protocolOnEvent -> handleToolCall.
         break;
 
       case 'reply.done':
-        agentReplying = false;
-        if (msg.status === 'interrupted') {
-          pendingToolResults.length = 0;   // docs: drop stale results after a barge-in
-        } else {
-          flushToolResults();
-        }
         agentBusy = false;
         markVoiceActivity();
         if (msg.status === 'interrupted') {
           console.log('[Barge-in] Flushing audio');
           flushAudioPlayback();
         }
-        if (orbState) orbState.textContent = 'Listening...';
         break;
 
       case 'transcript.user.delta':
@@ -877,7 +832,6 @@ Always respond in English. Keep it short and direct.`;
         break;
 
       case 'session.error':
-        console.error('[Agent Error]', msg.message);
         agentBusy = false;
         if (/auth/i.test(String(msg.message || ''))) {
           sessionEndReason = 'auth';
@@ -938,6 +892,7 @@ Always respond in English. Keep it short and direct.`;
   async function stopSession() {
     isSessionActive = false;
     isReady = false;
+    resetVoiceProtocol();
     flushAudioPlayback();
 
     // CRITICAL: Stop voice credits renewal timer
@@ -1030,15 +985,22 @@ Always respond in English. Keep it short and direct.`;
     streamContainer.appendChild(p);
   }
 
+  // === VOICE PROTOCOL START ===
   // ===========================================================================
-  // Brand interview tools: extract_brand_brain (one field per call) and
-  // confirm_brand_section. Protocol per the AssemblyAI tools docs:
-  //  - Brandy says "One moment." BEFORE the tool (prompted), so she never goes silent.
-  //  - tool.result is sent only when reply.done is the latest event, never while a
-  //    turn is in flight (reply.started / input.speech.started), and is dropped if
-  //    that reply was interrupted.
-  //  - The result carries the instruction for the NEXT question, so the reply that
-  //    follows a tool result is useful instead of a repeat of the old question.
+  // Voice loop: AssemblyAI Voice Agent event protocol + brand interview tools.
+  // Everything that decides WHEN a tool.result goes out, WHEN a stalled agent is
+  // nudged, and WHAT the tools do lives in this one block (tests/test_voice_protocol.js
+  // slices it out of this file and runs it in a vm with a fake ws / timers / fetch).
+  //
+  // Docs rules implemented here:
+  //  - tool.result is sent when reply.done is the LATEST event: not earlier (the agent
+  //    is still mid transition phrase), not later (a new turn has started).
+  //  - reply.done with status "interrupted": the tool results of that reply are discarded.
+  //  - A lost reply.done must never freeze the agent: two safety flushes (see below).
+  //  - Turn detection is adaptive unless localStorage brandyTurn === "fixed"; setting
+  //    min_silence/max_silence switches the adaptive pacing OFF, so we never send them.
+  //  - Tool args are NOT validated by an enum on the server (invisible rejections made
+  //    the agent go mute): the schema takes plain strings and we resolve them here.
   // ===========================================================================
   const SECTION_LABELS = {
     diagnostico: 'Where you stand', brand_journey: 'Brand Journey', charco: 'The pond',
@@ -1048,19 +1010,329 @@ Always respond in English. Keep it short and direct.`;
   // A section can only be confirmed when EVERY one of its fields has been said
   // (missingFields), not just the backend's required (lock) ones.
   const AFFIRMATIVE_RE = /\b(yes|yeah|yep|yup|correct|exactly|right|sure|absolutely|that works|sounds (good|right|well)|let'?s do it|go ahead|perfect)\b/i;
+  const CLARIFY_RE = /what do you mean|can you explain|i don'?t understand|not sure what/i;
 
+  const SPEECH_STOP_SAFETY_MS = 2500;  // flush pending this long after the founder stopped, if no reply started
+  const FORCE_FLUSH_MS = 6000;         // every pending result goes out this long after it was enqueued
+  const STALL_MS = 7000;               // "Hello?" watchdog
+  const MAX_NUDGES_PER_TURN = 2;
+
+  // ---- Turn detection (adaptive by default) ---------------------------------
+  let turnModeLogged = false;
+  function turnDetectionConfig() {
+    let fixed = false;
+    try { fixed = localStorage.getItem('brandyTurn') === 'fixed'; } catch (e) {}
+    if (!turnModeLogged) {
+      turnModeLogged = true;
+      console.log('[Turn] mode:', fixed ? 'fixed' : 'adaptive');
+    }
+    if (fixed) {
+      return { vad_threshold: 0.5, min_silence: 1200, max_silence: 3000, interrupt_response: true, interruption_delay: 600 };
+    }
+    return { vad_threshold: 0.5, interrupt_response: true, interruption_delay: 600 };
+  }
+
+  // ---- Activity feed (consumed by the right panel via a DOM CustomEvent) ------
+  // Contract: { id, kind: thinking|working|saved|decision|clarifying|error|info,
+  //             state: active|done|failed, text, at }. Same id = update that row.
+  function emitActivity(d) {
+    try { document.dispatchEvent(new CustomEvent('brandy:activity', { detail: Object.assign({ at: Date.now() }, d) })); } catch (e) {}
+  }
+
+  // ---- Protocol state ---------------------------------------------------------
   let lastSpeechStoppedAt = 0;
   let firstAudioLogged = false;
-  let agentReplying = false;      // a turn is in flight (reply started / founder speaking)
-  const pendingToolResults = [];
+  let lastEvent = null;               // 'reply.started' | 'input.speech.started' | 'reply.done' | null
+  let callsInCurrentReply = [];       // tool call ids emitted by the reply in flight
+  const droppedCalls = new Set();     // call ids of interrupted replies: never answered
+  const pendingToolResults = [];      // { callId, payload, at, timer }
+  let toolsInFlight = 0;
   let toolChain = Promise.resolve();
-  const brainFacts = {};          // section -> { backendKey: value }
+  let protocolEpoch = 0;              // bumped on every session start/stop: late async work is discarded
+  let speechStopTimer = null;
+  let stallTimer = null;
+  let nudgesThisTurn = 0;
+  let nudgeSeq = 0;
+  let lastReplyStartedAt = 0;
+  let audioSinceTurn = false;         // reply audio arrived since the founder last spoke / a result was sent
+  let turnSeq = 0;
+  let clarifySeq = 0;
+  let thinking = null;                // { id, t0 } while a "Thinking..." row is active
+  let lastTouchedSection = null;
+  const brainFacts = {};              // section -> { backendKey: value }
+  const localCitations = {};          // section -> founder's literal words of the latest save
+  const confirmedSections = new Set();
+  let persistChain = Promise.resolve();
+  let persistsPending = 0;
 
+  function wsOpen() { return !!(ws && ws.readyState === WebSocket.OPEN); }
+  function sendWs(obj) {
+    if (!wsOpen()) return false;
+    try { ws.send(JSON.stringify(obj)); return true; } catch (e) { console.warn('[WS] send failed', e); return false; }
+  }
+  function setOrb(text) { if (orbState) orbState.textContent = text; }
+
+  function resetVoiceProtocol() {
+    protocolEpoch++;
+    if (speechStopTimer) { clearTimeout(speechStopTimer); speechStopTimer = null; }
+    if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+    pendingToolResults.forEach(function (it) { if (it.timer) clearTimeout(it.timer); });
+    pendingToolResults.length = 0;
+    droppedCalls.clear();
+    callsInCurrentReply = [];
+    toolsInFlight = 0;
+    lastEvent = null;
+    nudgesThisTurn = 0;
+    lastReplyStartedAt = 0;
+    audioSinceTurn = false;
+    toolChain = Promise.resolve();
+    if (thinking) {
+      emitActivity({ id: thinking.id, kind: 'thinking', state: 'done', text: 'Stopped' });
+      thinking = null;
+    }
+  }
+
+  // ---- "Thinking..." row ------------------------------------------------------
+  function beginThinking() {
+    if (thinking) return;
+    thinking = { id: 'turn-' + (++turnSeq), t0: performance.now() };
+    emitActivity({ id: thinking.id, kind: 'thinking', state: 'active', text: 'Thinking…' });
+  }
+  function endThinking() {
+    if (!thinking) return;
+    const secs = ((performance.now() - thinking.t0) / 1000).toFixed(1);
+    emitActivity({ id: thinking.id, kind: 'thinking', state: 'done', text: 'Thought for ' + secs + ' s' });
+    thinking = null;
+  }
+
+  // ---- tool.result queue ------------------------------------------------------
+  function flushPending() {
+    while (pendingToolResults.length) {
+      const item = pendingToolResults.shift();
+      if (item.timer) { clearTimeout(item.timer); item.timer = null; }
+      if (droppedCalls.has(item.callId)) continue;
+      const isError = item.payload.success === false;
+      // `result` goes as a STRING, not an object: the API requires it.
+      const ok = sendWs({
+        type: 'tool.result',
+        call_id: item.callId,
+        result: JSON.stringify(item.payload),
+        is_error: isError
+      });
+      if (ok) {
+        console.log('[Tool] result sent', item.callId, isError ? 'error' : 'ok');
+        console.log('[Latency] tool.result sent', Date.now() - item.at, 'ms after it was ready');
+        audioSinceTurn = false;   // a new reply is expected now
+        armStall();
+      }
+    }
+  }
+
+  // Docs: send only when reply.done is the latest event.
+  function flushIfIdle() {
+    if (lastEvent === 'reply.done') flushPending();
+  }
+
+  function enqueueToolResult(callId, payload) {
+    if (!callId) return;
+    if (droppedCalls.has(callId)) {
+      console.log('[Tool] result discarded (its reply was interrupted)', callId);
+      return;
+    }
+    const item = { callId: callId, payload: payload, at: Date.now(), timer: null };
+    const epoch = protocolEpoch;
+    // Safety net (b): a lost reply.done must not leave the agent waiting forever.
+    item.timer = setTimeout(function () {
+      item.timer = null;
+      if (epoch !== protocolEpoch || pendingToolResults.indexOf(item) === -1 || droppedCalls.has(item.callId)) return;
+      console.log('[Tool] force flush after', FORCE_FLUSH_MS, 'ms', item.callId);
+      flushPending();
+    }, FORCE_FLUSH_MS);
+    pendingToolResults.push(item);
+    flushIfIdle();
+  }
+
+  // reply.done "interrupted": discard the results of the calls that reply made.
+  function dropInterruptedCalls() {
+    callsInCurrentReply.forEach(function (id) { droppedCalls.add(id); });
+    for (let i = pendingToolResults.length - 1; i >= 0; i--) {
+      if (droppedCalls.has(pendingToolResults[i].callId)) {
+        if (pendingToolResults[i].timer) clearTimeout(pendingToolResults[i].timer);
+        pendingToolResults.splice(i, 1);
+      }
+    }
+    callsInCurrentReply = [];
+  }
+
+  // Safety net (a): the founder stopped talking and no reply.started came.
+  function armSpeechStopSafety() {
+    if (speechStopTimer) clearTimeout(speechStopTimer);
+    const epoch = protocolEpoch;
+    speechStopTimer = setTimeout(function () {
+      speechStopTimer = null;
+      if (epoch !== protocolEpoch) return;
+      if (pendingToolResults.length) {
+        console.log('[Tool] safety flush: no reply started', SPEECH_STOP_SAFETY_MS, 'ms after the founder stopped');
+        flushPending();
+      }
+    }, SPEECH_STOP_SAFETY_MS);
+  }
+
+  // ---- Stall watchdog (the "Hello?" x2 case) -----------------------------------
+  function cancelStall() {
+    if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+  }
+  function armStall(ms) {
+    cancelStall();
+    const epoch = protocolEpoch;
+    stallTimer = setTimeout(function () {
+      stallTimer = null;
+      if (epoch === protocolEpoch) onStall();
+    }, ms || STALL_MS);
+  }
+  function onStall() {
+    if (!wsOpen()) return;
+    if (pendingToolResults.length) {
+      console.log('[Stall] flushing pending tool results');
+      flushPending();
+      return;
+    }
+    if (toolsInFlight > 0) return;
+    if (activeSources.length > 0) return;
+    if (lastEvent === 'reply.started') {
+      const age = Date.now() - lastReplyStartedAt;
+      if (age < STALL_MS) { armStall(STALL_MS - age + 50); return; }
+    }
+    if (nudgesThisTurn >= MAX_NUDGES_PER_TURN) return;
+    nudgesThisTurn++;
+    sendWs({ type: 'reply.create', instructions: nextStepInstruction(lastTouchedSection) + ' Keep it to one or two short sentences.' });
+    console.log('[Stall] nudged');
+    emitActivity({ id: 'stall-' + (++nudgeSeq), kind: 'info', state: 'done', text: 'Nudged Brandy to continue' });
+    if (nudgesThisTurn < MAX_NUDGES_PER_TURN) armStall();
+  }
+
+  // ---- Resume without "let's continue" -----------------------------------------
+  // Same condition that suppresses the greeting in session.update.
+  function hasPriorContext() {
+    return !!((cachedBrain && cachedBrain.sections && cachedBrain.sections.length > 0) || fullTranscript.length > 0);
+  }
+
+  // ---- The event handler (called first thing by handleAgentEvent) ---------------
+  function protocolOnEvent(msg) {
+    if (!msg || !msg.type) return;
+    switch (msg.type) {
+      case 'session.ready':
+        if (hasPriorContext()) {
+          sendWs({
+            type: 'reply.create',
+            instructions: 'The founder is back. Welcome them back in one short sentence, then ' + nextStepInstruction(null)
+          });
+        }
+        break;
+
+      case 'input.speech.started':
+        lastEvent = 'input.speech.started';
+        audioSinceTurn = false;
+        cancelStall();   // the founder is talking; the next final transcript re-arms it
+        setOrb('You\'re speaking...');
+        break;
+
+      case 'input.speech.stopped':
+        audioSinceTurn = false;
+        lastSpeechStoppedAt = performance.now();
+        firstAudioLogged = false;
+        beginThinking();
+        setOrb('Thinking…');
+        armSpeechStopSafety();
+        break;
+
+      case 'transcript.user': {
+        nudgesThisTurn = 0;
+        // The final transcript can land after the reply already started talking: only
+        // watch for a stall when no reply audio has come since the founder spoke.
+        if (!audioSinceTurn) armStall();
+        const said = String(msg.text || '');
+        if (/\?\s*$/.test(said) || CLARIFY_RE.test(said)) {
+          emitActivity({ id: 'clarify-' + (++clarifySeq), kind: 'clarifying', state: 'done', text: 'Clarifying your question' });
+        }
+        break;
+      }
+
+      case 'reply.started':
+        lastEvent = 'reply.started';
+        callsInCurrentReply = [];
+        lastReplyStartedAt = Date.now();
+        if (speechStopTimer) { clearTimeout(speechStopTimer); speechStopTimer = null; }
+        console.log('[Event] reply.started', msg.reply_id);
+        if (lastSpeechStoppedAt) {
+          console.log('[Latency] founder stopped -> reply.started:', Math.round(performance.now() - lastSpeechStoppedAt), 'ms');
+        }
+        setOrb('Brandy speaking…');
+        break;
+
+      case 'reply.audio':
+        audioSinceTurn = true;
+        cancelStall();
+        if (lastSpeechStoppedAt && !firstAudioLogged) {
+          firstAudioLogged = true;
+          console.log('[Latency] founder stopped -> first audio:', Math.round(performance.now() - lastSpeechStoppedAt), 'ms');
+        }
+        endThinking();
+        setOrb('Brandy speaking…');
+        break;
+
+      case 'transcript.agent':
+        console.log('[Event] transcript.agent interrupted=' + (msg.interrupted === true));
+        break;
+
+      case 'tool.call':
+        handleToolCall(msg.name, msg.arguments, msg.call_id);
+        break;
+
+      case 'reply.done':
+        lastEvent = 'reply.done';
+        console.log('[Event] reply.done', msg.reply_id, msg.status);
+        endThinking();
+        setOrb('Listening...');
+        if (msg.status === 'interrupted') dropInterruptedCalls();
+        else flushIfIdle();
+        break;
+
+      case 'session.error':
+        console.error('[Agent Error] ' + (msg.code || '') + ' ' + (msg.message || ''));
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  // ---- Brand interview state helpers --------------------------------------------
   function brainFieldTable() {
     return (window.BrandStudioAgent && window.BrandStudioAgent.BRAIN_FIELDS) || [];
   }
   function brainSectionOrder() {
     return (window.BrandStudioAgent && window.BrandStudioAgent.BRAIN_SECTION_ORDER) || Object.keys(SECTION_LABELS);
+  }
+  function resolveSection(input) {
+    const a = window.BrandStudioAgent;
+    if (a && typeof a.resolveBrainSection === 'function') return a.resolveBrainSection(input);
+    return SECTION_LABELS[input] ? input : null;
+  }
+  function resolveField(sectionId, input) {
+    const a = window.BrandStudioAgent;
+    return (a && typeof a.resolveBrainField === 'function') ? a.resolveBrainField(sectionId, input) : null;
+  }
+  function fieldNamesOf(sectionId) {
+    return brainFieldTable().filter(function (f) { return f.section === sectionId; })
+      .map(function (f) { return f.name || f.alias.split('.').pop(); }).join(', ');
+  }
+  function sectionsHint() {
+    return brainSectionOrder().map(function (id) { return id + ' (' + SECTION_LABELS[id] + ')'; }).join(', ');
+  }
+  function clip(text, max) {
+    const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    return t.length > max ? t.slice(0, max - 1) + '…' : t;
   }
 
   function getBrainFacts(section) {
@@ -1078,7 +1350,9 @@ Always respond in English. Keep it short and direct.`;
     return brainFacts[section];
   }
 
+  // Local set OR what the backend already says.
   function isSectionConfirmed(section) {
+    if (confirmedSections.has(section)) return true;
     const known = cachedBrain && cachedBrain.sections && cachedBrain.sections.find(function (x) { return x.id === section; });
     return !!(known && known.status === 'confirmado');
   }
@@ -1124,6 +1398,32 @@ Always respond in English. Keep it short and direct.`;
     return lastUser && lastUser.text ? lastUser.text.trim() : '';
   }
 
+  // ---- Optimistic render + background persistence --------------------------------
+  // Backend sections merged with what was said locally (a save is on screen at once).
+  function localSectionsSnapshot() {
+    const base = (cachedBrain && cachedBrain.sections) ? cachedBrain.sections : [];
+    const byId = {};
+    base.forEach(function (s) { if (s && s.id) byId[s.id] = s; });
+    const out = [];
+    brainSectionOrder().forEach(function (id) {
+      const known = byId[id];
+      const facts = brainFacts[id];
+      if (!known && !facts) return;
+      const merged = Object.assign({}, (known && known.content && typeof known.content === 'object') ? known.content : {}, facts || {});
+      const confirmed = confirmedSections.has(id) || !!(known && known.status === 'confirmado');
+      out.push(Object.assign({ id: id, citation_source: 'usuario' }, known || {}, {
+        content: merged,
+        status: confirmed ? 'confirmado' : ((known && known.status) || 'propuesto'),
+        citation_text: localCitations[id] || (known && known.citation_text) || ''
+      }));
+    });
+    return out;
+  }
+
+  function renderBrainNow() {
+    try { appendExtractedSections(localSectionsSnapshot()); } catch (e) { console.warn('[Render] optimistic render failed', e); }
+  }
+
   // Sends one section to the backend (whole accumulated content) and refreshes the screen.
   async function persistBrainSection(section, citation, confirmed) {
     const transcriptText = fullTranscript.map(function (t) { return t.speaker + ': ' + t.text; }).join('\n');
@@ -1152,112 +1452,167 @@ Always respond in English. Keep it short and direct.`;
     if (result.brand_brain && result.brand_brain.sections) {
       cachedBrain = result.brand_brain;
       if (result.missing_sections) missingSections = result.missing_sections;
-      appendExtractedSections(result.brand_brain.sections);
+      // While other saves are still queued the server copy is behind: keep the merged view.
+      appendExtractedSections(persistsPending > 1 ? localSectionsSnapshot() : result.brand_brain.sections);
       updateBrandSoulButton(result.brand_brain.sections);
       updateCatalogButton(result.brand_brain.sections);
     }
     return result;
   }
 
-  async function runSaveFact(args) {
-    const alias = String(args.field || '');
-    const field = brainFieldTable().find(function (f) { return f.alias === alias; });
-    if (!field) return { success: false, error: 'Unknown field "' + alias + '". Use one of the listed fields.' };
-    const value = String(args.value || '').trim();
-    if (!value) return { success: false, error: 'Empty value. Ask the founder again for: ' + field.ask };
-    if (isSectionConfirmed(field.section)) {
-      return { success: false, error: 'Section "' + SECTION_LABELS[field.section] + '" is already confirmed and locked.', next: nextStepInstruction(field.section) };
-    }
-    const citation = lastFounderWords();
-    if (!citation) return { success: false, error: 'No founder words to cite yet. Ask the founder first.' };
-
-    getBrainFacts(field.section)[field.key] = value;
-    await persistBrainSection(field.section, citation, false);
-
-    return {
-      success: true,
-      saved: alias,
-      section_progress: (sectionTotal(field.section) - missingFields(field.section).length) + ' of ' + sectionTotal(field.section) + ' fields in "' + SECTION_LABELS[field.section] + '"',
-      interview_progress: overallProgress(),
-      next: nextStepInstruction(field.section)
-    };
+  // Serialized background persistence: never blocks the tool.result.
+  function schedulePersist(section, citation, confirmed) {
+    persistsPending++;
+    persistChain = persistChain.then(function () {
+      return persistBrainSection(section, citation, confirmed);
+    }).catch(function (e) {
+      console.error('[Persist] save failed for', section, e);
+      emitActivity({ id: 'persist-' + section, kind: 'error', state: 'failed', text: 'Could not sync "' + SECTION_LABELS[section] + '" to the server yet' });
+    }).then(function () { persistsPending--; });
+    return persistChain;
   }
 
-  async function runConfirmSection(args) {
-    const section = String(args.section || '');
-    if (!SECTION_LABELS[section]) return { success: false, error: 'Unknown section "' + section + '".' };
-    if (isSectionConfirmed(section)) return { success: true, note: 'Already confirmed.', next: nextStepInstruction(section) };
+  // ---- Tool bodies -----------------------------------------------------------------
+  // Payloads carry a NON-enumerable _activity (what the right panel shows); it never
+  // reaches the model because JSON.stringify skips it.
+  function withActivity(payload, activity) {
+    Object.defineProperty(payload, '_activity', { value: activity, enumerable: false });
+    return payload;
+  }
+  function refuse(error, needs, extra) {
+    return withActivity(Object.assign({ success: false, error: error }, extra || {}),
+      { kind: 'clarifying', state: 'done', text: 'Needs: ' + needs });
+  }
+
+  function runSaveFact(args) {
+    const rawSection = String(args.section == null ? '' : args.section).trim();
+    const rawField = String(args.field == null ? '' : args.field).trim();
+    const secId = resolveSection(rawSection);
+    const field = resolveField(secId, rawField);
+    if (!field) {
+      if (secId) {
+        return refuse('Unknown field "' + (rawField || '(empty)') + '" for section "' + SECTION_LABELS[secId] + '". Valid fields: ' +
+          fieldNamesOf(secId) + '. Pick one and call again.', 'which field of "' + SECTION_LABELS[secId] + '" this fact belongs to');
+      }
+      return refuse('Unknown section "' + (rawSection || '(empty)') + '" (field "' + (rawField || '(empty)') + '"). Valid sections: ' +
+        sectionsHint() + '. Pick a section and one of its fields, then call again.', 'which section this fact belongs to');
+    }
+    const label = SECTION_LABELS[field.section];
+    const value = String(args.value == null ? '' : args.value).trim();
+    if (!value) {
+      return refuse('Empty value for "' + field.name + '" in "' + label + '". Ask the founder again for: ' + field.ask, field.ask);
+    }
+    if (isSectionConfirmed(field.section)) {
+      return refuse('Section "' + label + '" is already confirmed and locked.', 'a field from another section',
+        { next: nextStepInstruction(field.section) });
+    }
+    const citation = lastFounderWords();
+    if (!citation) return refuse('No founder words to cite yet. Ask the founder first.', 'the founder to say something first');
+
+    getBrainFacts(field.section)[field.key] = value;
+    localCitations[field.section] = citation;
+    lastTouchedSection = field.section;
+    renderBrainNow();                                   // optimistic: on screen before the POST
+    schedulePersist(field.section, citation, false);    // background, serialized
+
+    const total = sectionTotal(field.section);
+    const done = total - missingFields(field.section).length;
+    return withActivity({
+      success: true,
+      saved: field.alias,
+      section_progress: done + ' of ' + total + ' fields in "' + label + '"',
+      interview_progress: overallProgress(),
+      next: nextStepInstruction(field.section)
+    }, { kind: 'saved', state: 'done', text: 'Saved ' + field.name + ': "' + clip(value, 48) + '" · ' + label + ' ' + done + '/' + total });
+  }
+
+  function runConfirmSection(args) {
+    const rawSection = String(args.section == null ? '' : args.section).trim();
+    const section = resolveSection(rawSection);
+    if (!section) {
+      return refuse('Unknown section "' + (rawSection || '(empty)') + '". Valid sections: ' + sectionsHint() + '. Pick one and call again.',
+        'which section the founder confirmed');
+    }
+    const label = SECTION_LABELS[section];
+    if (isSectionConfirmed(section)) {
+      return withActivity({ success: true, note: 'Already confirmed.', next: nextStepInstruction(section) },
+        { kind: 'decision', state: 'done', text: '"' + label + '" was already locked' });
+    }
     const missing = missingFields(section);
     if (missing.length) {
-      return { success: false, error: 'Section "' + SECTION_LABELS[section] + '" is not complete yet. Ask ONE short question about: ' + missing[0].ask + '.' };
+      return refuse('Section "' + label + '" is not complete yet. Ask ONE short question about: ' + missing[0].ask + '.', missing[0].ask);
     }
     const yes = lastFounderWords();
     if (!yes || !AFFIRMATIVE_RE.test(yes)) {
-      return { success: false, error: 'The founder has not said an explicit yes. Summarize the section in ONE short sentence and ask "Is that right?", then wait.' };
+      return refuse('The founder has not said an explicit yes. Summarize the section in ONE short sentence and ask "Is that right?", then wait.',
+        'an explicit yes to the summary of "' + label + '"');
     }
-    await persistBrainSection(section, yes, true);
-    return {
+    confirmedSections.add(section);
+    localCitations[section] = yes;
+    lastTouchedSection = section;
+    renderBrainNow();
+    schedulePersist(section, yes, true);
+    return withActivity({
       success: true,
       confirmed: section,
       interview_progress: overallProgress(),
       next: nextStepInstruction(section)
-    };
+    }, { kind: 'decision', state: 'done', text: 'Locked "' + label + '" with your yes' });
+  }
+
+  // What the working row and the orb say while a tool runs.
+  function describeToolCall(toolName, args) {
+    if (toolName === 'extract_brand_brain') {
+      const secId = resolveSection(args.section);
+      const field = resolveField(secId, args.field);
+      const name = field ? field.name : (clip(args.field, 30) || 'a fact');
+      const label = field ? SECTION_LABELS[field.section] : (secId ? SECTION_LABELS[secId] : '');
+      return { orb: 'Working: saving ' + name, text: 'Saving ' + name + (label ? ' → ' + label : '') };
+    }
+    if (toolName === 'confirm_brand_section') {
+      const secId = resolveSection(args.section);
+      const label = secId ? SECTION_LABELS[secId] : (clip(args.section, 30) || 'section');
+      return { orb: 'Working: locking ' + label, text: 'Locking "' + label + '"' };
+    }
+    return { orb: 'Working...', text: 'Running ' + clip(toolName, 30) };
   }
 
   // Handle tool calls. EVERY call gets an answer, otherwise the agent waits forever.
-  async function handleToolCall(toolName, args, callId) {
+  function handleToolCall(toolName, args, callId) {
     markVoiceActivity();
+    if (typeof args === 'string') { try { args = JSON.parse(args); } catch (e) { args = {}; } }
+    args = args || {};
     console.log('[Tool Call]', toolName, args);
+    const epoch = protocolEpoch;
     const t0 = Date.now();
-    if (orbState) orbState.textContent = 'Saving...';
+    const rowId = 'tool-' + callId;
+    if (callId) callsInCurrentReply.push(callId);
+    toolsInFlight++;
+    const desc = describeToolCall(toolName, args);
+    emitActivity({ id: rowId, kind: 'working', state: 'active', text: desc.text });
+    setOrb(desc.orb);
 
     // Serialized: several tool calls in one turn must not overwrite each other.
-    toolChain = toolChain.then(async function () {
+    toolChain = toolChain.then(function () {
       let payload;
       try {
-        if (toolName === 'extract_brand_brain') payload = await runSaveFact(args || {});
-        else if (toolName === 'confirm_brand_section') payload = await runConfirmSection(args || {});
-        else payload = { success: false, error: 'This tool is not available right now. Continue the interview.' };
+        if (toolName === 'extract_brand_brain') payload = runSaveFact(args);
+        else if (toolName === 'confirm_brand_section') payload = runConfirmSection(args);
+        else payload = refuse('This tool is not available right now. Continue the interview.', 'nothing: continue the interview');
       } catch (error) {
         console.error('[Tool Call Error]', error);
-        payload = { success: false, error: error.message };
+        payload = withActivity({ success: false, error: 'Internal error while saving (' + error.message + '). Tell the founder in one sentence and ask them to repeat it.' },
+          { kind: 'error', state: 'failed', text: 'Tool failed: ' + clip(error.message, 60) });
       }
+      emitActivity(Object.assign({ id: rowId }, payload._activity || { kind: payload.success === false ? 'clarifying' : 'saved', state: 'done', text: payload.success === false ? 'Needs: another try' : 'Done' }));
       console.log('[Latency] tool.call handled in', Date.now() - t0, 'ms', payload);
-      sendToolResult(callId, payload);
-    });
+      if (epoch !== protocolEpoch) return;   // the session ended meanwhile: nobody is waiting for it
+      toolsInFlight--;
+      enqueueToolResult(callId, payload);
+    }).catch(function (e) { console.error('[Tool] chain error', e); });
     return toolChain;
   }
-
-  // tool.result goes out only when no turn is in flight.
-  function sendToolResult(callId, payload) {
-    if (!callId) return;
-    const item = { callId: callId, payload: payload, at: Date.now() };
-    pendingToolResults.push(item);
-    if (!agentReplying) {
-      flushToolResults();
-    } else {
-      // Safety net: never let a lost reply.done leave the agent waiting forever.
-      setTimeout(function () {
-        if (pendingToolResults.indexOf(item) !== -1) flushToolResults();
-      }, 8000);
-    }
-  }
-
-  function flushToolResults() {
-    while (pendingToolResults.length) {
-      const item = pendingToolResults.shift();
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        // `result` va como STRING, no como objeto: la API lo exige.
-        ws.send(JSON.stringify({
-          type: 'tool.result',
-          call_id: item.callId,
-          result: JSON.stringify(item.payload),
-          is_error: item.payload && item.payload.success === false
-        }));
-        console.log('[Latency] tool.result sent', Date.now() - item.at, 'ms after it was ready');
-      }
-    }
-  }
+  // === VOICE PROTOCOL END ===
 
   function appendExtractedSections(sections) {
     // Render sections one-by-one in the center document zone (Modo A)
@@ -1681,7 +2036,7 @@ Always respond in English. Keep it short and direct.`;
       // Idle
       orb.classList.remove('orb--escuchando');
       orb.classList.add('orb--hablando');
-      if (orbState) orbState.textContent = 'Brandy speaking';
+      if (orbState) orbState.textContent = 'Tap the mic to talk';
       if (micBtn) micBtn.style.background = '';
     }
   }
