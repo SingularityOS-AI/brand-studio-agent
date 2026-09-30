@@ -459,6 +459,8 @@ Always respond in English. Keep it short and direct.`;
     apiKeyRequested = false;
     sessionEndReason = null;
     agentBusy = false;
+    agentReplying = false;
+    pendingToolResults.length = 0;
     const key = await ensureApiKey();
     if (!key) {
       return;
@@ -814,6 +816,7 @@ Always respond in English. Keep it short and direct.`;
         break;
 
       case 'reply.started':
+        agentReplying = true;
         agentBusy = true; agentBusySince = Date.now();
         markVoiceActivity();
         if (orbState) orbState.textContent = 'Brandy speaking...';
@@ -846,6 +849,8 @@ Always respond in English. Keep it short and direct.`;
         break;
 
       case 'reply.done':
+        agentReplying = false;
+        flushToolResults();
         agentBusy = false;
         markVoiceActivity();
         if (msg.status === 'interrupted') {
@@ -853,6 +858,11 @@ Always respond in English. Keep it short and direct.`;
           flushAudioPlayback();
         }
         if (orbState) orbState.textContent = 'Listening...';
+        break;
+
+      case 'transcript.user.delta':
+      case 'transcript.agent.delta':
+        markVoiceActivity();
         break;
 
       case 'session.error':
@@ -1010,17 +1020,32 @@ Always respond in English. Keep it short and direct.`;
     markVoiceActivity();
     console.log('[Tool Call]', toolName, args);
 
+    if (toolName !== 'extract_brand_brain') {
+      // Every tool.call MUST be answered or the agent waits forever and goes silent.
+      // The other agentic tools are not wired to this handler yet.
+      sendToolResult(callId, { success: false, error: 'This tool is not available right now. Continue the interview.' });
+      return;
+    }
+
     if (toolName === 'extract_brand_brain') {
       try {
         // Build transcript from stored messages
         const transcriptText = fullTranscript.map(t => `${t.speaker}: ${t.text}`).join('\n');
         const turnCount = Math.ceil(fullTranscript.length / 2); // Agent + user pairs
 
-        // args is what the agent extracted - pass it as tool_result directly
-        // Agent should have provided sections array with extracted data
-        const tool_result = args || {
+        // Flat voice-friendly call {section, fact, confirmed} -> backend format.
+        // Old nested format {sections:[...]} is still accepted as-is.
+        let flat = null;
+        if (args && args.section) {
+          flat = buildToolResultFromFlatCall(args);
+          if (flat.error) {
+            sendToolResult(callId, { success: false, error: flat.error });
+            return;
+          }
+        }
+        const tool_result = flat ? flat.tool_result : (args || {
           sections: []
-        };
+        });
 
         console.log('[Tool Call] Sending tool_result to backend:', tool_result);
 
@@ -1049,20 +1074,13 @@ Always respond in English. Keep it short and direct.`;
         }
 
         // Send tool.result back to agent
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          // `result` va como STRING, no como objeto: la API lo exige y un objeto
-          // se acepta en el envio pero el agente no lo lee.
-          ws.send(JSON.stringify({
-            type: 'tool.result',
-            call_id: callId,
-            result: JSON.stringify({
-              success: true,
-              brand_brain: result.brand_brain,
-              sections_count: result.sections_count,
-              missing_sections: result.missing_sections
-            })
-          }));
-        }
+        // Compact on purpose: the agent reads this before its next reply, so a
+        // whole brand_brain here only makes it slower.
+        sendToolResult(callId, {
+          success: true,
+          saved: flat ? flat.saved_status : undefined,
+          missing_sections: result.missing_sections
+        });
 
         // Update UI with extracted sections
         if (result.brand_brain && result.brand_brain.sections) {
@@ -1082,18 +1100,87 @@ Always respond in English. Keep it short and direct.`;
       } catch (error) {
         console.error('[Tool Call Error]', error);
         // Send error back to agent
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'tool.result',
-            call_id: callId,
-            result: JSON.stringify({
-              success: false,
-              error: error.message
-            })
-          }));
-        }
+        sendToolResult(callId, { success: false, error: error.message });
       }
     }
+  }
+
+  // Interactive tools: the docs say tool.result goes out AFTER reply.done, never
+  // while the agent is still talking. Results produced mid-reply are queued.
+  let agentReplying = false;
+  const pendingToolResults = [];
+
+  function sendToolResult(callId, payload) {
+    if (!callId) return;
+    pendingToolResults.push({ callId: callId, payload: payload });
+    if (!agentReplying) flushToolResults();
+  }
+
+  function flushToolResults() {
+    while (pendingToolResults.length) {
+      const item = pendingToolResults.shift();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // `result` va como STRING, no como objeto: la API lo exige.
+        ws.send(JSON.stringify({
+          type: 'tool.result',
+          call_id: item.callId,
+          result: JSON.stringify(item.payload)
+        }));
+      }
+    }
+  }
+
+  // Canonical primary field per section (the backend keeps only these keys).
+  const PRIMARY_FIELD = {
+    diagnostico: 'sintoma_diagnostico',
+    brand_journey: 'resultado_deseado',
+    charco: 'problema',
+    icp: 'quien_decide',
+    contrarian: 'creencia_comun',
+    asociaciones: 'deseadas',
+    identidad: 'voz',
+    oferta: 'resultado_sonado',
+    lead_magnet: 'problema_A'
+  };
+  const sectionFacts = {};
+  const AFFIRMATIVE_RE = /\b(yes|yeah|yep|yup|correct|exactly|right|sure|absolutely|that works|sounds (good|right|well)|let'?s do it|go ahead|perfect)\b/i;
+
+  // Turns the flat voice call {section, fact, confirmed} into the backend format.
+  // The citation is the founder's own last utterance (literal by construction) and
+  // "confirmed" is only kept when that utterance is an explicit yes.
+  function buildToolResultFromFlatCall(args) {
+    const id = String(args.section || '');
+    const field = PRIMARY_FIELD[id];
+    if (!field) return { error: 'Unknown section: ' + id };
+    const fact = String(args.fact || '').trim();
+    const lastUser = fullTranscript.filter(t => t.speaker === 'user').slice(-1)[0];
+    const citation = lastUser && lastUser.text ? lastUser.text.trim() : '';
+    if (!citation) return { error: 'No founder words to cite yet. Ask the founder first.' };
+
+    let confirmed = args.confirmed === true;
+    let note;
+    if (confirmed && !AFFIRMATIVE_RE.test(citation)) {
+      confirmed = false;
+      note = 'proposed';
+    }
+    if (!sectionFacts[id]) {
+      const known = cachedBrain && cachedBrain.sections && cachedBrain.sections.find(s => s.id === id);
+      sectionFacts[id] = known && known.content && known.content[field] ? [String(known.content[field])] : [];
+    }
+    if (fact && !sectionFacts[id].includes(fact)) sectionFacts[id].push(fact);
+
+    return {
+      saved_status: id + ': ' + (confirmed ? 'confirmed' : 'proposed (ask for an explicit yes to confirm)') + (note ? '' : ''),
+      tool_result: {
+        sections: [{
+          id: id,
+          citation_text: citation,
+          citation_source: 'usuario',
+          confirmed: confirmed,
+          content: { [field]: sectionFacts[id].join('; ') }
+        }]
+      }
+    };
   }
 
   function appendExtractedSections(sections) {
@@ -1196,7 +1283,18 @@ Always respond in English. Keep it short and direct.`;
   function renderModoASections(sections) {
     const docBody = document.querySelector('.docbody');
     if (!docBody) return;
-    currentModoASections = sections || [];
+    // The backend stores every canonical field (null when not said yet); the screen
+    // should show only what the founder actually gave.
+    sections = (sections || []).map(function (s) {
+      if (!s || !s.content || typeof s.content !== 'object') return s;
+      const kept = {};
+      Object.keys(s.content).forEach(function (k) {
+        const v = s.content[k];
+        if (v !== null && v !== undefined && v !== '') kept[k] = v;
+      });
+      return Object.assign({}, s, { content: kept });
+    });
+    currentModoASections = sections;
 
     // Clear existing ghost sections and replace with live sections
     docBody.innerHTML = '';

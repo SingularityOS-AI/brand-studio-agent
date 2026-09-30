@@ -22,49 +22,32 @@
   const EXTRACT_BRAND_BRAIN_TOOL = {
     type: 'function',
     name: 'extract_brand_brain',
-    description: 'Save brand facts the founder just said and show them on screen. Call it EVERY time the founder states a concrete fact (name, clients, price, stage, goal) with confirmed=false, and call it again with confirmed=true and their literal words right after an explicit yes. Sections: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet.',
+    description: 'Save one brand fact the founder just said and show it on screen. Call it EVERY time the founder states a concrete fact (name, clients, price, stage, goal) with confirmed=false, and call it again with confirmed=true right after an explicit yes. Do not call it for small talk or questions.',
     parameters: {
       type: 'object',
       properties: {
-        sections: {
-          type: 'array',
-          description: 'Extracted brand sections, each with id, citation_text, citation_source, confirmed, and content dict',
-          items: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'Section id (one of: diagnostico, brand_journey, charco, icp, contrarian, asociaciones, identidad, oferta, lead_magnet)'
-              },
-              citation_text: {
-                type: 'string',
-                description: 'Exact literal words from the founder that support this section'
-              },
-              citation_source: {
-                type: 'string',
-                enum: ['usuario', 'analisis_publico'],
-                description: 'Source: "usuario" for founder voice transcript, "analisis_publico" for public analysis'
-              },
-              confirmed: {
-                type: 'boolean',
-                description: 'true ONLY after the founder explicitly says yes; false while the data is still a proposal'
-              },
-              content: {
-                type: 'object',
-                description: 'Section content dict with fields specific to each section type'
-              }
-            },
-            required: ['id', 'citation_text', 'citation_source', 'confirmed', 'content']
-          }
+        section: {
+          type: 'string',
+          description: 'Which brand section the fact belongs to.',
+          enum: ['diagnostico', 'brand_journey', 'charco', 'icp', 'contrarian', 'asociaciones', 'identidad', 'oferta', 'lead_magnet']
+        },
+        fact: {
+          type: 'string',
+          description: 'The fact in a short phrase, using the founder own words.',
+          examples: ['Medical interpreter for small clinics', 'Charges 75 dollars per hour', 'No clients yet']
+        },
+        confirmed: {
+          type: 'boolean',
+          description: 'true only right after the founder said an explicit yes to this section; otherwise false.'
         }
       },
-      required: ['sections']
+      required: ['section', 'fact', 'confirmed']
     }
   };
 
   // Front-loaded (voice prompts: long prompts dilute attention) so the model
   // actually saves the interview instead of just saying it "noted" something.
-  const BRAIN_TOOL_RULE = 'FIRST RULE: every time the founder says a concrete fact about their business, call the tool extract_brand_brain in that same turn, with confirmed=false. When they say an explicit yes to your summary, call it again with confirmed=true. Saying "I noted it" without calling the tool saves nothing.';
+  const BRAIN_TOOL_RULE = 'FIRST RULE: every time the founder says a concrete fact about their business, call the tool extract_brand_brain in that same turn, with confirmed=false. When they say an explicit yes to your summary, call it again with confirmed=true. Saying "I noted it" without calling the tool saves nothing. Example. Founder: "I sell medical interpretation to small clinics." You: [call extract_brand_brain section=icp fact="small clinics" confirmed=false] then say "Who signs the contract there?" When in doubt, call the tool.';
 
   // Global tools available in every step
   const GLOBAL_TOOL_NAMES = ['get_status', 'get_balance', 'go_to_step'];
