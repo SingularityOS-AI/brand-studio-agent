@@ -73,10 +73,16 @@ const save = (section, field, value, id) => call('extract_brand_brain', { sectio
 
 (async () => {
   assert.strictEqual(agent.BRAIN_FIELDS.length, 43);
-  // The model gets plain strings: no enum that the server could reject invisibly.
-  agent.BRAIN_INTERVIEW_TOOLS.forEach((t) => Object.keys(t.parameters.properties).forEach((k) => {
-    assert.strictEqual(t.parameters.properties[k].enum, undefined, t.name + '.' + k + ' must have no enum');
-  }));
+  // Proven production shape (live test #5): field enum of section.name aliases + value.
+  {
+    const [sv, cf] = agent.BRAIN_INTERVIEW_TOOLS;
+    assert.deepStrictEqual(sv.parameters.required, ['field', 'value']);
+    assert.strictEqual(sv.parameters.properties.field.enum.length, 43);
+    assert.ok(sv.parameters.properties.field.enum.includes('diagnostico.stage'));
+    assert.deepStrictEqual(cf.parameters.required, ['section']);
+    assert.strictEqual(cf.parameters.properties.section.enum.length, 9);
+    assert.strictEqual(sv.execution_mode, undefined, 'no execution_mode: keep the proven shape');
+  }
 
   // Protocol: reply.done is the latest event, so every answer goes out at once.
   api.event({ type: 'reply.done', reply_id: 'R0', status: 'completed' });

@@ -76,21 +76,13 @@ test('extract_brand_brain is not offered outside the brain step', () => {
   const names = agent.toolsForStep('catalog').map(t => t.name);
   assert(!names.includes('extract_brand_brain'));
 });
-test('Interview tool schemas are enum-free plain strings (server-side enum rejections were invisible)', () => {
+test('Interview tool schemas keep the shape proven in production (field enum + value)', () => {
   const [save, confirm] = agent.toolsForStep('brain');
   assert.strictEqual(save.name, 'extract_brand_brain');
-  assert.deepStrictEqual(save.parameters.required, ['section', 'field', 'value']);
+  assert.deepStrictEqual(save.parameters.required, ['field', 'value']);
+  assert.strictEqual(save.parameters.properties.field.enum.length, 43);
   assert.deepStrictEqual(confirm.parameters.required, ['section']);
-  [save, confirm].forEach(t => {
-    assert.strictEqual(t.execution_mode, 'interactive');
-    assert.strictEqual(t.timeout_seconds, 20);
-    Object.keys(t.parameters.properties).forEach(k => {
-      assert.strictEqual(t.parameters.properties[k].type, 'string');
-      assert.strictEqual(t.parameters.properties[k].enum, undefined, t.name + '.' + k + ' has an enum');
-    });
-  });
-  assert(Array.isArray(save.parameters.properties.field.examples) && save.parameters.properties.field.examples.length >= 3);
-  assert(/Where you stand/.test(save.parameters.properties.section.description), 'section description must list the English labels');
+  assert.strictEqual(save.execution_mode, undefined);
 });
 test('Session prompt: work phrases vary, no "One moment" instruction, few-shot uses the new schema', () => {
   const sent = [];

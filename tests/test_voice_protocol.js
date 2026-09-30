@@ -331,18 +331,10 @@ const sleepTick = () => new Promise((r) => setImmediate(r));
   {
     const tools = agent.BRAIN_INTERVIEW_TOOLS;
     assert.deepStrictEqual(tools.map((t) => t.name), ['extract_brand_brain', 'confirm_brand_section']);
-    tools.forEach((t) => {
-      assert.strictEqual(t.execution_mode, 'interactive');
-      assert.strictEqual(t.timeout_seconds, 20);
-      Object.keys(t.parameters.properties).forEach((k) => {
-        assert.strictEqual(t.parameters.properties[k].type, 'string');
-        assert.strictEqual(t.parameters.properties[k].enum, undefined, k + ' must not carry an enum');
-        assert.ok(t.parameters.properties[k].description.length > 10);
-      });
-    });
-    assert.deepStrictEqual(tools[0].parameters.required, ['section', 'field', 'value']);
+    // Proven production shape (live test #5): field enum of aliases + value; section enum.
+    assert.deepStrictEqual(tools[0].parameters.required, ['field', 'value']);
+    assert.strictEqual(tools[0].parameters.properties.field.enum.length, 43);
     assert.deepStrictEqual(tools[1].parameters.required, ['section']);
-    assert.ok(/Where you stand/.test(tools[0].parameters.properties.section.description));
 
     const e = makeEnv();
     e.say('user', 'Here are the facts.');
@@ -437,8 +429,8 @@ const sleepTick = () => new Promise((r) => setImmediate(r));
     assert.strictEqual(e.posts.length, 1, 'the POST was started in the background');
     assert.strictEqual(e.resultOf('o1').success, true);
     // it is on screen before the server answers
-    assert.strictEqual(e.renders.length, 1);
-    const shown = e.renders[0].filter((s) => s.id === 'diagnostico')[0];
+    assert.ok(e.renders.length >= 1, 'rendered before the POST (data + acting chip)');
+    const shown = e.renders[e.renders.length - 1].filter((s) => s.id === 'diagnostico')[0];
     assert.strictEqual(shown.content.sintoma_diagnostico, 'no sales yet');
     assert.strictEqual(shown.status, 'propuesto');
     // a second save while the first POST is in flight is queued behind it (serialized)

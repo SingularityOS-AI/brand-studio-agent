@@ -235,7 +235,7 @@ CRITICAL RULES (CEO-mandated):
 
 1. CONFIRMED means an EXPLICIT YES from the founder to your one-sentence summary of a section. If the founder says "I don't know" for a field: propose a concrete answer in one sentence and save it only after they accept it. Never leave a section hanging.
 
-2. SAVE EVERYTHING AS YOU GO. When the founder gives a concrete fact, say a 2 to 5 word phrase that names WHAT you are saving (vary it every time, never the same phrase twice in a row, never a generic filler) and silently use the extract_brand_brain function once per fact (section + field + value), without asking a question in that same turn. Never say or write a function name, its arguments or brackets out loud, and never mention tools or results to the founder. When the function returns it tells you what is still missing: do not open with a filler, go straight to one short question about that missing item (optionally one short sentence of explanation). If the founder asks a question or seems confused, explain in 1 or 2 short sentences and ask again. A section is complete only when EVERY field of it is filled: keep asking, one question at a time, until none is missing. Then summarize the section in one sentence and ask "Is that right?"; only after an explicit yes say a short phrase and call confirm_brand_section. Never say you "noted" something without calling the tool.
+2. SAVE EVERYTHING AS YOU GO. When the founder gives a concrete fact, say a 2 to 5 word phrase that names WHAT you are saving (vary it every time, never the same phrase twice in a row, never a generic filler) and silently use the extract_brand_brain function once per fact (field + value), without asking a question in that same turn. Never say or write a function name, its arguments or brackets out loud, and never mention tools or results to the founder. When the function returns it tells you what is still missing: do not open with a filler, go straight to one short question about that missing item (optionally one short sentence of explanation). If the founder asks a question or seems confused, explain in 1 or 2 short sentences and ask again. A section is complete only when EVERY field of it is filled: keep asking, one question at a time, until none is missing. Then summarize the section in one sentence and ask "Is that right?"; only after an explicit yes say a short phrase and call confirm_brand_section. Never say you "noted" something without calling the tool.
 
 3. SECTIONS OUT OF ORDER: If the founder drops data from section 08 while discussing section 03, note it in section 08. The model is an octagon, not a list. A datum said once is never lost by being said "out of turn."
 
@@ -1471,13 +1471,30 @@ Always respond in English. Keep it short and direct.`;
   }
 
   // Serialized background persistence: never blocks the tool.result.
+  // "Acting" state: the founder sees when Brandy is writing to their account
+  // (right panel row + a chip on the section card in the center).
+  const sectionSyncState = {};   // section -> 'saving' | 'synced' | 'error'
+  let persistSeq = 0;
+  function setSectionSync(section, state) {
+    sectionSyncState[section] = state;
+    renderBrainNow();
+  }
+
   function schedulePersist(section, citation, confirmed) {
     persistsPending++;
+    const rowId = 'persist-' + section + '-' + (++persistSeq);
+    const label = SECTION_LABELS[section];
+    emitActivity({ id: rowId, kind: 'working', state: 'active', text: 'Acting: writing "' + label + '" to your account' });
+    setSectionSync(section, 'saving');
     persistChain = persistChain.then(function () {
       return persistBrainSection(section, citation, confirmed);
+    }).then(function () {
+      emitActivity({ id: rowId, kind: 'saved', state: 'done', text: 'Stored "' + label + '" in your account' + (confirmed ? ' (confirmed)' : '') });
+      setSectionSync(section, 'synced');
     }).catch(function (e) {
       console.error('[Persist] save failed for', section, e);
-      emitActivity({ id: 'persist-' + section, kind: 'error', state: 'failed', text: 'Could not sync "' + SECTION_LABELS[section] + '" to the server yet' });
+      emitActivity({ id: rowId, kind: 'error', state: 'failed', text: 'Could not store "' + label + '" yet: it retries on the next save' });
+      setSectionSync(section, 'error');
     }).then(function () { persistsPending--; });
     return persistChain;
   }
@@ -1836,6 +1853,16 @@ Always respond in English. Keep it short and direct.`;
         `;
       }
       sectionEl.appendChild(header);
+      // Acting chip: is Brandy writing this section to the account right now?
+      const syncState = (typeof sectionSyncState === 'object' && sectionSyncState) ? sectionSyncState[sectionId] : null;
+      if (syncState) {
+        const chip = document.createElement('span');
+        chip.className = 'section-sync section-sync--' + syncState;
+        chip.textContent = syncState === 'saving' ? 'Brandy is saving…' : (syncState === 'synced' ? 'Saved to your account ✓' : 'Not saved yet, retrying');
+        chip.style.cssText = 'align-self:flex-start;margin-left:26px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;' +
+          (syncState === 'saving' ? 'color:#2B4CD8;background:rgba(43,76,216,.08);' : (syncState === 'synced' ? 'color:#1E7B4D;background:rgba(30,123,77,.08);' : 'color:#B5311C;background:rgba(181,49,28,.08);'));
+        sectionEl.appendChild(chip);
+      }
 
       // Section content
       const contentEl = document.createElement('div');

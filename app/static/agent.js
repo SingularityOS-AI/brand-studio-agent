@@ -185,33 +185,23 @@
       .map(function (f) { return f.name; }).join(', ');
   }
 
-  const SECTION_IDS_TEXT = BRAIN_SECTION_ORDER.map(function (id) {
-    return id + ' (' + BRAIN_SECTION_LABELS[id] + ')';
-  }).join(', ');
-  const FIELDS_BY_SECTION_TEXT = BRAIN_SECTION_ORDER.map(function (id) {
-    return id + ': ' + brainFieldNames(id);
-  }).join('; ');
-
-  // Tool 1: save ONE field. Flat string schema, NO enum (see resolvers above).
-  // interactive = the agent says a short phrase and emits tool.call in the same reply.
+  // Tool 1: save ONE field.
+  // SCHEMA SHAPE = the one PROVEN to fire tool.call in production (live test #5,
+  // commit e8fb740): a single `field` enum of "section.name" aliases + `value`.
+  // The enum-free {section, field, value} + execution_mode/timeout_seconds variant
+  // (BR-A) was never called by the model in 2 live tests (once it read the call
+  // out loud instead). The resolvers above still accept either shape. Do not change this shape without a live voice test.
   const EXTRACT_BRAND_BRAIN_TOOL = {
     type: 'function',
     name: 'extract_brand_brain',
-    description: 'Save ONE fact the founder just said into one brand field and show it on screen. Call it once per concrete fact. Do not call it for small talk or questions.',
-    execution_mode: 'interactive',
-    timeout_seconds: 20,
+    description: 'Save ONE fact the founder just said into one brand field and show it on screen. Call it for every concrete fact, one call per field. Do not call it for small talk or questions.',
     parameters: {
       type: 'object',
       properties: {
-        section: {
-          type: 'string',
-          description: 'The brand section the fact belongs to. One of: ' + SECTION_IDS_TEXT + '.',
-          examples: ['diagnostico', 'icp', 'oferta']
-        },
         field: {
           type: 'string',
-          description: 'The field inside that section, by its short name. Valid names by section: ' + FIELDS_BY_SECTION_TEXT + '.',
-          examples: ['stage', 'symptom', 'decision_maker', 'budget', 'voice', 'colors']
+          description: 'Which brand field the fact belongs to (section.field).',
+          enum: BRAIN_FIELDS.map(function (f) { return f.alias; })
         },
         value: {
           type: 'string',
@@ -219,7 +209,7 @@
           examples: ['Medical interpreter for small clinics', 'Practice managers at family clinics', 'Earn 10,000 dollars per month']
         }
       },
-      required: ['section', 'field', 'value']
+      required: ['field', 'value']
     }
   };
 
@@ -228,15 +218,13 @@
     type: 'function',
     name: 'confirm_brand_section',
     description: 'Lock one brand section after the founder said an explicit yes to your one-sentence summary of it. Never call it without a yes.',
-    execution_mode: 'interactive',
-    timeout_seconds: 20,
     parameters: {
       type: 'object',
       properties: {
         section: {
           type: 'string',
-          description: 'The section the founder just confirmed. One of: ' + SECTION_IDS_TEXT + '.',
-          examples: ['diagnostico', 'icp']
+          description: 'The section the founder just confirmed.',
+          enum: BRAIN_SECTION_ORDER
         }
       },
       required: ['section']
