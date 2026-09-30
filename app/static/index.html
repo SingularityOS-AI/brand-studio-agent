@@ -193,6 +193,34 @@
   .creditnum{font-size:19px;font-weight:500;color:var(--ink)}
   .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
 
+  /* Brandy live activity feed (BR-B) -- replaces the empty state while it has rows.
+     The !important beats the inline display that production_panel.js sets. */
+  .prod.has-activity #Prod-Empty{display:none!important}
+  .prod.has-activity:not(.collapsed){overflow-y:auto}
+  .prod.collapsed .ba{display:none}
+  .ba{flex:1 1 auto;min-height:140px;overflow-y:auto;padding:14px 16px 16px}
+  .ba[hidden]{display:none}
+  .ba-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .ba-dot{width:7px;height:7px;border-radius:50%;background:var(--line);flex:none}
+  .ba-dot.is-active{background:#1E7B4D;animation:baDot 1.4s ease-in-out infinite}
+  .ba-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  .ba-row{display:flex;align-items:baseline;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;line-height:1.45;color:#5C6675}
+  .ba-glyph{flex:none;width:16px;text-align:center;font-weight:700;display:inline-block}
+  .ba-text{flex:1;min-width:0;overflow-wrap:anywhere}
+  .ba-meta{flex:none;font-size:11px;font-weight:400;color:#5C6675;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .ba-row--saved{color:#1E7B4D}
+  .ba-row--decision{color:var(--accent);font-weight:700}
+  .ba-row--clarifying{color:#B7791F}
+  .ba-row--error,.ba-row--failed{color:#B5311C}
+  .ba-row--active{animation:baPulse 1.6s ease-in-out infinite}
+  .ba-row--working.ba-row--active .ba-glyph{animation:baSpin 1.1s linear infinite}
+  @keyframes baPulse{0%,100%{opacity:.6}50%{opacity:1}}
+  @keyframes baDot{0%,100%{opacity:.4;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+  @keyframes baSpin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){
+    .ba-row--active,.ba-dot.is-active,.ba-row--working.ba-row--active .ba-glyph{animation:none}
+  }
+
   /* Pipeline Rail (Pieza 44) */
   .pipeline-rail {
     position: sticky;
@@ -1319,6 +1347,9 @@
     </div>
 
     <div class="jobs" id="Prod-Jobs" style="display:none"></div>
+
+    <!-- Brandy live activity feed (BR-B): replaces the empty state while it has rows -->
+    <section class="ba" id="Brandy-Activity" aria-live="polite" hidden></section>
   </aside>
 
 </div>
@@ -2101,6 +2132,7 @@
 <script src="/static/app.js"></script>
 <!-- Production panel: audit trail/queue for every action (Block F, F-03) -->
 <script src="/static/production_panel.js"></script>
+<script src="/static/brandy_activity.js"></script>
 <!-- Editing modules (Pieza 82) -->
 <script src="/static/editing_preview.js"></script>
 <script src="/static/editing.js"></script>
