@@ -202,7 +202,7 @@ async function runTests() {
     assert.ok(names.includes('av_read_scene'));
     assert.ok(names.includes('av_regenerate_asset'));
     assert.ok(names.includes('get_status'));
-    assert.ok(names.includes('propose_action'));
+    assert.ok(names.includes('confirm_action') && !names.includes('propose_action'), 'paid actions propose themselves; confirm_action runs them');
   });
 
   // ---------------------------------------------------------------------------

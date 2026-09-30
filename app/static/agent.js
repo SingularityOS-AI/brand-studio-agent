@@ -493,20 +493,38 @@
    * @param {string} step - Current step ID
    * @returns {Array} Array of tool definitions
    */
+  // confirm_action with an OPTIONAL token: a required param the model forgets is
+  // rejected server-side before tool.call reaches us (the agent just goes mute).
+  const CONFIRM_ACTION_TOOL = {
+    type: 'function',
+    name: 'confirm_action',
+    description: 'Run the action the founder just confirmed. Use it only after the founder says confirm, go ahead or do it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        token: { type: 'string', description: 'The token from the proposal, if you have it.' }
+      }
+    }
+  };
+  function globalTool(name) {
+    return GLOBAL_TOOLS.filter(function (t) { return t.name === name; })[0];
+  }
+
   function toolsForStep(step) {
-    // Brain step = the voice interview. The other agentic tools are not wired to
-    // tool.call yet (each unanswered call froze the agent), so only the two
-    // interview tools are offered here.
-    if (step === 'brain') return BRAIN_INTERVIEW_TOOLS.slice();
+    // Brain step = the voice interview + generating the Brand Soul + navigation.
+    // Every tool here is executed by voice_tools.js / the interview handlers
+    // (an unanswered tool.call freezes the agent).
+    if (step === 'brain') {
+      return BRAIN_INTERVIEW_TOOLS.concat(
+        SOUL_TOOL_SCHEMAS.filter(function (t) { return t.name === 'soul_generate'; }),
+        [CONFIRM_ACTION_TOOL, globalTool('get_status'), globalTool('go_to_step')]
+      ).filter(Boolean);
+    }
 
-    const tools = GLOBAL_TOOLS.slice(); // Copy global tools
-
-    // Add step-specific tools from registry
-    const stepTools = getStepToolsFromRegistry(step);
-    tools.push.apply(tools, stepTools);
-
-    // Add confirmation engine stubs
-    tools.push.apply(tools, CONFIRMATION_TOOLS);
+    // One tool per action (the registry-derived dotted duplicates and
+    // propose_action are gone: paid actions propose themselves).
+    const tools = GLOBAL_TOOLS.slice();
+    tools.push(CONFIRM_ACTION_TOOL);
 
     // Add step specific schemas
     if (step === 'script') {
@@ -569,7 +587,12 @@
     if (agenticOn) {
       // Agentic mode ON: step-scoped prompt + tools
       const summary = buildStepSummary(step, ctx);
-      systemPrompt = (step === 'brain' ? buildBrainToolRule() + '\n\n' : '') + basePrompt + '\n\n=== AGENTIC MODE CONTEXT ===\n' +
+      // Outside the interview Brandy is an operator, not an interviewer: the
+      // interview prompt told her to keep asking brand questions in every step.
+      const stepBase = step === 'brain'
+        ? buildBrainToolRule() + '\n\n' + basePrompt + '\n\nWhen all 9 sections are confirmed, offer to generate the Brand Soul document with soul_generate.'
+        : buildOperatorPrompt(step);
+      systemPrompt = stepBase + '\n\n=== AGENTIC MODE CONTEXT ===\n' +
         'You are in STEP: ' + step + '. Summary: ' + summary + '\n\n' +
         'Only use the tools listed. If asked about another step, give its status ' +
         'and what must happen first; never act on it.';
@@ -592,6 +615,18 @@
     ws.send(JSON.stringify(payload));
     console.log('[Agentic Mode] Sent session.update for step:', step, 'Agentic:', agenticOn,
       'tools:', tools.map(function (t) { return t.name; }).join(','));
+  }
+
+  function buildOperatorPrompt(step) {
+    return 'You are Brandy, the voice co-pilot inside Brand Studio. The Brand Soul interview is done; now you operate the ' + step +
+      ' step for the founder with your functions. ' +
+      'VOICE STYLE: 1 to 3 short sentences, 40 words max. You may briefly explain, never a paragraph, no markdown, no exclamation marks. ' +
+      'RULES: When the founder asks for something a function can do, use that function silently: never say function names, arguments or brackets, and never mention tools. ' +
+      'Paid or irreversible actions return a proposal with the exact cost: say it in one sentence and ask the founder to say "confirm". ' +
+      'When the founder says confirm, go ahead or do it, use confirm_action. Anything else cancels it. ' +
+      'Report only what functions return; never invent results, numbers or ideas. If a function fails, say so in one sentence and offer the next step. ' +
+      'To change step use go_to_step; to know where the founder is use get_status. ' +
+      'Always respond in English.';
   }
 
   // Stub handlers for F-06 to fill in
@@ -1350,6 +1385,7 @@
     toolsForStep: toolsForStep,
     getCurrentStepFromUI: getCurrentStepFromUI,
     sendSessionUpdate: sendSessionUpdate,
+    buildOperatorPrompt: buildOperatorPrompt,
     handleProposeAction: handleProposeAction,
     handleConfirmAction: handleConfirmAction,
     // F-07 Script tools

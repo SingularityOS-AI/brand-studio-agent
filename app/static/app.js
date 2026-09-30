@@ -102,7 +102,7 @@
         try { localStorage.setItem('agenticMode', agenticMode); } catch (e) {}
         // Notify agent mid-session if WS is open
         if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', { basePrompt: buildSystemPrompt() }, ws);
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', agentSessionCtx(), ws);
         }
       });
     }
@@ -713,14 +713,14 @@ Always respond in English. Keep it short and direct.`;
         if (window.BrandStudioAgent && typeof BrandStudioAgent.sendSessionUpdate === 'function') {
           // Agentic mode used to send ONLY prompt+tools here, so the greeting, the voice and
           // the turn detection were never applied (factory defaults cut the founder off).
-          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', {
+          BrandStudioAgent.sendSessionUpdate(agenticMode, currentOpenView || 'brain', Object.assign(agentCtx(), {
             basePrompt: dynamicPrompt,
             extraSession: {
               greeting: sessionUpdatePayload.session.greeting,
               input: sessionUpdatePayload.session.input,
               output: sessionUpdatePayload.session.output
             }
-          }, ws);
+          }), ws);
         } else {
           ws.send(JSON.stringify(sessionUpdatePayload));
         }
@@ -1607,7 +1607,14 @@ Always respond in English. Keep it short and direct.`;
       const label = secId ? SECTION_LABELS[secId] : (clip(args.section, 30) || 'section');
       return { orb: 'Working: locking ' + label, text: 'Locking "' + label + '"' };
     }
-    return { orb: 'Working...', text: 'Running ' + clip(toolName, 30) };
+    let title = toolName;
+    try {
+      const vt = window.BrandStudioVoiceTools;
+      const id = vt && vt.resolveActionId(toolName);
+      const action = id && window.BrandStudioActions && window.BrandStudioActions.get(id);
+      if (action && action.title) title = action.title;
+    } catch (e) {}
+    return { orb: 'Acting: ' + clip(title, 40), text: 'Acting: ' + clip(title, 60) };
   }
 
   // Handle tool calls. EVERY call gets an answer, otherwise the agent waits forever.
@@ -1626,11 +1633,16 @@ Always respond in English. Keep it short and direct.`;
     setOrb(desc.orb);
 
     // Serialized: several tool calls in one turn must not overwrite each other.
-    toolChain = toolChain.then(function () {
+    toolChain = toolChain.then(async function () {
       let payload;
       try {
         if (toolName === 'extract_brand_brain') payload = runSaveFact(args);
         else if (toolName === 'confirm_brand_section') payload = runConfirmSection(args);
+        else if (window.BrandStudioVoiceTools && typeof voiceDeps === 'function' && window.BrandStudioVoiceTools.isVoiceTool(toolName)) {
+          // Agentic tools (catalog, script, audiovisual, editing, status, navigation):
+          // same registered actions as the buttons; paid ones wait for "confirm".
+          payload = await window.BrandStudioVoiceTools.handle(toolName, args, voiceDeps());
+        }
         else payload = refuse('This tool is not available right now. Continue the interview.', 'nothing: continue the interview');
       } catch (error) {
         console.error('[Tool Call Error]', error);
@@ -3761,6 +3773,10 @@ ${htmlContent}
     if (audiovisualView) audiovisualView.style.display = 'none';
     currentOpenView = 'editing';
     if (window.BrandStudioPanel) window.BrandStudioPanel.refresh();
+    // F-05: Brandy must switch to the editing tools too (this call was missing).
+    if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'editing', agentSessionCtx(), ws);
+    }
     if (typeof renderPipelineRail === 'function') {
       renderPipelineRail();
     }
@@ -3797,7 +3813,7 @@ ${htmlContent}
     }
     // F-05: update agent scope on step change
     if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-      BrandStudioAgent.sendSessionUpdate(agenticMode, 'brain', { basePrompt: buildSystemPrompt() }, ws);
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'brain', agentSessionCtx(), ws);
     }
   }
 
@@ -3818,7 +3834,7 @@ ${htmlContent}
     }
     // F-05: update agent scope on step change
     if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-      BrandStudioAgent.sendSessionUpdate(agenticMode, 'catalog', { basePrompt: buildSystemPrompt() }, ws);
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'catalog', agentSessionCtx(), ws);
     }
   }
   function showBlockCView(ideaId) {
@@ -3855,7 +3871,7 @@ ${htmlContent}
     }
     // F-05: update agent scope on step change
     if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-      BrandStudioAgent.sendSessionUpdate(agenticMode, 'script', { basePrompt: buildSystemPrompt() }, ws);
+      BrandStudioAgent.sendSessionUpdate(agenticMode, 'script', agentSessionCtx(), ws);
     }
   }
 
@@ -5671,7 +5687,7 @@ ${htmlContent}
       }
       // F-05: update agent scope on step change
       if (isSessionActive && ws && ws.readyState === WebSocket.OPEN && window.BrandStudioAgent) {
-        BrandStudioAgent.sendSessionUpdate(agenticMode, 'audiovisual', { basePrompt: buildSystemPrompt() }, ws);
+        BrandStudioAgent.sendSessionUpdate(agenticMode, 'audiovisual', agentSessionCtx(), ws);
       }
     } finally {
       hideDocLoading();
@@ -8236,6 +8252,118 @@ ${htmlContent}
   // F-04: also exposes the Script/Audiovisual button functions so
   // BrandStudioActions (app/static/actions.js) can call the exact same
   // functions the buttons call -- no parallel voice backend.
+  // ===========================================================================
+  // Voice (agentic mode) support. Brandy's catalog actions press the SAME buttons
+  // the founder presses (principle 2). actions.js called window.BrandStudio.
+  // researchDemand/acceptCatalogIdea/... which never existed, so every catalog
+  // voice action would have thrown.
+  // ===========================================================================
+  function voiceFindIdea(query) {
+    const agent = window.BrandStudioAgent;
+    if (!agent || typeof agent.findIdeaInCatalog !== 'function') throw new Error('Catalog helper not ready');
+    const found = agent.findIdeaInCatalog(query, currentCatalog);
+    if (!found || !found.ok) throw new Error((found && found.say) || 'I could not find that idea.');
+    return found;
+  }
+  function voiceClickIdeaButton(query, selector, verb) {
+    const found = voiceFindIdea(query);
+    const card = document.getElementById('idea-' + found.idea.id);
+    const btn = card && card.querySelector(selector);
+    if (!btn) throw new Error('Open the Catalog on screen to ' + verb + ' an idea.');
+    if (btn.disabled) throw new Error('Idea ' + (found.index + 1) + ' cannot be changed right now.');
+    btn.click();
+    return 'Idea ' + (found.index + 1) + ' "' + found.idea.title + '": ' + verb + ' done on screen.';
+  }
+  async function voiceGenerateCatalog() {
+    await handleGateApprove();
+    const n = currentCatalog && Array.isArray(currentCatalog.ideas) ? currentCatalog.ideas.length : 0;
+    return n ? ('Generated ' + n + ' ideas with demand signals. They are on screen.') : 'Generation finished.';
+  }
+  function voiceAddIdea(text) {
+    const title = String(text || '').trim();
+    if (title.length < 5 || title.length > 200) throw new Error('The idea title must be 5 to 200 characters.');
+    const titleInput = document.getElementById('AddIdea-Title');
+    const sourceInput = document.getElementById('AddIdea-Source');
+    const submit = document.getElementById('AddIdea-SubmitBtn');
+    if (!titleInput || !sourceInput || !submit) throw new Error('Open the Catalog on screen to add an idea.');
+    titleInput.value = title;
+    if ((sourceInput.value || '').trim().length < 10) sourceInput.value = 'Suggested by the founder to Brandy by voice';
+    submit.click();
+    return 'Adding "' + title + '" to the catalog.';
+  }
+  function voiceExplainDemand(query) {
+    const found = voiceFindIdea(query);
+    const i = found.idea;
+    const signal = i.demand_signal;
+    const signalText = signal == null ? 'no demand signal recorded' :
+      (typeof signal === 'string' ? signal : JSON.stringify(signal));
+    return 'Idea ' + (found.index + 1) + ' "' + i.title + '"' + (i.subcategory ? ' (' + i.subcategory + ')' : '') +
+      '. Demand signal: ' + signalText.slice(0, 300);
+  }
+  function voiceLockCatalog() {
+    const btn = document.getElementById('Catalog-LockBtn');
+    if (!btn) throw new Error('Open the Catalog on screen to lock it.');
+    if (btn.disabled) throw new Error('Approve at least one idea before locking the catalog.');
+    btn.click();
+    return 'Locking the catalog.';
+  }
+
+  // Real state for Brandy's step summary (it used to receive an empty ctx and said
+  // "0 of 9 sections" and balance 0 on every step).
+  function agentCtx() {
+    const brainCount = getReadySectionsCount(cachedBrain && cachedBrain.sections);
+    const catalogLocked = Boolean(currentCatalog && currentCatalog.catalog_locked);
+    const scriptLocked = Boolean(currentScriptData && currentScriptData.state === 'locked');
+    let ideaTitle = null;
+    try {
+      const ideas = currentCatalog && currentCatalog.ideas;
+      const idea = ideas && ideas.find(function (x) { return x.id === currentScriptIdeaId; });
+      ideaTitle = idea ? idea.title : null;
+    } catch (e) {}
+    return {
+      brainCount: brainCount,
+      brainComplete: brainCount >= 9,
+      catalogLocked: catalogLocked,
+      catalogComplete: catalogLocked,
+      scriptLocked: scriptLocked,
+      scriptComplete: scriptLocked,
+      hasScript: Boolean(currentScriptData),
+      balance: credits,
+      ideaTitle: ideaTitle,
+      avEstimate: currentAudiovisualEstimate || null
+    };
+  }
+  function agentSessionCtx() {
+    return Object.assign(agentCtx(), { basePrompt: buildSystemPrompt() });
+  }
+
+  // go_to_step: same lock rules as the pipeline rail.
+  async function navigateForVoice(step) {
+    const ctx = agentCtx();
+    if (step === 'catalog' && !ctx.brainComplete) return { ok: false, error: 'Catalog unlocks after all 9 Brand Soul sections are confirmed.' };
+    if (step === 'script' && !ctx.catalogComplete) return { ok: false, error: 'Script unlocks after the catalog is locked.' };
+    if ((step === 'audiovisual' || step === 'editing') && !ctx.scriptComplete) return { ok: false, error: 'That step unlocks after the script is locked.' };
+    if (step === 'script' && !currentScriptIdeaId) {
+      handleRailStepClick('catalog');
+      return { ok: false, error: 'Pick an idea in the catalog first: accept one and open its script.' };
+    }
+    handleRailStepClick(step);
+    return { ok: true };
+  }
+
+  function voiceDeps() {
+    return {
+      actions: window.BrandStudioActions,
+      agent: window.BrandStudioAgent,
+      currentStep: function () { return currentOpenView || 'brain'; },
+      ctx: agentCtx,
+      lastFounderWords: lastFounderWords,
+      founderTurns: function () { return fullTranscript.filter(function (t) { return t.speaker === 'user'; }).length; },
+      navigate: navigateForVoice,
+      currentIdeaId: function () { return currentScriptIdeaId; }
+    };
+  }
+
   window.BrandStudio = {
     authenticatedFetch,
     showPaywall,
@@ -8261,6 +8389,15 @@ ${htmlContent}
     fetchAudiovisualEstimate,
     generateAllAudiovisualAssets,
     triggerRegenerateScene,
+    // Catalog voice actions (actions.js catalog.*)
+    researchDemand: voiceGenerateCatalog,
+    generateCatalogIdeas: voiceGenerateCatalog,
+    regenerateCatalogIdea: function (q) { return voiceClickIdeaButton(q, '.btn-regenerate', 'regenerate'); },
+    addCatalogIdea: voiceAddIdea,
+    acceptCatalogIdea: function (q) { return voiceClickIdeaButton(q, '.btn-approve', 'accept'); },
+    discardCatalogIdea: function (q) { return voiceClickIdeaButton(q, '.btn-reject', 'discard'); },
+    explainDemand: voiceExplainDemand,
+    lockCatalog: voiceLockCatalog,
   };
 
   console.log('[Voice Client] Initialized - Connecting directly to AssemblyAI Voice Agent API');

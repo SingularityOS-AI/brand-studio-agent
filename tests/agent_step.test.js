@@ -36,7 +36,7 @@ test('Global tools present (non-brain steps; brain step is interview-only)', () 
   const tools = agent.toolsForStep('catalog');
   const names = tools.map(t => t.name);
   assert(names.includes('get_status'));
-  assert(names.includes('propose_action'));
+  assert(names.includes('confirm_action') && !names.includes('propose_action'));
   assert(names.includes('confirm_action'));
 });
 test('getUnlockedSteps returns brain initially', () => {
@@ -60,7 +60,7 @@ test('sendSessionUpdate ON mode includes global tools', () => {
   agent.sendSessionUpdate(true, 'catalog', { brainCount: 5, balance: 100 }, mockWs);
   const names = sent[0].session.tools.map(t => t.name);
   assert(names.includes('get_status'));
-  assert(names.includes('propose_action'));
+  assert(names.includes('confirm_action') && !names.includes('propose_action'));
 });
 test('Agentic ON on brain step registers extract_brand_brain (fills the Brand Soul screen)', () => {
   const sent = [];
@@ -68,7 +68,7 @@ test('Agentic ON on brain step registers extract_brand_brain (fills the Brand So
   agent.sendSessionUpdate(true, 'brain', { basePrompt: 'BRANDY INTERVIEW PROMPT' }, mockWs);
   const names = sent[0].session.tools.map(t => t.name);
   assert(names.includes('extract_brand_brain') && names.includes('confirm_brand_section'), 'interview tools missing in agentic brain step');
-  assert.strictEqual(names.length, 2, 'brain step must expose only the interview tools');
+  assert.deepStrictEqual(names, ['extract_brand_brain', 'confirm_brand_section', 'soul_generate', 'confirm_action', 'get_status', 'go_to_step'], 'brain step: interview + Brand Soul + navigation, each one executable');
   assert(sent[0].session.system_prompt.includes('BRANDY INTERVIEW PROMPT'), 'basePrompt not propagated');
   assert(sent[0].session.system_prompt.startsWith('INTERVIEW LOOP'), 'tool rule must be front-loaded');
 });
