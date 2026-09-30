@@ -386,6 +386,35 @@ def test_generate_soul_threads_llm_chapter_prose_into_document(
     assert is_valid, f"invented citations: {invented}"
 
 
+@patch("app.tools.brand_soul.generator._call_llm_for_redaction")
+@patch("app.tools.brand_soul.generator._save_cache", return_value=True)
+@patch("app.tools.brand_soul.generator._check_cache", return_value=None)
+@patch("app.tools.brand_soul.generator.get_brand_brain")
+def test_quoted_phrases_in_prose_do_not_block_a_document_with_literal_citations(
+    mock_get_brain, mock_check_cache, mock_save_cache, mock_llm, rich_confirmed_brain
+):
+    """Live failure 2026-09-30: facts from the voice interview carried phrases Brandy
+    said in quotes (being "just another" interpreter), the chapter prose repeated them
+    in quotes and left a stray quote, and the validator rejected a document whose real
+    citations were all literal. Prose now never carries quote marks; the guarantee
+    (every quoted span is the founder's literal words) still holds and is re-checked."""
+    mock_get_brain.return_value = rich_confirmed_brain
+    rich_confirmed_brain.sections[0].citation_text = 'Yes, I said "accuracy first" to them.'
+
+    def _quoting_llm(prompt: str, fallback_text: str) -> str:
+        return 'You refuse to be "just another" interpreter. A stray " quote here. “Cheap wins” is the myth.'
+
+    mock_llm.side_effect = _quoting_llm
+
+    html, cache_status = generate_brand_soul("session-quotes")
+    assert cache_status == "generated"
+    assert "just another interpreter" in _visible_text(html)
+    is_valid, invented = validate_citations_in_html(html, rich_confirmed_brain)
+    assert is_valid, f"invented citations: {invented}"
+    # An invented quote is still caught.
+    assert not validate_citations_in_html(html + '<p>"I never said this"</p>', rich_confirmed_brain)[0]
+
+
 # =============================================================================
 # HEALTH CHECK — walk the whole Brand Soul path through TestClient
 # =============================================================================

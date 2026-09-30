@@ -628,6 +628,25 @@ def _call_llm_for_redaction(prompt: str, fallback_text: str) -> str:
         return fallback_text
 
 
+_QUOTE_MARKS = str.maketrans("", "", "\"“”«»„")
+_INNER_QUOTES = str.maketrans({"\"": "'", "“": "'", "”": "'", "«": "'", "»": "'", "„": "'"})
+
+
+def _strip_quote_marks(text: str) -> str:
+    """
+    Prose (chapters, summary, closing note) must never contain quotation marks:
+    the ONLY quoted text in the document is each chapter's literal citation, and
+    validate_citations_in_html treats every quoted span as a claimed quote.
+
+    Facts extracted from the voice interview can carry quoted phrases that Brandy
+    said (e.g. being "just another" interpreter), and a stray quote in LLM prose
+    pairs with the next citation's opening quote: both made the validator reject
+    a document whose real citations were all literal. Removing the marks from
+    prose keeps the guarantee (every quote is the founder's) without false alarms.
+    """
+    return (text or "").translate(_QUOTE_MARKS)
+
+
 def _build_chapter(section: Section, heading: str, etapa_context: dict) -> dict:
     """Build one rendered chapter: heading, prose paragraphs, literal citation."""
     facts = _facts_for(section.id, section.content)
@@ -645,11 +664,13 @@ def _build_chapter(section: Section, heading: str, etapa_context: dict) -> dict:
     fallback = _fallback_prose(section, etapa_context)
     prose = _call_llm_for_redaction(_build_chapter_prompt(heading, facts), fallback) if facts else fallback
 
-    paragraphs = [p.strip() for p in prose.split("\n\n") if p.strip()]
+    paragraphs = [_strip_quote_marks(p).strip() for p in prose.split("\n\n") if p.strip()]
     return {
         "heading": heading,
         "paragraphs": paragraphs,
-        "citation": section.citation_text,
+        # Inner double quotes would split the citation for the validator's regex;
+        # rendered as single quotes (the validator normalizes the same way).
+        "citation": (section.citation_text or "").translate(_INNER_QUOTES),
     }
 
 
@@ -795,6 +816,7 @@ def validate_citations_in_html(html: str, brain: BrandBrain) -> tuple[bool, list
 
     def _norm(s: str) -> str:
         """Compara por contenido, no por espaciado ni puntuacion de borde."""
+        s = s.translate(_INNER_QUOTES)
         return re.sub(r"\s+", " ", s).strip().strip(".,;:!?").lower()
 
     permitidas = {_norm(s.citation_text) for s in brain.sections if s.citation_text}
@@ -1001,9 +1023,9 @@ def generate_brand_soul(session_token: str, force: bool = False) -> tuple[str, s
         chapters.append(_build_chapter(section, heading, etapa_context))
 
     html = build_soul_html(
-        executive_summary=_build_executive_summary(brain),
+        executive_summary=_strip_quote_marks(_build_executive_summary(brain)),
         chapters=chapters,
-        closing_note=_build_closing_note(brain),
+        closing_note=_strip_quote_marks(_build_closing_note(brain)),
     )
 
     # Validate citations (CRITICAL!)
